@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.db
+*.db-shm
+*.db-wal
+*.key
+.coverage
+.pytest_cache/
+.venv*/
+dist/
+build/
+*.log
+*.onnx

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Aprendix — Grafo de Conhecimento</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; background: #0d1321; color: #f4f7ff; overflow: hidden; }
+    header { position: fixed; z-index: 2; padding: 14px 18px; pointer-events: none; }
+    aside { position:fixed; z-index:3; right:18px; top:18px; width:min(320px,42vw);
+      padding:14px; border:1px solid #44577c; border-radius:14px; background:#121d33ee;
+      box-shadow:0 12px 38px #0008; display:none; }
+    aside strong { display:block; font-size:17px; margin-bottom:7px; }
+    h1 { margin: 0 0 4px; font-size: 18px; }
+    p { margin: 0; color: #a8b4cc; font-size: 12px; }
+    svg { width: 100vw; height: 100vh; }
+    line { stroke: #4b5d7a; }
+    circle { stroke: #dce7ff; stroke-width: 1.5px; }
+    text { fill: #f4f7ff; font-size: 11px; paint-order: stroke; stroke: #0d1321;
+           stroke-width: 3px; stroke-linejoin: round; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Grafo de Conhecimento</h1>
+    <p>Tamanho = domínio · cor = dificuldade · arrasta, amplia e clica para explorar</p>
+  </header>
+  <aside id="detail"></aside>
+  <svg role="img" aria-label="Grafo adaptativo de conhecimento"></svg>
+  <script>__D3_SOURCE__</script>
+  <script>
+    const graph = __GRAPH_DATA__;
+    const svg = d3.select("svg");
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    const mastery = d => Math.max(0, Math.min(1, Number(d.mastery || 0)));
+    const difficulty = d => Math.max(-3, Math.min(3, Number(d.difficulty || 0)));
+    const color = d3.scaleSequential([-3, 3], d3.interpolateTurbo);
+
+    const viewport = svg.append("g");
+    svg.call(d3.zoom().scaleExtent([0.25, 5]).on("zoom", event => viewport.attr("transform", event.transform)));
+    const links = viewport.append("g").selectAll("line")
+      .data(graph.edges || []).join("line")
+      .attr("stroke-width", d => 1 + Math.sqrt(Math.max(0, Number(d.weight || 0))) * 3);
+
+    const nodes = viewport.append("g").selectAll("circle")
+      .data(graph.nodes || []).join("circle")
+      .attr("r", d => 8 + mastery(d) * 12)
+      .attr("fill", d => color(difficulty(d)))
+      .style("cursor", "pointer")
+      .on("click", (event, d) => {
+        event.stopPropagation();
+        const panel = document.getElementById("detail");
+        panel.style.display = "block";
+        panel.innerHTML = `<strong>${d.title || d.slug || d.id}</strong>` +
+          `<p>Domínio: ${Math.round(mastery(d) * 100)}% · dificuldade: ${difficulty(d).toFixed(1)}</p>` +
+          `<p>Tentativas: ${Number(d.attempts || 0)}${d.recommended ? " · recomendado pelo A1" : ""}</p>`;
+      })
+      .call(d3.drag()
+        .on("start", (event, d) => {
+          if (!event.active) simulation.alphaTarget(0.3).restart();
+          d.fx = d.x; d.fy = d.y;
+        })
+        .on("drag", (event, d) => { d.fx = event.x; d.fy = event.y; })
+        .on("end", (event, d) => {
+          if (!event.active) simulation.alphaTarget(0);
+          d.fx = null; d.fy = null;
+        }));
+
+    nodes.append("title")
+      .text(d => `${d.title || d.id}\nDomínio: ${Math.round(mastery(d) * 100)}%`);
+
+    const labels = viewport.append("g").selectAll("text")
+      .data(graph.nodes || []).join("text")
+      .text(d => d.title || d.slug || d.id)
+      .attr("text-anchor", "middle")
+      .attr("dy", d => 18 + mastery(d) * 12);
+
+    const simulation = d3.forceSimulation(graph.nodes || [])
+      .force("link", d3.forceLink(graph.edges || []).id(d => d.id).distance(100))
+      .force("charge", d3.forceManyBody().strength(-260))
+      .force("center", d3.forceCenter(width / 2, height / 2))
+      .force("collision", d3.forceCollide().radius(d => 30 + mastery(d) * 12))
+      .on("tick", () => {
+        links.attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+          .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+        nodes.attr("cx", d => d.x).attr("cy", d => d.y);
+        labels.attr("x", d => d.x).attr("y", d => d.y);
+      });
+    svg.on("click", () => { document.getElementById("detail").style.display = "none"; });
+  </script>
+</body>
+</html>
