@@ -6,7 +6,7 @@ import ast
 from typing import Protocol
 
 from aprendix.application.contracts import (
-    GradingTestOutcomeDTO,
+    GradingRubricDTO, GradingTestOutcomeDTO,
     SmartCorrectionRequestDTO,
     SmartCorrectionResponseDTO,
 )
@@ -51,6 +51,7 @@ class SmartCorrector:
                     GradingTestOutcomeDTO(
                         name=test.name, passed=False,
                         message="O teste armazenado foi rejeitado pela política de segurança.",
+                        visibility=test.visibility, kind=test.kind,
                     )
                 )
                 continue
@@ -60,18 +61,42 @@ class SmartCorrector:
             outcomes.append(
                 GradingTestOutcomeDTO(
                     name=test.name, passed=status == "passed",
-                    message=message[:2_000],
+                    message=(message[:2_000] if test.visibility == "public" else
+                             ("Teste oculto concluído." if status == "passed" else
+                              "Um caso oculto não foi satisfeito; revê os limites e invariantes.")),
+                    visibility=test.visibility, kind=test.kind,
                 )
             )
         if request.tests:
-            passed_ratio = sum(item.passed for item in outcomes) / len(request.tests)
+            total_weight = sum(test.weight for test in request.tests)
+            passed_ratio = sum(
+                test.weight for test, item in zip(request.tests, outcomes, strict=True)
+                if item.passed
+            ) / total_weight
         else:
             passed_ratio = 0.0
         construct_ratio = (
             1.0 - len(missing) / len(request.required_constructs)
             if request.required_constructs else 1.0
         )
-        score = round(0.8 * passed_ratio + 0.2 * construct_ratio, 4)
+        style_findings = self._style_findings(tree)
+        style_ratio = max(0.0, 1.0 - 0.2 * len(style_findings))
+        rubric = (
+            GradingRubricDTO(
+                criterion="Resultado", score=passed_ratio, weight=0.65,
+                explanation="Casos públicos, ocultos e propriedades executados no processo isolado.",
+            ),
+            GradingRubricDTO(
+                criterion="Estrutura", score=construct_ratio, weight=0.25,
+                explanation="Construções AST requeridas pelo objetivo do exercício.",
+            ),
+            GradingRubricDTO(
+                criterion="Qualidade", score=style_ratio, weight=0.10,
+                explanation=("Estrutura legível e sem problemas básicos." if not style_findings
+                             else "; ".join(style_findings)),
+            ),
+        )
+        score = round(sum(item.score * item.weight for item in rubric), 4)
         passed = score == 1.0 and not missing and all(item.passed for item in outcomes)
         feedback: list[str] = []
         if missing:
@@ -89,5 +114,23 @@ class SmartCorrector:
             score=score, status="passed" if passed else "failed",
             syntax_valid=True, policy_safe=True,
             test_outcomes=tuple(outcomes), missing_constructs=missing,
-            feedback=tuple(feedback),
+            feedback=tuple(feedback), rubric=rubric,
         )
+
+    @staticmethod
+    def _style_findings(tree: ast.AST) -> tuple[str, ...]:
+        findings: list[str] = []
+        long_functions = [
+            node.name for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and getattr(node, "end_lineno", node.lineno) - node.lineno > 60
+        ]
+        if long_functions:
+            findings.append("Funções demasiado longas: " + ", ".join(long_functions[:3]))
+        vague = sum(
+            1 for node in ast.walk(tree)
+            if isinstance(node, ast.Name) and node.id in {"x", "y", "tmp", "foo", "bar"}
+        )
+        if vague > 5:
+            findings.append("Existem vários nomes pouco descritivos")
+        return tuple(findings)

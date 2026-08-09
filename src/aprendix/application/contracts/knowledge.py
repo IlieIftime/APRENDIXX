@@ -33,6 +33,20 @@ class EvidenceOrigin(str, Enum):
     WEB = "web"
 
 
+class SearchIntent(str, Enum):
+    """Small, deterministic query-intent taxonomy used by the local ranker."""
+
+    DEFINITION = "definition"
+    HOW_TO = "how-to"
+    EXAMPLE = "example"
+    EXERCISE = "exercise"
+    DEBUG = "debug"
+    COMPARE = "compare"
+    FORMULA = "formula"
+    REFERENCE = "reference"
+    EXPLORE = "explore"
+
+
 class Technology(str, Enum):
     """Extensible catalogue taxonomy; executable desktop exercises remain Python."""
 
@@ -97,6 +111,8 @@ class SearchFiltersDTO(ContractModel):
     themes: tuple[LearningTheme, ...] = Field(default=(), max_length=20)
     cluster_ids: tuple[str, ...] = Field(default=(), max_length=30)
     area_ids: tuple[str, ...] = Field(default=(), max_length=30)
+    sources: tuple[str, ...] = Field(default=(), max_length=30)
+    content_versions: tuple[str, ...] = Field(default=(), max_length=30)
 
     @field_validator("preferred_authors")
     @classmethod
@@ -140,6 +156,10 @@ class SearchEvidenceDTO(ContractModel):
     technologies: tuple[Technology, ...] = Field(default=(), max_length=20)
     themes: tuple[LearningTheme, ...] = Field(default=(), max_length=20)
     cluster_id: str | None = Field(default=None, max_length=160)
+    why_shown: tuple[str, ...] = Field(default=(), max_length=8)
+    lexical_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    semantic_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    rerank_score: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class SearchResponseDTO(ContractModel):
@@ -151,6 +171,10 @@ class SearchResponseDTO(ContractModel):
     evidence: tuple[SearchEvidenceDTO, ...] = Field(default=(), max_length=30)
     fallback_reason: str | None = Field(default=None, max_length=500)
     similar_topics: tuple[KnowledgeClusterDTO, ...] = Field(default=(), max_length=12)
+    intent: SearchIntent = SearchIntent.EXPLORE
+    expanded_query: str = Field(default="", max_length=4_000)
+    elapsed_ms: float = Field(default=0.0, ge=0.0)
+    cancelled: bool = False
 
 
 class TheoryCardDTO(ContractModel):
@@ -215,6 +239,14 @@ class CuratedSourceDTO(ContractModel):
     access_note: NonBlankText = Field(max_length=1_000)
     license_note: NonBlankText = Field(max_length=1_000)
     area_ids: tuple[str, ...] = Field(default=(), max_length=20)
+    guidance_category: str = Field(
+        default="aprofundamento",
+        pattern=r"^(essencial agora|consulta rápida|aprofundamento|referência avançada|histórico/desatualizado)$",
+    )
+    recommended_sections: tuple[str, ...] = Field(default=(), max_length=12)
+    difficulty: Complexity = Complexity.INTERMEDIATE
+    estimated_minutes: int = Field(default=30, ge=1, le=10_000)
+    version_scope: str = Field(default="conceitos estáveis", max_length=160)
 
 
 class ReadingConceptDTO(ContractModel):
@@ -273,6 +305,9 @@ class IngestionSummaryDTO(ContractModel):
 class GradingTestCaseDTO(ContractModel):
     name: NonBlankText = Field(max_length=160)
     code: NonBlankText = Field(max_length=20_000)
+    visibility: str = Field(default="public", pattern=r"^(public|hidden)$")
+    kind: str = Field(default="example", pattern=r"^(example|property)$")
+    weight: float = Field(default=1.0, gt=0.0, le=10.0)
 
 
 class SmartCorrectionRequestDTO(ContractModel):
@@ -299,6 +334,15 @@ class GradingTestOutcomeDTO(ContractModel):
     name: NonBlankText = Field(max_length=160)
     passed: bool
     message: str = Field(default="", max_length=2_000)
+    visibility: str = Field(default="public", pattern=r"^(public|hidden)$")
+    kind: str = Field(default="example", pattern=r"^(example|property)$")
+
+
+class GradingRubricDTO(ContractModel):
+    criterion: NonBlankText = Field(max_length=80)
+    score: float = Field(ge=0.0, le=1.0)
+    weight: float = Field(gt=0.0, le=1.0)
+    explanation: NonBlankText = Field(max_length=500)
 
 
 class SmartCorrectionResponseDTO(ContractModel):
@@ -307,5 +351,6 @@ class SmartCorrectionResponseDTO(ContractModel):
     syntax_valid: bool
     policy_safe: bool
     test_outcomes: tuple[GradingTestOutcomeDTO, ...] = ()
+    rubric: tuple[GradingRubricDTO, ...] = ()
     missing_constructs: tuple[str, ...] = ()
     feedback: tuple[str, ...] = Field(default=(), max_length=100)

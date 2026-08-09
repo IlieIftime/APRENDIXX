@@ -1,0 +1,46 @@
+{
+  "database": {
+    "document_chunks": 48,
+    "exercises": 23,
+    "glossary_entries": 101,
+    "integrity": "ok",
+    "theory_cards": 48
+  },
+  "operations": {
+    "dictionary": {
+      "max_ms": 5.62,
+      "median_ms": 4.989,
+      "min_ms": 4.519,
+      "p95_ms": 5.62,
+      "result_count": 8
+    },
+    "health": {
+      "max_ms": 9.273,
+      "median_ms": 8.934,
+      "min_ms": 8.644,
+      "p95_ms": 9.273,
+      "status": "healthy"
+    },
+    "sandbox": {
+      "max_ms": 59.395,
+      "median_ms": 53.943,
+      "min_ms": 53.636,
+      "p95_ms": 59.395,
+      "status": "ok"
+    },
+    "search": {
+      "max_ms": 13.567,
+      "median_ms": 6.273,
+      "min_ms": 5.379,
+      "p95_ms": 13.567,
+      "result_count": 3
+    }
+  },
+  "privacy": {
+    "contains_queries": false,
+    "contains_source_code": false,
+    "contains_user_paths": false
+  },
+  "schema_version": 15,
+  "startup_ms": 177.197
+}

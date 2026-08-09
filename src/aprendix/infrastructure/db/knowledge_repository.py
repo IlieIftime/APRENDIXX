@@ -27,7 +27,7 @@ from aprendix.application.contracts import (
 from aprendix.application.clustering import ClusterAssignment, ClusterInput, TaxonomyClassifier
 from aprendix.application.knowledge import SearchCandidate
 from aprendix.application.knowledge_structure import classify_areas, descendants
-from aprendix.application.learning_catalog import FACTS
+from aprendix.application.learning_catalog import ALL_FACTS
 from aprendix.infrastructure.db.database import Database
 from aprendix.infrastructure.security import AesGcmFieldCipher
 
@@ -59,6 +59,12 @@ class IndexedDocument:
     page_count: int
     file_size: int
     modified_at: datetime
+    source_adapter_id: str | None = None
+    canonical_uri: str | None = None
+    license_id: str = "private-local"
+    rights_status: str = "local-private"
+    content_version: str = "1"
+    trust_score: float = 0.8
 
 
 class KnowledgeRepository:
@@ -70,6 +76,9 @@ class KnowledgeRepository:
         self._candidate_cache_key: str | None = None
         self._candidate_cache: tuple[SearchCandidate, ...] = ()
         self._cache_lock = threading.RLock()
+        self._blind_filter_cache: tuple[tuple[str, bytes, bytes], ...] = ()
+        self._blind_ordinals: tuple[str, ...] = ()
+        self._blind_slices: tuple[int, ...] = ()
 
     def contains_hash(self, content_hash: str) -> bool:
         with self._database.read_connection() as connection:
@@ -77,6 +86,14 @@ class KnowledgeRepository:
                 "SELECT 1 FROM documents WHERE content_hash = ?", (content_hash,)
             ).fetchone()
         return row is not None
+
+    def invalidate_cache(self) -> None:
+        with self._cache_lock:
+            self._candidate_cache_key = None
+            self._candidate_cache = ()
+            self._blind_filter_cache = ()
+            self._blind_ordinals = ()
+            self._blind_slices = ()
 
     def audit_content_quality(self) -> dict[str, int]:
         """Quarantine a second publication accidentally appended to a document.
@@ -93,8 +110,10 @@ class KnowledgeRepository:
             documents = connection.execute(
                 """SELECT d.id,d.page_count FROM documents d
                    LEFT JOIN content_quality_audits a ON a.document_id=d.id
-                   WHERE a.document_id IS NULL OR a.algorithm_version<>?
-                   ORDER BY d.id""", (version,),
+                   WHERE d.lifecycle IN ('active','staging')
+                   AND (a.document_id IS NULL OR a.algorithm_version<>?)
+                   ORDER BY CASE WHEN d.lifecycle='active' THEN 0 ELSE 1 END,
+                            d.ingested_at,d.id""", (version,),
             ).fetchall()
         audited = quarantined = 0
         for document in documents:
@@ -158,6 +177,45 @@ class KnowledgeRepository:
                        audited_at=excluded.audited_at""",
                     (document["id"], version, accepted, len(rejected_ids), boundary, reason, now),
                 )
+                lifecycle = "active" if accepted else "quarantined"
+                revision = connection.execute(
+                    "SELECT id,logical_source FROM content_revisions WHERE document_id=?",
+                    (document["id"],)
+                ).fetchone()
+                if revision is not None:
+                    if lifecycle == "active":
+                        current = connection.execute(
+                            """SELECT r.id revision_id,r.document_id FROM content_revisions r
+                               WHERE r.logical_source=? AND r.status='active' AND r.document_id<>?""",
+                            (revision["logical_source"], document["id"]),
+                        ).fetchone()
+                        if current is not None:
+                            connection.execute(
+                                "UPDATE content_revisions SET status='retired' WHERE id=?",
+                                (current["revision_id"],),
+                            )
+                            connection.execute(
+                                "UPDATE documents SET source_path=?,lifecycle='retired' WHERE id=?",
+                                (f"aprendix://revision/{current['document_id']}", current["document_id"]),
+                            )
+                        connection.execute(
+                            "UPDATE documents SET source_path=? WHERE id=?",
+                            (revision["logical_source"], document["id"]),
+                        )
+                    connection.execute(
+                        "UPDATE documents SET lifecycle=? WHERE id=?", (lifecycle, document["id"])
+                    )
+                    connection.execute(
+                        "UPDATE content_revisions SET status=?,promoted_at=? WHERE id=?",
+                        (lifecycle, now if lifecycle == "active" else None, revision["id"]),
+                    )
+                    connection.execute(
+                        """INSERT INTO content_validation_results VALUES(?,?,?,?,?)
+                           ON CONFLICT(revision_id,check_code) DO UPDATE SET
+                           status=excluded.status,detail=excluded.detail,checked_at=excluded.checked_at""",
+                        (revision["id"], "publication-boundary",
+                         "warning" if rejected_ids else "passed", reason[:500], now),
+                    )
             audited += 1
             quarantined += len(rejected_ids)
         if audited:
@@ -172,16 +230,34 @@ class KnowledgeRepository:
         document_id = uuid5(NAMESPACE_URL, "aprendix:authored-facts:v1")
         now = datetime.now(UTC).isoformat()
         with self._database.transaction() as connection:
+            catalog_hash = hashlib.sha256(
+                "\n".join(fact.slug for fact in ALL_FACTS).encode("utf-8")
+            ).hexdigest()
             connection.execute(
-                """INSERT OR IGNORE INTO documents(id,source_path,content_hash,title,author,
+                """INSERT INTO documents(id,source_path,content_hash,title,author,
                    content_type,complexity,page_count,file_size,modified_at,ingested_at)
-                   VALUES(?,?,?,?,?,'theory','beginner',0,0,?,?)""",
+                   VALUES(?,?,?,?,?,'theory','beginner',0,0,?,?)
+                   ON CONFLICT(id) DO UPDATE SET content_hash=excluded.content_hash,
+                   modified_at=excluded.modified_at""",
                 (str(document_id), "aprendix://authored-facts/v1",
-                 hashlib.sha256(b"aprendix-authored-facts-v1").hexdigest(),
+                 catalog_hash,
                  "Aprendix — Sabias que?", "Equipa Aprendix", now, now),
             )
+            # Original Aprendix copy may safely use the persistent plaintext FTS
+            # index. User-supplied PDFs retain ``local-private`` provenance and
+            # are searched only after decryption in memory.
+            connection.execute(
+                """INSERT INTO document_provenance(
+                    document_id,source_adapter_id,logical_source,canonical_uri,
+                    license_id,rights_status,content_version,trust_score,reviewed_at
+                ) VALUES(?,NULL,?,NULL,'aprendix-original','permitted','2',1.0,?)
+                ON CONFLICT(document_id) DO UPDATE SET
+                    license_id='aprendix-original',rights_status='permitted',content_version='2',
+                    trust_score=1.0,reviewed_at=excluded.reviewed_at""",
+                (str(document_id), "aprendix://authored-facts/v1", now),
+            )
             known_areas = {row[0] for row in connection.execute("SELECT id FROM knowledge_areas")}
-            for position, fact in enumerate(FACTS):
+            for position, fact in enumerate(ALL_FACTS):
                 chunk_id = uuid5(NAMESPACE_URL, f"aprendix:fact-chunk:{fact.slug}")
                 card_id = uuid5(NAMESPACE_URL, f"aprendix:fact-card:{fact.slug}")
                 body_text = fact.fact + "\n\n" + fact.explanation
@@ -241,12 +317,331 @@ class KnowledgeRepository:
         with self._cache_lock:
             self._candidate_cache_key = None
             self._candidate_cache = ()
-        return len(FACTS)
+        return len(ALL_FACTS)
+
+    def rebuild_public_fts(self, *, force: bool = False) -> int:
+        """Index only content explicitly licensed for plaintext full-text search."""
+        with self._database.read_connection() as connection:
+            indexed = int(connection.execute(
+                "SELECT count(*) FROM search_fts_public"
+            ).fetchone()[0])
+            if not force:
+                eligible = int(connection.execute(
+                    """SELECT count(*) FROM document_chunks c
+                       JOIN documents d ON d.id=c.document_id
+                       JOIN document_provenance p ON p.document_id=d.id
+                       LEFT JOIN chunk_quality q ON q.chunk_id=c.id
+                       WHERE d.lifecycle='active' AND p.rights_status='permitted'
+                         AND COALESCE(q.status,'accepted')='accepted'"""
+                ).fetchone()[0])
+                if indexed == eligible:
+                    return indexed
+            rows = connection.execute(
+                """SELECT c.id,c.text_encrypted,
+                          COALESCE(NULLIF(c.section,''),d.title) title
+                   FROM document_chunks c
+                   JOIN documents d ON d.id=c.document_id
+                   JOIN document_provenance p ON p.document_id=d.id
+                   LEFT JOIN chunk_quality q ON q.chunk_id=c.id
+                   WHERE d.lifecycle='active' AND p.rights_status='permitted'
+                     AND COALESCE(q.status,'accepted')='accepted'
+                   ORDER BY c.id"""
+            ).fetchall()
+        values = []
+        for row in rows:
+            body = self._cipher.decrypt(
+                row["text_encrypted"],
+                associated_data=f"document_chunks.text:{row['id']}".encode(),
+            ).decode("utf-8", errors="replace")
+            values.append((row["id"], row["title"], body))
+        with self._database.transaction() as connection:
+            connection.execute("DELETE FROM search_fts_public")
+            connection.executemany(
+                "INSERT INTO search_fts_public(chunk_id,title,body) VALUES(?,?,?)", values
+            )
+        return len(values)
+
+    def public_lexical_scores(self, query: str, *, limit: int = 240) -> dict[str, float]:
+        """Return normalized BM25F scores from the rights-safe persistent index."""
+        tokens = tuple(dict.fromkeys(re.findall(
+            r"[a-z0-9_+#.-]{2,}",
+            unicodedata.normalize("NFKD", query).encode("ascii", "ignore").decode().casefold(),
+        )))[:24]
+        if not tokens:
+            return {}
+        expression = " OR ".join('"' + token.replace('"', '""') + '"' for token in tokens)
+        try:
+            with self._database.read_connection() as connection:
+                rows = connection.execute(
+                    """SELECT chunk_id,bm25(search_fts_public,0.0,5.0,1.0) score
+                       FROM search_fts_public WHERE search_fts_public MATCH ?
+                       ORDER BY score LIMIT ?""",
+                    (expression, max(1, min(limit, 1000))),
+                ).fetchall()
+        except Exception as exc:
+            if "fts5" not in str(exc).casefold() and "syntax" not in str(exc).casefold():
+                raise
+            return {}
+        if not rows:
+            return {}
+        magnitudes = [max(0.0, -float(row["score"])) for row in rows]
+        maximum = max(magnitudes) or 1.0
+        return {
+            row["chunk_id"]: max(0.0, -float(row["score"])) / maximum
+            for row in rows
+        }
+
+    @staticmethod
+    def _search_tokens(text: str) -> tuple[str, ...]:
+        folded = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().casefold()
+        return tuple(re.findall(
+            r"__[a-z0-9_]+__|[a-z][a-z0-9_+#.-]*|==|!=|<=|>=|//|\*\*|[%+*/-]",
+            folded,
+        ))
+
+    @staticmethod
+    def _lsh_signatures(vector: tuple[int, ...]) -> tuple[tuple[int, int], ...]:
+        if not vector:
+            return ()
+        signatures = []
+        for band in range(8):
+            bucket = 0
+            for bit in range(6):
+                projection = 0
+                seed = hashlib.blake2b(f"{band}:{bit}".encode(), digest_size=32).digest()
+                for offset in range(0, 32, 2):
+                    dimension = int.from_bytes(seed[offset:offset + 2], "little") % len(vector)
+                    sign = 1 if seed[offset] & 1 else -1
+                    projection += sign * vector[dimension]
+                if projection >= 0:
+                    bucket |= 1 << bit
+            signatures.append((band, bucket))
+        return tuple(signatures)
+
+    @staticmethod
+    def _bloom_filter(digests: tuple[bytes, ...]) -> bytes:
+        bits = bytearray(256)
+        for digest in digests:
+            for offset in (0, 2, 4):
+                position = int.from_bytes(digest[offset:offset + 2], "little") % 2048
+                bits[position // 8] |= 1 << (position % 8)
+        return bytes(bits)
+
+    @staticmethod
+    def _bloom_contains(payload: bytes, digest: bytes) -> bool:
+        return all(
+            payload[(position := int.from_bytes(digest[offset:offset + 2], "little") % 2048) // 8]
+            & (1 << (position % 8))
+            for offset in (0, 2, 4)
+        )
+
+    def rebuild_private_search_index(self, *, force: bool = False) -> int:
+        """Build compact keyed Bloom filters and coarse keyed semantic buckets."""
+        version = "blind-bloom-lsh-v3"
+        with self._database.read_connection() as connection:
+            eligible = int(connection.execute(
+                """SELECT count(*) FROM document_chunks c
+                   JOIN documents d ON d.id=c.document_id
+                   JOIN chunk_embeddings e ON e.chunk_id=c.id
+                   LEFT JOIN chunk_quality q ON q.chunk_id=c.id
+                   WHERE d.lifecycle='active'
+                     AND COALESCE(q.status,'accepted')='accepted'"""
+            ).fetchone()[0])
+            indexed = int(connection.execute(
+                "SELECT count(*) FROM private_search_filters WHERE algorithm_version=?",
+                (version,),
+            ).fetchone()[0])
+            slice_count = int(connection.execute(
+                "SELECT count(*) FROM private_search_bit_slices WHERE algorithm_version=?",
+                (version,),
+            ).fetchone()[0])
+            if not force and indexed == eligible and slice_count == 4096:
+                return indexed
+            rows = connection.execute(
+                """SELECT c.id,c.text_encrypted,COALESCE(NULLIF(c.section,''),d.title) title,
+                          e.dimensions,e.vector_encrypted
+                   FROM document_chunks c JOIN documents d ON d.id=c.document_id
+                   JOIN chunk_embeddings e ON e.chunk_id=c.id
+                   LEFT JOIN chunk_quality q ON q.chunk_id=c.id
+                   WHERE d.lifecycle='active' AND COALESCE(q.status,'accepted')='accepted'
+                   ORDER BY c.id"""
+            ).fetchall()
+        filter_rows, bucket_rows, states = [], [], []
+        slice_width = max(1, (len(rows) + 7) // 8)
+        bit_slices = [bytearray(slice_width) for _ in range(4096)]
+        digest_cache: dict[str, bytes] = {}
+        now = datetime.now(UTC).isoformat()
+        for ordinal, row in enumerate(rows):
+            body = self._cipher.decrypt(
+                row["text_encrypted"],
+                associated_data=f"document_chunks.text:{row['id']}".encode(),
+            ).decode("utf-8", errors="replace")
+            body_tokens = tuple(dict.fromkeys(
+                token for token in self._search_tokens(body) if len(token) <= 64
+            ))
+            title_tokens = tuple(dict.fromkeys(
+                token for token in self._search_tokens(row["title"]) if len(token) <= 64
+            ))
+
+            def digest(token: str) -> bytes:
+                if token not in digest_cache:
+                    digest_cache[token] = self._cipher.blind_index(
+                        token.encode(), namespace=b"knowledge-search-term:v1"
+                    )
+                return digest_cache[token]
+
+            body_digests = tuple(digest(token) for token in body_tokens)
+            title_digests = tuple(digest(token) for token in title_tokens)
+            body_filter = self._bloom_filter(body_digests)
+            title_filter = self._bloom_filter(title_digests)
+            for field_offset, digests in ((0, body_digests), (2048, title_digests)):
+                for value in digests:
+                    for offset in (0, 2, 4):
+                        position = int.from_bytes(value[offset:offset + 2], "little") % 2048
+                        bit_slices[field_offset + position][ordinal // 8] |= 1 << (ordinal % 8)
+            filter_rows.append((
+                row["id"], body_filter, title_filter,
+                len(body_tokens), version, now,
+            ))
+            packed = self._cipher.decrypt(
+                row["vector_encrypted"],
+                associated_data=f"chunk_embeddings.vector:{row['id']}".encode(),
+            )
+            vector = tuple(struct.unpack(f"<{row['dimensions']}b", packed))
+            for band, bucket in self._lsh_signatures(vector):
+                digest = self._cipher.blind_index(
+                    f"{band}:{bucket}".encode(), namespace=b"embedding-lsh:v1"
+                )
+                bucket_rows.append((digest, band, row["id"]))
+            states.append((row["id"], version, now))
+        with self._database.transaction() as connection:
+            connection.execute("DELETE FROM blind_search_terms")
+            connection.execute("DELETE FROM private_search_filters")
+            connection.execute("DELETE FROM private_search_bit_slices")
+            connection.execute("DELETE FROM private_search_chunk_ordinals")
+            connection.execute("DELETE FROM embedding_lsh_buckets")
+            connection.execute("DELETE FROM private_search_index_state")
+            connection.executemany(
+                "INSERT INTO private_search_filters VALUES(?,?,?,?,?,?)", filter_rows
+            )
+            connection.executemany(
+                "INSERT INTO embedding_lsh_buckets VALUES(?,?,?)", bucket_rows
+            )
+            connection.executemany(
+                "INSERT INTO private_search_index_state VALUES(?,?,?)", states
+            )
+            connection.executemany(
+                "INSERT INTO private_search_chunk_ordinals VALUES(?,?)",
+                ((ordinal, row["id"]) for ordinal, row in enumerate(rows)),
+            )
+            connection.executemany(
+                "INSERT INTO private_search_bit_slices VALUES(?,?,?,?)",
+                ((field, position, bytes(bit_slices[field * 2048 + position]), version)
+                 for field in (0, 1) for position in range(2048)),
+            )
+        with self._cache_lock:
+            self._blind_filter_cache = tuple(
+                (row[0], row[1], row[2]) for row in filter_rows
+            )
+            self._blind_ordinals = tuple(row["id"] for row in rows)
+            self._blind_slices = tuple(
+                int.from_bytes(value, "little") for value in bit_slices
+            )
+        return len(states)
+
+    def search_candidates_for_query(
+        self, filters: SearchFiltersDTO, query: str, query_vector: tuple[int, ...], *,
+        limit: int = 240,
+    ) -> tuple[tuple[SearchCandidate, ...], dict[str, float]]:
+        tokens = tuple(dict.fromkeys(self._search_tokens(query)))[:32]
+        token_digests = tuple(
+            self._cipher.blind_index(token.encode(), namespace=b"knowledge-search-term:v1")
+            for token in tokens
+        )
+        scores: dict[str, float] = {}
+        with self._cache_lock:
+            ordinals, slices = self._blind_ordinals, self._blind_slices
+        if not ordinals or len(slices) != 4096:
+            with self._database.read_connection() as connection:
+                ordinal_rows = connection.execute(
+                    "SELECT ordinal,chunk_id FROM private_search_chunk_ordinals ORDER BY ordinal"
+                ).fetchall()
+                slice_rows = connection.execute(
+                    """SELECT field,position,candidates FROM private_search_bit_slices
+                       WHERE algorithm_version='blind-bloom-lsh-v3'
+                       ORDER BY field,position"""
+                ).fetchall()
+            ordinals = tuple(row["chunk_id"] for row in ordinal_rows)
+            loaded = [0] * 4096
+            for row in slice_rows:
+                loaded[int(row["field"]) * 2048 + int(row["position"])] = int.from_bytes(
+                    row["candidates"], "little"
+                )
+            slices = tuple(loaded)
+            with self._cache_lock:
+                self._blind_ordinals, self._blind_slices = ordinals, slices
+        lexical_masks: list[tuple[int, int, float]] = []
+        for value in token_digests:
+            positions = tuple(
+                int.from_bytes(value[offset:offset + 2], "little") % 2048
+                for offset in (0, 2, 4)
+            )
+            body_mask = slices[positions[0]] & slices[positions[1]] & slices[positions[2]]
+            title_mask = (
+                slices[2048 + positions[0]] & slices[2048 + positions[1]]
+                & slices[2048 + positions[2]]
+            )
+            if body_mask:
+                lexical_masks.append((body_mask.bit_count(), body_mask, 1.0))
+            if title_mask:
+                lexical_masks.append((title_mask.bit_count(), title_mask, 5.0))
+        # Expanded queries may contain dozens of very common aliases. Iterating
+        # every matching bit in a large personal library creates latency without
+        # improving the bounded shortlist. Rare signals carry more information,
+        # so enumerate those first and retain a deterministic upper bound.
+        maximum_masks = min(16, max(8, len(token_digests)))
+        maximum_matches = max(2_000, limit * 24)
+        for count, mask, weight in sorted(lexical_masks, key=lambda item: item[0])[:maximum_masks]:
+            if count > maximum_matches:
+                continue
+            while mask:
+                lowest = mask & -mask
+                ordinal = lowest.bit_length() - 1
+                if ordinal < len(ordinals):
+                    identity = ordinals[ordinal]
+                    scores[identity] = scores.get(identity, 0.0) + weight
+                mask ^= lowest
+        with self._database.read_connection() as connection:
+            signatures = self._lsh_signatures(query_vector)
+            if signatures:
+                clauses, parameters = [], []
+                for band, bucket in signatures:
+                    clauses.append("(band=? AND bucket_digest=?)")
+                    parameters.extend((band, self._cipher.blind_index(
+                        f"{band}:{bucket}".encode(), namespace=b"embedding-lsh:v1"
+                    )))
+                rows = connection.execute(
+                    """SELECT chunk_id,count(*) matches FROM embedding_lsh_buckets WHERE """
+                    + " OR ".join(clauses)
+                    + " GROUP BY chunk_id ORDER BY matches DESC LIMIT ?",
+                    (*parameters, max(1, min(limit, 1000))),
+                ).fetchall()
+                for row in rows:
+                    scores[row["chunk_id"]] = scores.get(row["chunk_id"], 0.0) + 2.0 * row["matches"]
+        public = self.public_lexical_scores(query, limit=limit)
+        for identity, score in public.items():
+            scores[identity] = scores.get(identity, 0.0) + 8.0 * score
+        ordered = sorted(scores, key=lambda identity: (-scores[identity], identity))[:limit]
+        maximum = max((scores[item] for item in ordered), default=1.0)
+        normalized = {item: min(1.0, scores[item] / max(1.0, maximum)) for item in ordered}
+        return self.search_candidates(filters, limit=limit, candidate_ids=tuple(ordered)), normalized
 
     def store_document(
         self,
         document: IndexedDocument,
         chunks: tuple[IndexedChunk, ...],
+        *,
+        quarantine: bool = False,
     ) -> tuple[bool, int, int]:
         """Replace one path revision; return created, card count, exercise count."""
 
@@ -267,26 +662,56 @@ class KnowledgeRepository:
             ).fetchone()
             if duplicate is not None:
                 return False, 0, 0
-            connection.execute(
-                "DELETE FROM documents WHERE source_path = ?",
+            previous = connection.execute(
+                "SELECT id FROM documents WHERE source_path=? AND lifecycle='active'",
                 (document.source_path,),
-            )
+            ).fetchone()
+            stored_path = document.source_path
+            if previous is not None and not quarantine:
+                connection.execute(
+                    "UPDATE content_revisions SET status='retired' WHERE document_id=?",
+                    (previous["id"],),
+                )
+                connection.execute(
+                    "UPDATE documents SET source_path=?,lifecycle='retired' WHERE id=?",
+                    (f"aprendix://revision/{previous['id']}", previous["id"]),
+                )
+            elif previous is not None:
+                stored_path = f"aprendix://staging/{document.id}"
+            lifecycle = "staging" if quarantine else "active"
             connection.execute(
                 """
                 INSERT INTO documents(
                     id, source_path, content_hash, title, author, content_type,
                     complexity, published_at, page_count, file_size, modified_at,
-                    ingested_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ingested_at, lifecycle
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    str(document.id), document.source_path, document.content_hash,
+                    str(document.id), stored_path, document.content_hash,
                     document.title, document.author, document.content_type.value,
                     document.complexity.value,
                     document.published_at.isoformat() if document.published_at else None,
                     document.page_count, document.file_size,
-                    document.modified_at.astimezone(UTC).isoformat(), now,
+                    document.modified_at.astimezone(UTC).isoformat(), now, lifecycle,
                 ),
+            )
+            sequence = int(connection.execute(
+                "SELECT COALESCE(max(sequence),0)+1 FROM content_revisions WHERE logical_source=?",
+                (document.source_path,),
+            ).fetchone()[0])
+            revision_id = uuid5(NAMESPACE_URL, f"aprendix:revision:{document.id}")
+            connection.execute(
+                "INSERT INTO content_revisions VALUES(?,?,?,?,?,?,?,?)",
+                (str(revision_id), document.source_path, str(document.id),
+                 document.content_hash, sequence, lifecycle, now,
+                 now if lifecycle == "active" else None),
+            )
+            connection.execute(
+                """INSERT INTO document_provenance VALUES(?,?,?,?,?,?,?,?,?)""",
+                (str(document.id), document.source_adapter_id, document.source_path,
+                 document.canonical_uri, document.license_id, document.rights_status,
+                 document.content_version, document.trust_score, now),
             )
             for chunk in chunks:
                 vector_bytes = struct.pack(f"<{len(chunk.embedding)}b", *chunk.embedding)
@@ -432,13 +857,20 @@ class KnowledgeRepository:
         filters: SearchFiltersDTO,
         *,
         limit: int = 50_000,
+        candidate_ids: tuple[str, ...] = (),
     ) -> tuple[SearchCandidate, ...]:
         cache_key = filters.model_dump_json()
         with self._cache_lock:
-            if self._candidate_cache_key == cache_key:
+            if not candidate_ids and self._candidate_cache_key == cache_key:
                 return self._candidate_cache[: max(1, min(limit, 100_000))]
-        clauses: list[str] = ["COALESCE(q.status, 'accepted') = 'accepted'"]
+        clauses: list[str] = [
+            "d.lifecycle = 'active'", "COALESCE(q.status, 'accepted') = 'accepted'"
+        ]
         parameters: list[object] = []
+        if candidate_ids:
+            placeholders = ",".join("?" for _ in candidate_ids)
+            clauses.append(f"c.id IN ({placeholders})")
+            parameters.extend(candidate_ids)
         if filters.content_types:
             placeholders = ",".join("?" for _ in filters.content_types)
             clauses.append(f"c.chunk_type IN ({placeholders})")
@@ -482,6 +914,17 @@ class KnowledgeRepository:
                 f"WHERE kac.chunk_id=c.id AND kac.area_id IN ({placeholders}))"
             )
             parameters.extend(area_ids)
+        if filters.sources:
+            source_clauses = []
+            for source in filters.sources:
+                source_clauses.append("(d.source_path LIKE ? OR p.logical_source LIKE ?)")
+                pattern = f"%{source.strip()}%"
+                parameters.extend((pattern, pattern))
+            clauses.append("(" + " OR ".join(source_clauses) + ")")
+        if filters.content_versions:
+            placeholders = ",".join("?" for _ in filters.content_versions)
+            clauses.append(f"p.content_version IN ({placeholders})")
+            parameters.extend(filters.content_versions)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         # The knowledge fields are encrypted at rest, so ranking must happen
         # after decryption in the application layer.  Keep the default large
@@ -491,15 +934,18 @@ class KnowledgeRepository:
         with self._database.read_connection() as connection:
             rows = connection.execute(
                 f"""
-                SELECT c.id, c.text_encrypted, c.page_number, d.title, d.source_path,
+                SELECT c.id, c.text_encrypted, c.page_number, d.title, c.section, d.source_path,
                        d.author, d.content_type, d.complexity, d.published_at,
                        e.dimensions, e.vector_encrypted,
-                       t.technologies_json, t.themes_json, cm.cluster_id
+                       t.technologies_json, t.themes_json, cm.cluster_id,
+                       COALESCE(p.rights_status,'local-private') rights_status,
+                       COALESCE(p.trust_score,0.8) trust_score
                 FROM document_chunks c
                 JOIN documents d ON d.id = c.document_id
                 JOIN chunk_embeddings e ON e.chunk_id = c.id
                 LEFT JOIN knowledge_taxonomy t ON t.chunk_id = c.id
                 LEFT JOIN knowledge_cluster_members cm ON cm.chunk_id = c.id
+                LEFT JOIN document_provenance p ON p.document_id = d.id
                 LEFT JOIN chunk_quality q ON q.chunk_id = c.id
                 {where}
                 ORDER BY d.title, c.ordinal
@@ -530,7 +976,10 @@ class KnowledgeRepository:
             candidates.append(
                 SearchCandidate(
                     chunk_id=chunk_id,
-                    title=row["title"], source_path=row["source_path"],
+                    title=(
+                        f"{row['title']} · {row['section']}"[:500]
+                        if row["section"] else row["title"]
+                    ), source_path=row["source_path"],
                     author=row["author"],
                     content_type=ContentKind(row["content_type"]),
                     complexity=Complexity(row["complexity"]),
@@ -540,12 +989,14 @@ class KnowledgeRepository:
                     embedding=tuple(embedding),
                     technologies=technologies, themes=themes,
                     cluster_id=row["cluster_id"],
+                    rights_status=row["rights_status"], trust_score=row["trust_score"],
                 )
             )
         result = tuple(candidates)
-        with self._cache_lock:
-            self._candidate_cache_key = cache_key
-            self._candidate_cache = result
+        if not candidate_ids:
+            with self._cache_lock:
+                self._candidate_cache_key = cache_key
+                self._candidate_cache = result
         return result
 
     def list_theory_cards(
@@ -553,7 +1004,9 @@ class KnowledgeRepository:
         theme: LearningTheme | None = None, cluster_id: str | None = None,
         area_id: str | None = None, authored_only: bool = False,
     ) -> tuple[TheoryCardDTO, ...]:
-        clauses: list[str] = ["COALESCE(q.status, 'accepted') = 'accepted'"]
+        clauses: list[str] = [
+            "d.lifecycle = 'active'", "COALESCE(q.status, 'accepted') = 'accepted'"
+        ]
         parameters: list[object] = []
         if authored_only:
             clauses.append("d.source_path = 'aprendix://authored-facts/v1'")
@@ -633,7 +1086,8 @@ class KnowledgeRepository:
                 JOIN documents d ON d.id = c.document_id
                 JOIN chunk_embeddings e ON e.chunk_id = c.id
                 LEFT JOIN chunk_quality q ON q.chunk_id = c.id
-                WHERE COALESCE(q.status, 'accepted') = 'accepted'
+                WHERE d.lifecycle = 'active'
+                  AND COALESCE(q.status, 'accepted') = 'accepted'
                 ORDER BY c.id
                 """
             ).fetchall()

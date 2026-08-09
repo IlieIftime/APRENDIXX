@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 import webbrowser
+from pathlib import Path
 
 
 def main():
@@ -36,17 +37,30 @@ def main():
                 toga.Button("Games", on_press=self.show_games, style=Pack(margin_left=8)),
                 toga.Button("Claro/Escuro", on_press=self.toggle_contrast, style=Pack(margin_left=8)),
             ])
+            learning_toolbar = toga.Box(style=Pack(direction=ROW, margin=8), children=[
+                toga.Button("Curso", on_press=self.show_course, style=Pack(flex=1)),
+                toga.Button("Progresso", on_press=self.show_progress, style=Pack(flex=1, margin_left=6)),
+                toga.Button("Analisar", on_press=self.show_analyzer, style=Pack(flex=1, margin_left=6)),
+                toga.Button("Dados", on_press=self.show_data, style=Pack(flex=1, margin_left=6)),
+            ])
+            support_toolbar = toga.Box(style=Pack(direction=ROW, margin=8), children=[
+                toga.Button("Dicionário", on_press=self.show_glossary, style=Pack(flex=1)),
+                toga.Button("Tutor", on_press=self.show_tutor, style=Pack(flex=1, margin_left=6)),
+                toga.Button("Projetos", on_press=self.show_projects, style=Pack(flex=1, margin_left=6)),
+            ])
             actions = toga.Box(style=Pack(direction=ROW, margin=8), children=[
                 toga.Button("← Rever", on_press=lambda _w: self.swipe("again"), style=Pack(flex=1)),
                 toga.Button("Praticar", on_press=self.practice, style=Pack(flex=1, margin_left=6)),
                 toga.Button("Virar", on_press=self.flip_card, style=Pack(flex=1, margin_left=6)),
                 toga.Button("Sei isto →", on_press=lambda _w: self.swipe("known"), style=Pack(flex=1, margin_left=6)),
             ])
-            self.cards_box = toga.Box(style=Pack(direction=COLUMN), children=[toolbar, self.title_label, self.body_label, actions])
+            self.cards_box = toga.Box(style=Pack(direction=COLUMN), children=[
+                toolbar, learning_toolbar, support_toolbar, self.title_label, self.body_label, actions,
+            ])
             self.prompt = toga.Label("", style=Pack(font_size=17, margin=8))
             self.editor = toga.MultilineTextInput(style=Pack(flex=1, margin=8))
             code_row = toga.Box(style=Pack(direction=ROW, margin=6))
-            for token in ("{", "}", "[", "]", ":", "=", "def", "class"):
+            for token in ("(", ")", "[", "]", "{", "}", ":", "_", "=", "    "):
                 code_row.add(toga.Button(token, on_press=lambda _w, value=token: self.insert_token(value), style=Pack(flex=1)))
             self.output = toga.MultilineTextInput(readonly=True, style=Pack(height=100, margin=8))
             ide_actions = toga.Box(style=Pack(direction=ROW, margin=8), children=[
@@ -82,11 +96,105 @@ def main():
                 toga.Button("Novo", on_press=self.new_game, style=Pack(margin_left=6)),
                 toga.Button("Marcar/Revelar", on_press=self.toggle_game_mode, style=Pack(margin_left=6)),
             ])
+            game_session_controls = toga.Box(style=Pack(direction=ROW, margin=8), children=[
+                toga.Button("Retomar", on_press=self.resume_game, style=Pack(flex=1)),
+                toga.Button("Diário", on_press=self.daily_game, style=Pack(flex=1, margin_left=6)),
+                toga.Button("Estatísticas", on_press=self.game_statistics, style=Pack(flex=1, margin_left=6)),
+            ])
             keypad = toga.Box(style=Pack(direction=ROW, margin=4))
             for value in range(1, 10):
                 keypad.add(toga.Button(str(value), on_press=lambda _w, number=value: self.game_number(number), style=Pack(flex=1)))
             self.games_box = toga.Box(style=Pack(direction=COLUMN), children=[
-                game_controls, self.game_status, toga.ScrollContainer(content=self.game_grid, style=Pack(flex=1)), keypad,
+                game_controls, game_session_controls, self.game_status,
+                toga.ScrollContainer(content=self.game_grid, style=Pack(flex=1)), keypad,
+            ])
+            courses = self.runtime.courses()
+            self.course_slugs = {str(item["title"]): str(item["slug"]) for item in courses}
+            self.course_select = toga.Selection(
+                items=list(self.course_slugs), on_change=self.change_course, style=Pack(flex=1)
+            )
+            self.unit_select = toga.Selection(items=[], on_change=self.change_unit, style=Pack(flex=1, margin_left=6))
+            self.unit_body = toga.MultilineTextInput(readonly=True, style=Pack(flex=1, margin=8))
+            self.course_box = toga.Box(style=Pack(direction=COLUMN), children=[
+                toga.Box(style=Pack(direction=ROW, margin=8), children=[
+                    toga.Button("‹ Cards", on_press=self.back), self.course_select, self.unit_select,
+                    toga.Button("Concluir", on_press=self.complete_course_unit, style=Pack(margin_left=6)),
+                ]), self.unit_body,
+            ])
+            self.progress_body = toga.MultilineTextInput(readonly=True, style=Pack(flex=1, margin=12))
+            self.progress_box = toga.Box(style=Pack(direction=COLUMN), children=[
+                toga.Box(style=Pack(direction=ROW, margin=8), children=[
+                    toga.Button("‹ Cards", on_press=self.back),
+                    toga.Label("Progresso local", style=Pack(font_size=24, font_weight="bold", margin_left=10)),
+                ]), self.progress_body,
+            ])
+            self.snippet_input = toga.MultilineTextInput(
+                placeholder="Cola código ou pseudocódigo", style=Pack(flex=1, margin=8)
+            )
+            self.snippet_action = toga.Selection(
+                items=["Explicar", "Converter Python", "Problemas", "Testes"], style=Pack(flex=1)
+            )
+            self.snippet_output = toga.MultilineTextInput(readonly=True, style=Pack(flex=1, margin=8))
+            self.analyzer_box = toga.Box(style=Pack(direction=COLUMN), children=[
+                toga.Box(style=Pack(direction=ROW, margin=8), children=[
+                    toga.Button("‹ Cards", on_press=self.back), self.snippet_action,
+                    toga.Button("Abrir imagem…", on_press=self.open_snippet_image, style=Pack(margin_left=6)),
+                    toga.Button("Analisar", on_press=self.analyze_snippet, style=Pack(margin_left=6)),
+                ]), self.snippet_input, self.snippet_output,
+            ])
+            self.profile_passphrase = toga.PasswordInput(
+                placeholder="Frase-passe (mínimo 10 caracteres)", style=Pack(margin=8)
+            )
+            self.data_status = toga.MultilineTextInput(readonly=True, style=Pack(flex=1, margin=8))
+            self.data_box = toga.Box(style=Pack(direction=COLUMN), children=[
+                toga.Box(style=Pack(direction=ROW, margin=8), children=[
+                    toga.Button("‹ Cards", on_press=self.back),
+                    toga.Label("Perfil portátil cifrado", style=Pack(font_size=22, font_weight="bold", margin_left=10)),
+                ]), self.profile_passphrase,
+                toga.Box(style=Pack(direction=ROW, margin=8), children=[
+                    toga.Button("Exportar…", on_press=self.export_profile, style=Pack(flex=1)),
+                    toga.Button("Antever…", on_press=self.preview_profile, style=Pack(flex=1, margin_left=6)),
+                    toga.Button("Importar…", on_press=self.import_profile, style=Pack(flex=1, margin_left=6)),
+                ]), self.data_status,
+            ])
+            self.glossary_query = toga.TextInput(
+                placeholder="Função, erro ou conceito", on_change=self.search_glossary,
+                style=Pack(flex=1),
+            )
+            self.glossary_output = toga.MultilineTextInput(readonly=True, style=Pack(flex=1, margin=8))
+            self.glossary_box = toga.Box(style=Pack(direction=COLUMN), children=[
+                toga.Box(style=Pack(direction=ROW, margin=8), children=[
+                    toga.Button("‹ Cards", on_press=self.back), self.glossary_query,
+                    toga.Button("Procurar", on_press=self.search_glossary, style=Pack(margin_left=6)),
+                ]), self.glossary_output,
+            ])
+            self.tutor_strategy = toga.Selection(
+                items=["Explicar", "Pergunta socrática", "Simplificar"], style=Pack(flex=1)
+            )
+            self.tutor_question = toga.MultilineTextInput(
+                placeholder="Pergunta sobre o conteúdo local", style=Pack(height=130, margin=8)
+            )
+            self.tutor_output = toga.MultilineTextInput(readonly=True, style=Pack(flex=1, margin=8))
+            self.tutor_box = toga.Box(style=Pack(direction=COLUMN), children=[
+                toga.Box(style=Pack(direction=ROW, margin=8), children=[
+                    toga.Button("‹ Cards", on_press=self.back), self.tutor_strategy,
+                    toga.Button("Pedir orientação", on_press=self.ask_tutor, style=Pack(margin_left=6)),
+                ]), self.tutor_question, self.tutor_output,
+            ])
+            self.project_select = toga.Selection(items=[], on_change=self.load_project, style=Pack(flex=1))
+            self.project_name = toga.TextInput(placeholder="Nome do projeto", style=Pack(flex=1))
+            self.project_path = toga.TextInput(placeholder="main.py", value="main.py", style=Pack(flex=1))
+            self.project_editor = toga.MultilineTextInput(style=Pack(flex=1, margin=8))
+            self.project_status = toga.Label("Projetos cifrados neste dispositivo.", style=Pack(margin=8))
+            self.project_box = toga.Box(style=Pack(direction=COLUMN), children=[
+                toga.Box(style=Pack(direction=ROW, margin=8), children=[
+                    toga.Button("‹ Cards", on_press=self.back), self.project_select,
+                    toga.Button("Novo", on_press=self.new_project, style=Pack(margin_left=6)),
+                ]),
+                toga.Box(style=Pack(direction=ROW, margin=8), children=[
+                    self.project_name, self.project_path,
+                    toga.Button("Guardar", on_press=self.save_project, style=Pack(margin_left=6)),
+                ]), self.project_editor, self.project_status,
             ])
             self.main_window = toga.MainWindow(title=self.formal_name)
             self.main_window.content = self.cards_box
@@ -134,6 +242,152 @@ def main():
             self.output.value = ("Código aceite\n" if passed else "Revê o código\n") + (result.stdout or result.error_message or "Sem output")
             if passed: self.body_label.value = str(item["body"]) + "\n\n" + str(item["code"])
         def back(self, _widget): self.main_window.content = self.cards_box
+        def show_course(self, _widget):
+            self.main_window.content = self.course_box
+            self.change_course(None)
+        def change_course(self, _widget):
+            slug = self.course_slugs.get(str(self.course_select.value))
+            self.course_units = self.runtime.course_units(slug or "")
+            self.unit_labels = {str(item["title"]): item for item in self.course_units}
+            self.unit_select.items = list(self.unit_labels)
+            self.change_unit(None)
+        def change_unit(self, _widget):
+            item = self.unit_labels.get(str(self.unit_select.value)) if hasattr(self, "unit_labels") else None
+            self.unit_body.value = (
+                f"{item['objective']}\n\n{item['explanation']}\n\nCódigo inicial\n{item['starter_code']}"
+                if item else "Escolhe uma unidade."
+            )
+        def complete_course_unit(self, _widget):
+            item = self.unit_labels.get(str(self.unit_select.value)) if hasattr(self, "unit_labels") else None
+            if item:
+                self.runtime.complete_unit(str(item["slug"])); self.unit_body.value += "\n\nConcluída neste dispositivo."
+        def show_progress(self, _widget):
+            complete = len(self.runtime.state.completed_units())
+            total = sum(int(item["unit_count"]) for item in self.runtime.courses())
+            self.progress_body.value = (
+                f"Unidades concluídas: {complete}/{total}\n\n"
+                f"Exercícios aprovados: {self.runtime.state.passed_attempts()}\n\n"
+                "Os jogos não alteram o progresso pedagógico."
+            )
+            self.main_window.content = self.progress_box
+        def show_glossary(self, _widget):
+            self.main_window.content = self.glossary_box
+            self.search_glossary(None)
+        def search_glossary(self, _widget):
+            entries = self.runtime.glossary(self.glossary_query.value or "")
+            self.glossary_output.value = "\n\n".join(
+                f"{item['term']}  {item['signature']}\n{item['definition']}"
+                for item in entries
+            ) or "Nenhuma entrada local encontrada."
+        def show_tutor(self, _widget): self.main_window.content = self.tutor_box
+        def ask_tutor(self, _widget):
+            strategies = {
+                "Explicar": "explain", "Pergunta socrática": "socratic", "Simplificar": "simplify",
+            }
+            try:
+                response = self.runtime.ask_tutor(
+                    self.tutor_question.value or "",
+                    strategy=strategies.get(str(self.tutor_strategy.value), "explain"),
+                )
+                body = str(response["answer"])
+                evidence = response.get("evidence", ())
+                if evidence:
+                    body += "\n\nEvidência local\n" + "\n".join(
+                        f"• {item['title']}" for item in evidence
+                    )
+                self.tutor_output.value = body + f"\n\nConfiança: {float(response['confidence']):.0%}"
+            except Exception as exc:
+                self.tutor_output.value = f"Tutor indisponível: {exc}"
+        def show_projects(self, _widget):
+            self.main_window.content = self.project_box
+            self.refresh_projects()
+        def refresh_projects(self):
+            self.project_items = {
+                f"{item['name']} · {item['relative_path']}": item
+                for item in self.runtime.projects()
+            }
+            self.project_select.items = list(self.project_items)
+        def load_project(self, _widget):
+            item = getattr(self, "project_items", {}).get(str(self.project_select.value))
+            if not item: return
+            self.project_id = str(item["id"])
+            self.project_name.value = str(item["name"])
+            self.project_path.value = str(item["relative_path"])
+            self.project_editor.value = str(item["source"])
+            self.project_status.text = "Projeto aberto apenas do armazenamento local cifrado."
+        def new_project(self, _widget):
+            self.project_id = None
+            self.project_select.value = None
+            self.project_name.value = ""
+            self.project_path.value = "main.py"
+            self.project_editor.value = ""
+            self.project_status.text = "Novo projeto local."
+        def save_project(self, _widget):
+            try:
+                item = self.runtime.save_project(
+                    self.project_name.value or "Projeto sem nome",
+                    self.project_editor.value or "",
+                    project_id=getattr(self, "project_id", None),
+                    relative_path=self.project_path.value or "main.py",
+                )
+                self.project_id = str(item["id"])
+                self.project_status.text = "Projeto cifrado e guardado."
+                self.refresh_projects()
+            except Exception as exc:
+                self.project_status.text = str(exc)
+        def show_analyzer(self, _widget): self.main_window.content = self.analyzer_box
+        def analyze_snippet(self, _widget):
+            from aprendix_mobile.contracts import SnippetAction, SnippetRequestDTO
+            actions = {"Explicar": SnippetAction.EXPLAIN, "Converter Python": SnippetAction.TO_PYTHON,
+                       "Problemas": SnippetAction.FIND_PROBLEMS, "Testes": SnippetAction.CREATE_TESTS}
+            try:
+                result = self.runtime.analyze_snippet(SnippetRequestDTO(
+                    text=self.snippet_input.value or "", action=actions[str(self.snippet_action.value or "Explicar")]
+                ))
+                body = result.summary + "\n\n" + "\n".join(result.line_explanations)
+                if result.problems: body += "\n\nProblemas\n• " + "\n• ".join(result.problems)
+                if result.suggested_tests: body += "\n\nTestes\n• " + "\n• ".join(result.suggested_tests)
+                if result.proposed_code: body += "\n\nPython proposto (não executado)\n" + result.proposed_code
+                self.snippet_output.value = body
+            except Exception as exc: self.snippet_output.value = str(exc)
+        async def open_snippet_image(self, _widget):
+            try:
+                selected = await self.main_window.dialog(toga.OpenFileDialog(
+                    "Escolher imagem", file_types=["png", "jpg", "jpeg"]
+                ))
+                if selected:
+                    draft = self.runtime.extract_image(Path(selected))
+                    self.snippet_input.value = draft.text
+                    self.snippet_output.value = f"OCR {draft.confidence:.0%}; confirma o texto antes de analisar."
+            except Exception as exc: self.snippet_output.value = str(exc)
+        def show_data(self, _widget): self.main_window.content = self.data_box
+        def _profile_secret(self):
+            secret = self.profile_passphrase.value or ""
+            if len(secret) < 10:
+                raise ValueError("A frase-passe precisa de pelo menos 10 caracteres.")
+            return secret
+        async def export_profile(self, _widget):
+            try:
+                selected = await self.main_window.dialog(toga.SaveFileDialog(
+                    "Exportar perfil", suggested_filename="Aprendix-perfil.apxprofile",
+                    file_types=["apxprofile"],
+                ))
+                if selected:
+                    self.runtime.export_profile(Path(selected), self._profile_secret())
+                    self.data_status.value = "Perfil exportado e cifrado."
+            except Exception as exc: self.data_status.value = str(exc)
+        async def preview_profile(self, _widget): await self._open_profile(False)
+        async def import_profile(self, _widget): await self._open_profile(True)
+        async def _open_profile(self, commit):
+            try:
+                selected = await self.main_window.dialog(toga.OpenFileDialog(
+                    "Escolher perfil", file_types=["apxprofile"]
+                ))
+                if selected:
+                    operation = self.runtime.import_profile if commit else self.runtime.preview_profile
+                    result = operation(Path(selected), self._profile_secret())
+                    self.data_status.value = ("Importado: " if commit else "Antevisão: ") + str(result)
+            except Exception as exc: self.data_status.value = str(exc)
         def show_search(self, _widget): self.main_window.content = self.search_box
         def do_search(self, _widget):
             self.search_hits = self.runtime.search(
@@ -167,11 +421,46 @@ def main():
         def new_game(self, _widget):
             kind = str(self.game_kind.value or "Sudoku")
             level = str(self.game_level.value or DIFFICULTIES[0])
-            seed = int(time.time_ns() % 2_147_483_647)
-            self.game = SudokuGame(level, seed) if kind == "Sudoku" else MinesweeperGame(level, seed)
+            self.game_session = self.runtime.games.new(
+                "sudoku" if kind == "Sudoku" else "minesweeper", level
+            )
+            self.game = self.game_session.game; self._game_started = time.monotonic()
             self.game_selected, self.game_flag_mode = None, False
             self.game_status.text = f"{kind} · {level} · sem animações"
             self.draw_game()
+        def daily_game(self, _widget):
+            kind = str(self.game_kind.value or "Sudoku")
+            level = str(self.game_level.value or DIFFICULTIES[0])
+            self.game_session = self.runtime.games.new(
+                "sudoku" if kind == "Sudoku" else "minesweeper", level, daily=True
+            )
+            self.game = self.game_session.game; self._game_started = time.monotonic()
+            self.game_selected, self.game_flag_mode = None, False
+            self.game_status.text = "Desafio diário local · sem recompensa pedagógica"
+            self.draw_game()
+        def resume_game(self, _widget):
+            kind = str(self.game_kind.value or "Sudoku")
+            level = str(self.game_level.value or DIFFICULTIES[0])
+            session = self.runtime.games.resume(
+                "sudoku" if kind == "Sudoku" else "minesweeper", level
+            )
+            if session is None:
+                self.game_status.text = "Não existe jogo guardado nesta dificuldade."
+                return
+            self.game_session, self.game = session, session.game
+            self._game_started = time.monotonic(); self.draw_game()
+            self.game_status.text = "Jogo retomado do armazenamento local cifrado."
+        def game_statistics(self, _widget):
+            rows = self.runtime.games.statistics()
+            self.game_status.text = " · ".join(
+                f"{item['game']} {item['wins']}/{item['plays']}" for item in rows
+            ) or "Ainda não existem jogos terminados."
+        def save_game(self):
+            if not hasattr(self, "game_session"): return
+            now = time.monotonic()
+            self.game_session.elapsed_seconds += max(0, int(now - self._game_started))
+            self._game_started = now
+            self.runtime.games.save(self.game_session)
         def draw_game(self):
             self.game_grid.clear()
             rows, cols = (9, 9) if isinstance(self.game, SudokuGame) else (self.game.rows, self.game.cols)
@@ -193,13 +482,17 @@ def main():
             if (row, col) not in self.game.fixed: self.game_selected = (row, col)
         def game_number(self, number):
             if isinstance(self.game, SudokuGame) and self.game_selected:
-                self.game.set(*self.game_selected, number); self.draw_game()
-                if self.game.won: self.game_status.text = "Sudoku concluído."
+                self.game.set(*self.game_selected, number); self.draw_game(); self.save_game()
+                if self.game.won:
+                    self.runtime.games.finish(self.game_session)
+                    self.game_status.text = "Sudoku concluído."
         def play_mine(self, row, col):
             self.game.toggle_flag(row, col) if self.game_flag_mode else self.game.reveal(row, col)
-            self.draw_game()
+            self.draw_game(); self.save_game()
             if self.game.lost: self.game_status.text = "Encontraste uma mina."
             elif self.game.won: self.game_status.text = "Minesweeper concluído."
+            if self.game.lost or self.game.won:
+                self.runtime.games.finish(self.game_session)
         def toggle_game_mode(self, _widget):
             self.game_flag_mode = not getattr(self, "game_flag_mode", False)
         def toggle_contrast(self, _widget, initialise=False):
@@ -212,5 +505,12 @@ def main():
             self.ide_box.style.background_color = colour
             self.search_box.style.background_color = colour
             self.reader_box.style.background_color = colour
+            self.course_box.style.background_color = colour
+            self.progress_box.style.background_color = colour
+            self.analyzer_box.style.background_color = colour
+            self.data_box.style.background_color = colour
+            self.glossary_box.style.background_color = colour
+            self.tutor_box.style.background_color = colour
+            self.project_box.style.background_color = colour
 
     return AprendixIOS("Aprendix", "io.aprendix.mobile")

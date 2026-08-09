@@ -205,6 +205,10 @@ class GraphRecommender:
             raise ValueError("Sprint 3 recommender requires top_k=3")
 
         nodes = self._store.list_nodes(user_id)
+        eligibility_provider = getattr(self._store, "eligible_node_ids", None)
+        if eligibility_provider is not None:
+            eligible = set(eligibility_provider(user_id))
+            nodes = tuple(node for node in nodes if node.id in eligible)
         theta = self._store.theta_for_user(user_id)
         total_attempts = sum(node.statistics.attempt_count for node in nodes)
         scored: list[tuple[float, str, RecommendationDTO]] = []

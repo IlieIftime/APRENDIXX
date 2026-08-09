@@ -9,6 +9,8 @@ import subprocess
 import sys
 from collections.abc import Mapping
 
+from aprendix.infrastructure.windows_job import WindowsJobLimit
+
 
 class OopGradingPolicy:
     """Allow classes and safe magic methods while blocking host capabilities."""
@@ -200,18 +202,27 @@ class IsolatedGradingExecutor:
                 if getattr(sys, "frozen", False)
                 else [sys.executable, "-I", "-S", "-c", _GRADER_RUNNER]
             )
-            process = subprocess.run(
+            process = subprocess.Popen(
                 command,
-                input=payload, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                timeout=timeout_ms / 1000, env=environment, creationflags=flags,
-                check=False,
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                env=environment, creationflags=flags,
             )
+            windows_job = WindowsJobLimit.attach(
+                process, memory_limit_mb=192, cpu_limit_ms=timeout_ms
+            )
+            try:
+                stdout, _stderr = process.communicate(
+                    payload, timeout=timeout_ms / 1000
+                )
+            finally:
+                if windows_job is not None:
+                    windows_job.close()
         except subprocess.TimeoutExpired:
             return "timeout", "O teste excedeu o limite de tempo."
-        if process.returncode != 0 or len(process.stdout) > 16_384:
+        if process.returncode != 0 or len(stdout) > 16_384:
             return "error", "O processo de correção terminou de forma inesperada."
         try:
-            result = json.loads(process.stdout)
+            result = json.loads(stdout)
             status = result.get("status")
             message = result.get("message")
             if status not in {"passed", "failed", "error"} or not isinstance(message, str):

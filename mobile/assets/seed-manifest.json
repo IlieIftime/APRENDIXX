@@ -1,6 +1,6 @@
 {
-  "content_version": "2026.08.1",
-  "schema_version": 3,
-  "sha256": "ed7d72b7e4c7a3cc5d443c71092a3a733d2b9bf641c325d9a7e6e68f753014ad",
-  "size_bytes": 143360
+  "content_version": "2026.08.5",
+  "schema_version": 5,
+  "sha256": "ab3077900fb435c4bdb7c92f3b919848e9a26e4d5d44627d128319eb334ab15b",
+  "size_bytes": 229376
 }

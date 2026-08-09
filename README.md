@@ -1,8 +1,8 @@
-# Aprendix 0.18.0
+# Aprendix 1.0.0
 
 Validated release artefacts and the full sprint audit are recorded in
-[`VALIDATION-0.18.0.md`](VALIDATION-0.18.0.md). The current installable Android
-package is `dist/mobile/Aprendix-0.18.0-android-arm64-debug.apk`.
+[`VALIDATION-1.0.0.md`](VALIDATION-1.0.0.md). O pacote Android desta release é
+`dist/mobile/Aprendix-1.0.0-android-arm64-release.apk`.
 
 Aprendix is a local-first, privacy-by-design programming learning MVP for
 desktop, Android, and iOS. Practice is stored on-device, the adaptive engine is
@@ -47,24 +47,26 @@ Desktop integration 12.1–12.4 is wired end-to-end:
 - CopyKate, structural autocomplete, 25/50/90/120 focus timers, anti-copy
   justification, encrypted draft cache and metadata-only offline sync queue.
 
-The desktop curriculum adds four guided Python tracks, nine chapters, forty
-practice-first units, twenty-seven theoretical/practical/hybrid assessments,
-four local projects, fixed milestone gates, and an encrypted glossary. The UI
+The desktop curriculum now exposes 12 guided tracks, 156 practice-first units,
+108 theoretical/practical/hybrid assessments, 12 local project templates,
+fixed milestone gates, and an encrypted glossary whose 142 canonical concepts
+are linked into the 175-node skill graph. The UI
 offers persistent dark/light themes and dictionary lookup from both its own
 screen and the embedded IDE.
 
 The independent `mobile/` subtree ships a deliberately smaller offline seed:
-54 hierarchical cards, 24 curated sources, 92 search shortcuts, 94 glossary
-entries, six executable practical challenges and six theory checks. Android
+102 hierarchical cards, 34 curated sources, 92 search shortcuts, 135 glossary
+entries plus 180 explicit aliases, six executable practical challenges and six
+theory checks. Android
 uses an AST interpreter that never calls
 `exec`, `eval`, `compile`, subprocesses, files or the network; attempts and quiz
 feedback are encrypted with a DEK protected by Android Keystore. The iOS shell
 uses Keychain (`ThisDeviceOnly`), native notifications and haptics through the
 bridge integrated by the macOS build script.
 
-Release 0.18.0 additionally quarantines complete publications accidentally
-appended to an indexed PDF, limits the visible deck to 48 original “Sabias
-que?” facts, adds ranked dictionary lookup and guarded web fallback, fixes
+Release 1.0.0 additionally quarantines complete publications accidentally
+appended to an indexed PDF, provides 96 original “Sabias que?” facts, adds
+ranked dictionary lookup with aliases and guarded web fallback, fixes
 scrolling/open-source/tutor interactions, adds local IDE diagnostics and timed
 assessment modes, and introduces the final non-animated Games tab (Sudoku and
 Minesweeper, three difficulties). See [`PLAN-0.18.0.md`](PLAN-0.18.0.md).
@@ -130,11 +132,11 @@ CLI source entry is multiline and ends with a line containing only `END`.
 
 Executa `Instalar-Aprendix.bat`. O instalador:
 
-1. cria uma venv dedicada em `%LOCALAPPDATA%\AprendixBuild\venv-desktop-0.18.0`;
+1. cria uma venv dedicada em `%LOCALAPPDATA%\AprendixBuild\venv-desktop-1.0.0`;
 2. instala Kivy, OCR, clustering, PyInstaller e as dependências do projeto;
 3. executa a suite de testes;
 4. produz os EXE e copia a instalação autónoma para
-   `%LOCALAPPDATA%\Programs\Aprendix\0.18.0`;
+   `%LOCALAPPDATA%\Programs\Aprendix\1.0.0`;
 5. executa o self-test do EXE já instalado e cria `Aprendix.lnk` no Ambiente de Trabalho;
 6. abre a aplicação após uma instalação bem-sucedida.
 
@@ -151,7 +153,7 @@ opção `-RemoveUserData`.
 
 ## Local ingestion and smart search
 
-Cards e Pesquisa incluem agora uma árvore curricular com mais de 40 áreas, atalhos
+Cards e Pesquisa incluem agora uma árvore curricular com 12 percursos e 156 unidades, atalhos
 recomendados, bibliografia curada e um leitor com resumo, versão simplificada rigorosa,
 conteúdo normal e tutor de conceitos. A arquitetura e critérios encontram-se em
 `PLAN-KNOWLEDGE-NAVIGATION.md`.
@@ -208,9 +210,11 @@ with GraphSnapshotServer(provider, port=8765) as server:
 - Submitted Python is parsed against a conservative AST policy, then executed
   only in `python -I -S` child processes with time/output limits. POSIX adds
   address-space, CPU, file-size, and file-descriptor limits.
-- The subprocess runner is defense-in-depth for an MVP, not a container,
-  virtual machine, or kernel sandbox. Windows cannot enforce the POSIX memory
-  limits; untrusted multi-tenant execution requires an external OS sandbox.
+- The subprocess runner is defense-in-depth for a single-user desktop product,
+  not a container, virtual machine, or kernel sandbox. Windows builds attach the
+  child to a Job Object with process-memory, CPU-time and kill-on-close limits;
+  POSIX builds apply `resource` limits. Multi-tenant execution still requires an
+  external OS sandbox.
 - Learner source and output never enter sync metadata. No remote transport is
   enabled by default.
 
@@ -234,11 +238,11 @@ bash mobile/scripts/build_android.sh
 ```
 
 The reproducible Android toolchain is pinned to python-for-android
-`v2024.01.21`, Python 3.11, Kivy 2.3.0, API 34 and NDK r25b. The resulting
-single debug APK is copied to `dist/mobile/`; install it by transferring that
-one file to the device and allowing installation from the chosen file manager.
-It contains no `INTERNET` permission. A public release still requires the
-owner's release keystore and signing policy.
+`v2026.05.09`, Python 3.11.14, Kivy 2.3.1, API 35 and NDK r28c. The resulting
+single, non-debuggable release APK is copied to `dist/mobile/`; install it by
+transferring that one file to the device and allowing installation from the
+chosen file manager. It contains no `INTERNET` permission and is signed with
+the persistent local release identity kept outside the repository.
 
 iOS with Toga/Briefcase, from macOS with Xcode:
 

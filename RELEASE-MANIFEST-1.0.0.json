@@ -1,0 +1,120 @@
+{
+  "product": "Aprendix",
+  "version": "1.0.0",
+  "generated_at": "2026-08-09T15:13:32.840274+00:00",
+  "files": {
+    "windows_executable": {
+      "path": "C:\\Users\\iliei\\AppData\\Local\\Programs\\Aprendix\\1.0.0\\Aprendix.exe",
+      "size_bytes": 12744813,
+      "sha256": "71fe3e53739c06a4515c5f0218dd81997d9ce3533744a139dfcdb174f5eb3b56"
+    },
+    "windows_sandbox": {
+      "path": "C:\\Users\\iliei\\AppData\\Local\\Programs\\Aprendix\\1.0.0\\AprendixSandbox\\AprendixSandbox.exe",
+      "size_bytes": 8802096,
+      "sha256": "04c6328f2a95257136ece0e239650c92a520e87cd097fac1b28a7b94ef89ee7d"
+    },
+    "android_apk": {
+      "path": "dist\\mobile\\Aprendix-1.0.0-android-arm64-release.apk",
+      "size_bytes": 30216583,
+      "sha256": "9c1869f0271dc1622cb3a2b26c262ccf772988f80cd28e2b8059cc8918ff0f3f"
+    },
+    "sbom": {
+      "path": "SBOM-1.0.0.json",
+      "size_bytes": 11468,
+      "sha256": "32afb04bf4768dda08552f293645904bff1dd5718e6538960c45a6c0393ccf22"
+    },
+    "dependency_audit": {
+      "path": "DEPENDENCY-AUDIT-1.0.0.json",
+      "size_bytes": 4625,
+      "sha256": "ef0de42604e53a19e4b34ace046c6a06b0f4db19ee37df87c744ad244dfe026a"
+    },
+    "ocr_benchmark": {
+      "path": "OCR-BENCHMARK-1.0.0.json",
+      "size_bytes": 253,
+      "sha256": "0222b2612c86fea2629bc5afc0d834b3d288d97e4ca48d177023bc162601c57a"
+    },
+    "search_benchmark": {
+      "path": "SEARCH-BENCHMARK-1.0.0.json",
+      "size_bytes": 172,
+      "sha256": "a6583f7efa14aa3ec410afff4c53d2980c2ece7ea486410b4d5ff2e5512b7a12"
+    },
+    "tutor_benchmark": {
+      "path": "TUTOR-BENCHMARK-AAA.json",
+      "size_bytes": 199,
+      "sha256": "4dc4250a00ef45a967dc769d55ec5bdcd37871c7ec35fcd66c3f636c136cd16e"
+    },
+    "baseline_benchmark": {
+      "path": "BASELINE-1.0.0.json",
+      "size_bytes": 970,
+      "sha256": "2e17f4eedc74a3d914a27cd439cc5a45d935613861c78b2a98d21c36c4d571a2"
+    },
+    "aaa_audit": {
+      "path": "AAA-AUDIT-1.0.0.json",
+      "size_bytes": 1971,
+      "sha256": "1e1d336ce1a771e5153a1a3df4e4c329c3b8d64ca779921b1b1bcc159e48f34c"
+    },
+    "accessibility_audit": {
+      "path": "ACCESSIBILITY-AUDIT-1.0.0.json",
+      "size_bytes": 2055,
+      "sha256": "1f52c3372886d9c84b1c3e0a1e0b0928852f82492613cf41923f24eb261206a0"
+    },
+    "multimodal_benchmark": {
+      "path": "MULTIMODAL-BENCHMARK-1.0.0.json",
+      "size_bytes": 458,
+      "sha256": "db689a1c36041418186df0a680293eb608cb87212f7cb8d23437113b6be594cb"
+    },
+    "soak_benchmark": {
+      "path": "SOAK-BENCHMARK-1.0.0.json",
+      "size_bytes": 525,
+      "sha256": "78ab2137a66c7da8fa97080e137973da6e153eaa182914bbb39931ced9f4a9ed"
+    },
+    "validation_report": {
+      "path": "VALIDATION-1.0.0.md",
+      "size_bytes": 10037,
+      "sha256": "e9e0bd8a49d3dedbde4ee83ab500cbbd2e373c90c3622735a770ca006a985996"
+    },
+    "release_notes": {
+      "path": "RELEASE-NOTES-1.0.0.md",
+      "size_bytes": 2361,
+      "sha256": "5906b58df27b7cdfbde11085a29a2489ac1f629b4f92246dabc9d631ba0ef872"
+    },
+    "threat_model": {
+      "path": "THREAT-MODEL-1.0.md",
+      "size_bytes": 3570,
+      "sha256": "ef4aaebc31e7578e2a4e202ce1e1ededdfc049822bd87d4cc92c5e37835fcc18"
+    },
+    "recovery_guide": {
+      "path": "RECOVERY-GUIDE-1.0.md",
+      "size_bytes": 977,
+      "sha256": "ec7f710040e2bc3ae4b913f470357d73cb30d11113eeea34c8ee42d694c885ed"
+    },
+    "windows_installer": {
+      "path": "Instalar-Aprendix.bat",
+      "size_bytes": 764,
+      "sha256": "c4d5d4e1dd70a7f5940dc7fa50d4e75ca50378aad5549e2eb9517b769a99277c"
+    },
+    "windows_uninstaller": {
+      "path": "Desinstalar-Aprendix.bat",
+      "size_bytes": 877,
+      "sha256": "02942f96af7b153382cf402ef43e8104139ea6146b7f4d7bf26e91ee21682b80"
+    },
+    "android_adb_installer": {
+      "path": "Instalar-Android-ADB.bat",
+      "size_bytes": 1672,
+      "sha256": "68a7e475eb0e732e38b6e2847920e13710e96a9291bb991fdd54ad3a5722df2e"
+    },
+    "mobile_install_guide": {
+      "path": "INSTALL-MOBILE.md",
+      "size_bytes": 5686,
+      "sha256": "056f94cbac5b0f63a04787149c42b17b16e67c0fa0e4a315a0e1e4a0ffe1ac74"
+    }
+  },
+  "directories": {
+    "windows_runtime": {
+      "path": "C:\\Users\\iliei\\AppData\\Local\\Programs\\Aprendix\\1.0.0\\_internal",
+      "file_count": 321,
+      "size_bytes": 265596590,
+      "tree_sha256": "7da89b65e504cfe7ec1b0bab1110aef3d317ab4f0ba9676bfd903fccc2f54b26"
+    }
+  }
+}

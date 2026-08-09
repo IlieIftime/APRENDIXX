@@ -340,6 +340,46 @@ class AttemptRepository(BaseSQLiteRepository[AttemptDTO]):
         )
         return True
 
+    def replace_for_profile(
+        self, connection: sqlite3.Connection, attempt: AttemptDTO,
+    ) -> None:
+        """Insert or replace one authenticated cross-device profile record."""
+        existing = self._execute(
+            connection, "SELECT user_id FROM attempts WHERE id=?", (str(attempt.id),)
+        ).fetchone()
+        if existing is not None and existing["user_id"] != str(attempt.user_id):
+            raise ValueError("attempt identity belongs to another local profile")
+        source = self._encrypt_text(
+            attempt.source_code,
+            context=self._field_context("source_code", attempt.id, attempt.user_id),
+        )
+        output = (
+            self._encrypt_text(
+                attempt.output,
+                context=self._field_context("output", attempt.id, attempt.user_id),
+            )
+            if attempt.output is not None else None
+        )
+        values = (
+            str(attempt.id), str(attempt.idempotency_key), str(attempt.user_id),
+            str(attempt.exercise_id), attempt.status.value, source, output,
+            attempt.score, attempt.duration_ms,
+            attempt.submitted_at.astimezone(UTC).isoformat() if attempt.submitted_at else None,
+            attempt.created_at.astimezone(UTC).isoformat(),
+        )
+        self._execute(
+            connection,
+            """INSERT INTO attempts(id,idempotency_key,user_id,exercise_id,status,
+               source_code_encrypted,output_encrypted,score,duration_ms,submitted_at,created_at)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+               idempotency_key=excluded.idempotency_key,exercise_id=excluded.exercise_id,
+               status=excluded.status,source_code_encrypted=excluded.source_code_encrypted,
+               output_encrypted=excluded.output_encrypted,score=excluded.score,
+               duration_ms=excluded.duration_ms,submitted_at=excluded.submitted_at,
+               created_at=excluded.created_at""",
+            values,
+        )
+
     def get(self, attempt_id: UUID) -> AttemptDTO:
         with self._database.read_connection() as connection:
             row = self._execute(
@@ -381,8 +421,8 @@ class AttemptRepository(BaseSQLiteRepository[AttemptDTO]):
         *,
         limit: int = 100,
     ) -> tuple[AttemptDTO, ...]:
-        if not 1 <= limit <= 1_000:
-            raise ValueError("limit must be between 1 and 1000")
+        if not 1 <= limit <= 100_000:
+            raise ValueError("limit must be between 1 and 100000")
         with self._database.read_connection() as connection:
             rows = self._execute(
                 connection,

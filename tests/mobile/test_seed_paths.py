@@ -33,6 +33,7 @@ def test_seed_build_install_readonly_and_idempotent(tmp_path: Path) -> None:
     assert len(cards[0]["options"]) == 3
     glossary = LiteContentStore(destination).glossary("pri")
     assert glossary[0]["term"] == "print"
+    assert LiteContentStore(destination).glossary("virtualenv")[0]["term"] == "virtual environment"
 
 
 def test_seed_tampering_fails_closed_without_replacing_destination(tmp_path: Path) -> None:

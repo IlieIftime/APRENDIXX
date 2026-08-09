@@ -3,7 +3,7 @@ setlocal EnableExtensions
 chcp 65001 >nul
 cd /d "%~dp0"
 
-set "APK=%~dp0dist\mobile\Aprendix-0.18.0-android-arm64-debug.apk"
+set "APK=%~dp0dist\mobile\Aprendix-1.0.0-android-arm64-release.apk"
 if not exist "%APK%" (
     echo ERRO: APK nao encontrado em:
     echo %APK%

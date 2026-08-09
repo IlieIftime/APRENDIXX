@@ -33,8 +33,6 @@ python_archive = PYZ(analysis.pure)
 executable = EXE(
     python_archive,
     analysis.scripts,
-    analysis.binaries,
-    analysis.datas,
     [],
     name="Aprendix",
     debug=False,
@@ -44,4 +42,14 @@ executable = EXE(
     console=False,
     version=str(project_root / "packaging" / "version_info.txt"),
     disable_windowed_traceback=False,
+    exclude_binaries=True,
+)
+
+collection = COLLECT(
+    executable,
+    analysis.binaries,
+    analysis.datas,
+    strip=False,
+    upx=True,
+    name="Aprendix",
 )

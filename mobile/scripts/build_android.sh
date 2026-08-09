@@ -26,7 +26,7 @@ if [[ -z "${APK_SOURCE}" || ! -f "${APK_SOURCE}" ]]; then
   echo "O build terminou sem produzir um APK." >&2
   exit 3
 fi
-APK_NAME="Aprendix-0.18.0-android-arm64-debug.apk"
+APK_NAME="Aprendix-1.0.0-android-arm64-debug.apk"
 cp -f "${APK_SOURCE}" "${ROOT}/dist/mobile/${APK_NAME}"
 unzip -tq "${ROOT}/dist/mobile/${APK_NAME}"
 if [[ "${SOURCE_ROOT}" != "${ROOT}" ]]; then

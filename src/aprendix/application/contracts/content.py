@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
+from aprendix.domain.enums import StrEnum
 from typing import Annotated
 from uuid import UUID
 

@@ -17,20 +17,36 @@ from aprendix.infrastructure.db.knowledge_repository import (
 )
 from aprendix.infrastructure.db.desktop_repository import DesktopRepository
 from aprendix.infrastructure.db.knowledge_structure_repository import KnowledgeStructureRepository
+from aprendix.infrastructure.db.platform_repository import PlatformRepository
+from aprendix.infrastructure.db.progress_repository import LearningProgressRepository
+from aprendix.infrastructure.db.content_governance_repository import ContentGovernanceRepository
+from aprendix.infrastructure.db.tutor_repository import TutorRepository
+from aprendix.infrastructure.db.portfolio_repository import PortfolioRepository
+from aprendix.infrastructure.db.snippet_repository import SnippetRepository
+from aprendix.infrastructure.db.game_repository import GameRepository
+from aprendix.infrastructure.db.profile_repository import DesktopProfileRepository
 
 __all__ = [
     "AttemptRepository",
     "BaseSQLiteRepository",
+    "ContentGovernanceRepository",
     "Database",
     "DatabaseConfig",
     "EventRepository",
     "DesktopRepository",
     "ExerciseRepository",
     "LearningRecordRepository",
+    "LearningProgressRepository",
     "IndexedChunk",
     "IndexedDocument",
     "KnowledgeRepository",
     "KnowledgeStructureRepository",
+    "PlatformRepository",
     "SQLiteGraphRepository",
     "UserRepository",
+    "TutorRepository",
+    "PortfolioRepository",
+    "SnippetRepository",
+    "GameRepository",
+    "DesktopProfileRepository",
 ]

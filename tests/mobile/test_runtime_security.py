@@ -96,3 +96,13 @@ def test_host_key_provider_requires_explicit_opt_in(tmp_path: Path) -> None:
         HostDevelopmentKeyProvider(
             tmp_path / "key", database_path=tmp_path / "db", allow=False
         )
+
+
+def test_mobile_break_games_resume_without_affecting_course_progress(tmp_path: Path) -> None:
+    runtime = build_mobile_runtime(_paths(tmp_path), allow_host_development=True)
+    session = runtime.games.new("sudoku", "Fácil", daily=True)
+    session.elapsed_seconds = 19
+    runtime.games.save(session)
+    resumed = runtime.games.new("sudoku", "Fácil", daily=True)
+    assert resumed.id == session.id and resumed.elapsed_seconds == 19
+    assert runtime.state.completed_units() == ()

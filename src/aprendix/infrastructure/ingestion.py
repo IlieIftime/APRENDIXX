@@ -378,7 +378,9 @@ class ContentIngestionPipeline:
                     page_count=extracted.page_count, file_size=stat.st_size,
                     modified_at=datetime.fromtimestamp(stat.st_mtime, tz=UTC),
                 )
-                created, cards, exercises = self._repository.store_document(document, chunks)
+                created, cards, exercises = self._repository.store_document(
+                    document, chunks, quarantine=True
+                )
                 if created:
                     indexed += 1
                     chunk_count += len(chunks)
@@ -389,6 +391,11 @@ class ContentIngestionPipeline:
             except Exception as exc:
                 failed += 1
                 errors.append(f"{path.name}: {type(exc).__name__}: {str(exc)[:300]}")
+        if indexed and not dry_run:
+            try:
+                self._repository.audit_content_quality()
+            except Exception as exc:
+                errors.append(f"validation: {type(exc).__name__}: {str(exc)[:300]}")
         summary = IngestionSummaryDTO(
             started_at=started, completed_at=datetime.now(UTC),
             discovered_files=len(files), indexed_documents=indexed,

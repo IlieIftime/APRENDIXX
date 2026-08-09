@@ -4,17 +4,22 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import unicodedata
-from uuid import NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from aprendix.application.contracts import EventDTO
 from aprendix.domain import EventType
 
 
 class CurriculumService:
-    def __init__(self, *, user, repository, events, web=None) -> None:
+    def __init__(self, *, user, repository, events, web=None, progress=None) -> None:
         self.user, self._repository, self._events, self._web = user, repository, events, web
+        self._progress = progress
 
     def tracks(self): return self._repository.tracks()
+    def paths(self): return self._repository.paths(self.user.id)
+    def audit(self): return self._repository.validate_catalog()
+    def diagnostic(self, *, limit: int = 5):
+        return self._repository.diagnostic(self.user.id, limit=limit)
     def units(self, track_slug: str): return self._repository.units(track_slug, self.user.id)
     def glossary(self, term: str, *, limit: int = 8):
         local = list(self._repository.glossary(term, limit=limit))
@@ -62,4 +67,11 @@ class CurriculumService:
                 "score": result["score"],
             }, occurred_at=now, created_at=now,
         ))
+        if self._progress is not None:
+            self._progress.record_assessment(
+                user_id=self.user.id,
+                node_id=UUID(self._repository.graph_node_for_assessment(item_id)),
+                attempt_id=str(result["attempt_id"]), kind=str(result["kind"]),
+                score=float(result["score"]), duration_seconds=duration_seconds,
+            )
         return result

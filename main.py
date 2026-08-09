@@ -31,11 +31,17 @@ if "--aprendix-sandbox" in sys.argv:
 
     raise SystemExit(packaged_sandbox_main())
 
+if "--aprendix-debugger" in sys.argv:
+    from aprendix.infrastructure.debugger import packaged_debugger_main
+
+    raise SystemExit(packaged_debugger_main())
+
 if "--self-test" in sys.argv:
     import json
     import tempfile
     from aprendix.bootstrap import build_runtime
     from aprendix.application.games import MinesweeperGame, SudokuGame
+    from aprendix.application.contracts import SnippetRequestDTO, TutorRequestDTO
     from aprendix.infrastructure.db.schema import SCHEMA_VERSION
 
     target = Path(tempfile.mkdtemp(prefix="aprendix-self-test-"))
@@ -56,17 +62,43 @@ if "--self-test" in sys.argv:
         ).fetchone()[0]
     glossary_ok = bool(runtime.curriculum.glossary("else", limit=1))
     games_ok = len(SudokuGame("Fácil", 1).fixed) > 0 and len(MinesweeperGame("Fácil", 1).mines) == 10
+    tutor_result = runtime.tutor.answer(TutorRequestDTO(
+        question="Como funciona o operador módulo em Python?"
+    ))
+    snippet_result = runtime.snippets.analyze(SnippetRequestDTO(
+        text="def dobro(x):\n    return x * 2"
+    ))
+    projects_ok = len(runtime.portfolio.templates()) == len(runtime.curriculum.tracks()) >= 12
+    game_session = runtime.games.new("sudoku", "Fácil", daily=True)
+    extended_ok = all((
+        not tutor_result.declined, bool(tutor_result.evidence),
+        snippet_result.detected_language == "python", projects_ok,
+        game_session.id is not None,
+    ))
+    health = runtime.platform.health()
+    feature_flags = runtime.platform.feature_flags()
     passed = all((result.status == "ok", result.stdout.strip() == "42", integrity == "ok",
-                  schema == SCHEMA_VERSION, facts >= 48, glossary_ok, games_ok))
+                  schema == SCHEMA_VERSION, facts >= 48, glossary_ok, games_ok,
+                  health.status.value == "healthy", len(feature_flags) >= 14,
+                  extended_ok))
     (target / "self-test-report.json").write_text(
         json.dumps({"passed": passed, "sandbox": result.model_dump(mode="json"),
                     "integrity": integrity, "schema_version": schema,
                     "authored_fact_cards": facts, "dictionary_else": glossary_ok,
-                    "games": games_ok},
+                    "games": games_ok, "extended_features": extended_ok,
+                    "tutor_confidence": tutor_result.confidence,
+                    "projects": len(runtime.portfolio.templates()),
+                    "runtime_health": health.status.value,
+                    "feature_flags": len(feature_flags)},
                    ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     raise SystemExit(0 if passed else 3)
+
+if sys.platform == "win32":
+    from aprendix.presentation.startup_splash import start_startup_splash
+
+    start_startup_splash()
 
 from aprendix.bootstrap import gui_main
 

@@ -2,8 +2,30 @@
 #import <Security/Security.h>
 #import <UIKit/UIKit.h>
 #import <UserNotifications/UserNotifications.h>
+#import <Vision/Vision.h>
 
 @implementation AprendixKeychainBridge
++ (NSString *)recognizeTextAtPath:(NSString *)path {
+    UIImage *image = [UIImage imageWithContentsOfFile:path];
+    if (image.CGImage == nil) return @"";
+    __block NSArray<VNRecognizedTextObservation *> *observations = @[];
+    __block NSError *requestError = nil;
+    VNRecognizeTextRequest *request = [[VNRecognizeTextRequest alloc]
+        initWithCompletionHandler:^(VNRequest *finished, NSError *error) {
+            requestError = error;
+            observations = (NSArray<VNRecognizedTextObservation *> *)finished.results ?: @[];
+        }];
+    request.recognitionLevel = VNRequestTextRecognitionLevelAccurate;
+    request.usesLanguageCorrection = NO;
+    VNImageRequestHandler *handler = [[VNImageRequestHandler alloc] initWithCGImage:image.CGImage options:@{}];
+    if (![handler performRequests:@[request] error:&requestError] || requestError) return @"";
+    NSMutableArray<NSString *> *lines = [NSMutableArray array];
+    for (VNRecognizedTextObservation *observation in observations) {
+        VNRecognizedText *candidate = [[observation topCandidates:1] firstObject];
+        if (candidate.string.length) [lines addObject:candidate.string];
+    }
+    return [lines componentsJoinedByString:@"\n"];
+}
 + (NSMutableDictionary *)query:(NSString *)service account:(NSString *)account {
     return [@{(__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
               (__bridge id)kSecAttrService: service,

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import sys
+import time
+from importlib.resources import files
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -15,8 +17,18 @@ from aprendix.application.knowledge import (
     HybridSearchService,
 )
 from aprendix.application.smart_corrector import SmartCorrector
+from aprendix.application.tutor import OfflineTutorService
+from aprendix.application.portfolio import ProjectPortfolioService
+from aprendix.application.snippet_analysis import SnippetAnalyzer
+from aprendix.application.snippet_service import SnippetAssistantService
+from aprendix.application.game_service import GameBreakService
 from aprendix.application.desktop import DesktopLearningService
 from aprendix.application.curriculum import CurriculumService
+from aprendix.application.platform import PlatformService
+from aprendix.application.progress import LearningProgressService
+from aprendix.application.content_governance import ContentGovernanceService
+from aprendix.application.content_updates import ContentUpdateService
+from aprendix.application.profile_service import ProfileTransferService
 from aprendix.application.clustering import HdbscanClusterService
 from aprendix.application.contracts import EventDTO, SearchFiltersDTO, UserDTO
 from aprendix.application.services import (
@@ -36,9 +48,23 @@ from aprendix.infrastructure.db import (
     KnowledgeRepository,
     KnowledgeStructureRepository,
     DesktopRepository,
+    PlatformRepository,
+    LearningProgressRepository,
+    ContentGovernanceRepository,
+    TutorRepository,
+    PortfolioRepository,
+    SnippetRepository,
+    GameRepository,
+    DesktopProfileRepository,
 )
+from aprendix.infrastructure.db.schema import SCHEMA_VERSION
 from aprendix.infrastructure.curriculum import CurriculumRepository
 from aprendix.infrastructure.grading import IsolatedGradingExecutor, OopGradingPolicy
+from aprendix.infrastructure.debugger import IsolatedPythonDebugger
+from aprendix.infrastructure.image_ocr import LocalImageOcr
+from aprendix.infrastructure.content_pack import ApxPackVerifier, ContentPackManager
+from aprendix.infrastructure.pack_catalog import PackCatalogImporter
+from cryptography.hazmat.primitives.serialization import load_pem_public_key
 from aprendix.infrastructure.ingestion import FeatureHashEmbedding
 from aprendix.infrastructure.local_llm import OllamaLocalSynthesizer
 from aprendix.infrastructure.security import AesGcmFieldCipher, FileKeyStore
@@ -74,6 +100,16 @@ class Runtime:
     sync_queue: EncryptedSyncQueue
     curriculum: CurriculumService
     knowledge_structure: KnowledgeStructureRepository
+    platform: PlatformService
+    progress: LearningProgressService
+    content: ContentGovernanceService
+    tutor: OfflineTutorService
+    portfolio: ProjectPortfolioService
+    snippets: SnippetAssistantService
+    games: GameBreakService
+    content_packs: ContentPackManager
+    content_updates: ContentUpdateService
+    profile_transfer: ProfileTransferService
 
 
 def default_data_directory() -> Path:
@@ -92,12 +128,15 @@ def default_data_directory() -> Path:
 def build_runtime(data_directory: Path | None = None) -> Runtime:
     """Construct a complete local runtime without starting a presentation loop."""
 
+    build_started = time.perf_counter()
     data_directory = data_directory or default_data_directory()
     database = Database(DatabaseConfig(data_directory / "aprendix.db"))
     database.initialize()
     cipher = AesGcmFieldCipher.from_key_store(
         FileKeyStore(data_directory / "keys" / "fields.key")
     )
+    platform_repository = PlatformRepository(database, cipher)
+    platform_repository.seed_feature_flags()
     seed_default_catalog(database)
     seed_advanced_catalog(database)
 
@@ -121,7 +160,15 @@ def build_runtime(data_directory: Path | None = None) -> Runtime:
     knowledge_structure = KnowledgeStructureRepository(database, cipher)
     knowledge_structure.seed()
     knowledge_repository.seed_authored_facts()
+    content_governance_repository = ContentGovernanceRepository(database, cipher)
+    content = ContentGovernanceService(
+        content_governance_repository,
+        on_content_changed=knowledge_repository.invalidate_cache,
+    )
+    content.initialize()
     knowledge_repository.audit_content_quality()
+    knowledge_repository.rebuild_public_fts()
+    knowledge_repository.rebuild_private_search_index()
     if not knowledge_structure.mappings_current():
         knowledge_structure.ensure_mappings(
             knowledge_repository.search_candidates(SearchFiltersDTO(), limit=100_000)
@@ -142,23 +189,92 @@ def build_runtime(data_directory: Path | None = None) -> Runtime:
     desktop_repository.seed_milestones()
     curriculum_repository = CurriculumRepository(database, cipher)
     curriculum_repository.seed()
+    content.refresh_objective_evidence()
+    content.refresh_coverage()
     with database.read_connection() as connection:
         chunk_count = int(connection.execute("SELECT count(*) FROM document_chunks").fetchone()[0])
         bibliography_count = int(connection.execute("SELECT count(*) FROM bibliography_links").fetchone()[0])
     if chunk_count and not bibliography_count:
         curriculum_repository.rebuild_bibliography_links()
     cache = EncryptedOfflineCache(data_directory / "cache", cipher)
+    sandbox = PythonSandbox(PythonAstPolicy(allow_classes=True))
+    progress = LearningProgressService(LearningProgressRepository(database))
+    progress.backfill_legacy_history(user.id)
     desktop = DesktopLearningService(
         user=user, exercises=exercise_repository, submissions=submission_service,
         attempts=attempt_repository, events=event_service,
         workspace=desktop_repository,
-        sandbox=PythonSandbox(PythonAstPolicy(allow_classes=True)),
+        sandbox=sandbox,
         corrector=corrector,
         cache=cache,
+        progress=progress,
+        debugger=IsolatedPythonDebugger(PythonAstPolicy(allow_classes=True)),
     )
     curriculum = CurriculumService(
         user=user, repository=curriculum_repository, events=event_service,
         web=SafeDuckDuckGoSearch(timeout_seconds=4.0),
+        progress=progress,
+    )
+    platform = PlatformService(
+        repository=platform_repository, database=database,
+        data_directory=data_directory, expected_schema_version=SCHEMA_VERSION,
+        sandbox_runner=sandbox.run,
+    )
+    platform.record_metric(
+        "runtime.startup", (time.perf_counter() - build_started) * 1000, "ms",
+        context={"schema_version": SCHEMA_VERSION, "mode": "runtime"},
+    )
+    search_service = HybridSearchService(
+        knowledge_repository,
+        embedder=FeatureHashEmbedding(),
+        web=SafeDuckDuckGoSearch(),
+        synthesizer=(
+            FallbackAnswerSynthesizer(
+                OllamaLocalSynthesizer(os.environ["APRENDIX_OLLAMA_MODEL"]),
+                ExtractiveAnswerSynthesizer(),
+            )
+            if os.environ.get("APRENDIX_OLLAMA_MODEL")
+            else ExtractiveAnswerSynthesizer()
+        ),
+        curated=knowledge_structure,
+    )
+    tutor = OfflineTutorService(
+        user=user, search=search_service,
+        repository=TutorRepository(database, cipher), cache=cache,
+    )
+    portfolio_repository = PortfolioRepository(database, cipher)
+    portfolio_repository.seed()
+    portfolio = ProjectPortfolioService(
+        user=user, repository=portfolio_repository, desktop=desktop,
+    )
+    snippets = SnippetAssistantService(
+        user=user, analyzer=SnippetAnalyzer(), ocr=LocalImageOcr(),
+        repository=SnippetRepository(database, cipher),
+    )
+    games = GameBreakService(user=user, repository=GameRepository(database, cipher))
+    pack_key = load_pem_public_key(
+        files("aprendix.presentation").joinpath("assets/pack-public-key.pem").read_bytes()
+    )
+
+    def refresh_pack_content() -> None:
+        knowledge_structure.ensure_mappings(
+            knowledge_repository.search_candidates(SearchFiltersDTO(), limit=100_000)
+        )
+        curriculum_repository.rebuild_bibliography_links()
+        content.refresh_objective_evidence()
+        content.refresh_coverage()
+
+    pack_catalog = PackCatalogImporter(
+        database, knowledge_repository, content_governance_repository,
+        on_changed=refresh_pack_content,
+    )
+    content_packs = ContentPackManager(
+        data_directory / "content-packs", ApxPackVerifier((pack_key,)),
+        activator=pack_catalog,
+    )
+    content_updates = ContentUpdateService(content_packs)
+    profile_transfer = ProfileTransferService(
+        user.id, DesktopProfileRepository(database, attempt_repository, desktop)
     )
     return Runtime(
         database=database,
@@ -173,20 +289,7 @@ def build_runtime(data_directory: Path | None = None) -> Runtime:
             GraphRecommender(graph_repository),
         ),
         knowledge=knowledge_repository,
-        search_service=HybridSearchService(
-            knowledge_repository,
-            embedder=FeatureHashEmbedding(),
-            web=SafeDuckDuckGoSearch(),
-            synthesizer=(
-                FallbackAnswerSynthesizer(
-                    OllamaLocalSynthesizer(os.environ["APRENDIX_OLLAMA_MODEL"]),
-                    ExtractiveAnswerSynthesizer(),
-                )
-                if os.environ.get("APRENDIX_OLLAMA_MODEL")
-                else ExtractiveAnswerSynthesizer()
-            ),
-            curated=knowledge_structure,
-        ),
+        search_service=search_service,
         corrector=corrector,
         desktop=desktop,
         cluster_service=HdbscanClusterService(knowledge_repository),
@@ -194,6 +297,16 @@ def build_runtime(data_directory: Path | None = None) -> Runtime:
         sync_queue=EncryptedSyncQueue(cache),
         curriculum=curriculum,
         knowledge_structure=knowledge_structure,
+        platform=platform,
+        progress=progress,
+        content=content,
+        tutor=tutor,
+        portfolio=portfolio,
+        snippets=snippets,
+        games=games,
+        content_packs=content_packs,
+        content_updates=content_updates,
+        profile_transfer=profile_transfer,
     )
 
 
@@ -221,12 +334,19 @@ def gui_main() -> int:
         submissions=runtime.submission_service,
         snapshot_provider=lambda: _snapshot(runtime),
         search_service=runtime.search_service,
-        card_provider=lambda **filters: runtime.knowledge.list_theory_cards(limit=60, authored_only=True, **filters),
+        card_provider=lambda **filters: runtime.knowledge.list_theory_cards(limit=60, **filters),
         corrector=runtime.corrector,
         desktop=runtime.desktop,
         cluster_provider=lambda: runtime.knowledge.list_clusters(limit=40),
         curriculum=runtime.curriculum,
         knowledge_structure=runtime.knowledge_structure,
+        progress=runtime.progress,
+        tutor=runtime.tutor,
+        portfolio=runtime.portfolio,
+        snippets=runtime.snippets,
+        games=runtime.games,
+        content_updates=runtime.content_updates,
+        profile_transfer=runtime.profile_transfer,
     )
     try:
         return launch_kivy(controller)
@@ -250,11 +370,18 @@ def toga_main() -> int:
             submissions=runtime.submission_service,
             snapshot_provider=lambda: _snapshot(runtime),
             search_service=runtime.search_service,
-            card_provider=lambda **filters: runtime.knowledge.list_theory_cards(limit=60, authored_only=True, **filters),
+            card_provider=lambda **filters: runtime.knowledge.list_theory_cards(limit=60, **filters),
             corrector=runtime.corrector,
             desktop=runtime.desktop,
             cluster_provider=lambda: runtime.knowledge.list_clusters(limit=40),
             curriculum=runtime.curriculum,
             knowledge_structure=runtime.knowledge_structure,
+            progress=runtime.progress,
+            tutor=runtime.tutor,
+            portfolio=runtime.portfolio,
+            snippets=runtime.snippets,
+            games=runtime.games,
+            content_updates=runtime.content_updates,
+            profile_transfer=runtime.profile_transfer,
         )
     )

@@ -31,6 +31,16 @@ def test_cipher_rejects_tampering_and_wrong_context() -> None:
         cipher.decrypt(encrypted, associated_data=b"wrong-row")
 
 
+def test_blind_index_is_keyed_deterministic_and_namespaced() -> None:
+    first = AesGcmFieldCipher(b"\x01" * 32)
+    second = AesGcmFieldCipher(b"\x02" * 32)
+    digest = first.blind_index(b"__init__", namespace=b"search")
+    assert digest == first.blind_index(b"__init__", namespace=b"search")
+    assert digest != first.blind_index(b"__init__", namespace=b"dictionary")
+    assert digest != second.blind_index(b"__init__", namespace=b"search")
+    assert b"__init__" not in digest
+
+
 def test_file_key_store_creates_and_reuses_256_bit_key(tmp_path: Path) -> None:
     key_path = tmp_path / "keys" / "database.key"
     store = FileKeyStore(key_path)
@@ -49,4 +59,3 @@ def test_file_key_store_rejects_corrupt_key(tmp_path: Path) -> None:
 
     with pytest.raises(EncryptionError, match="32 bytes"):
         FileKeyStore(key_path).get_or_create_key()
-

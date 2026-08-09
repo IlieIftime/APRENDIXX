@@ -1,6 +1,13 @@
 """Stable domain enumerations persisted by the application."""
 
-from enum import StrEnum
+try:
+    from enum import StrEnum
+except ImportError:  # Python 3.10 used by the Android build toolchain.
+    from enum import Enum
+
+    class StrEnum(str, Enum):
+        def __str__(self) -> str:
+            return str(self.value)
 
 
 class EventType(StrEnum):

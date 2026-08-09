@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from aprendix.application.contracts import (
     Complexity,
@@ -190,7 +191,16 @@ class KnowledgeStructureRepository:
         return tuple(self._source_dto(row) for row in rows)
 
     def search_sources(self, query: str, area_ids: tuple[str, ...] = (), *, limit: int = 8) -> tuple[tuple[float, CuratedSourceDTO], ...]:
-        terms = {fold(item) for item in re.findall(r"[\w+-]{3,}", query)}
+        stopwords = {
+            "como", "qual", "quais", "porque", "explica", "explicar", "sobre",
+            "uma", "para", "com", "sem", "esta", "este", "isto", "resultado",
+            "linguagem", "versao", "fonte", "codigo", "funciona", "significa",
+            "the", "and", "what", "how", "does", "from", "with",
+        }
+        terms = {
+            term for item in re.findall(r"[\w+-]{3,}", query)
+            if (term := fold(item)) not in stopwords and not term.isdigit()
+        }
         scored = []
         for source in self.sources(area_ids, limit=100):
             haystack = fold(" ".join((source.title, *source.authors, source.overview, source.why_it_matters)))
@@ -201,6 +211,16 @@ class KnowledgeStructureRepository:
 
     @staticmethod
     def _source_dto(row) -> CuratedSourceDTO:
+        source_type = row["source_type"]
+        year = row["publication_year"]
+        if source_type == "documentation":
+            category, difficulty, minutes = "consulta rápida", "beginner", 20
+        elif source_type in {"paper", "report"}:
+            category, difficulty, minutes = "referência avançada", "advanced", 75
+        elif year and int(year) < 2015:
+            category, difficulty, minutes = "histórico/desatualizado", "advanced", 60
+        else:
+            category, difficulty, minutes = "aprofundamento", "intermediate", 45
         return CuratedSourceDTO(
             id=row["id"], title=row["title"], authors=tuple(json.loads(row["authors_json"])),
             publication_year=row["publication_year"], source_type=row["source_type"],
@@ -208,6 +228,10 @@ class KnowledgeStructureRepository:
             why_it_matters=row["why_it_matters"], access_note=row["access_note"],
             license_note=row["license_note"],
             area_ids=tuple((row["area_ids"] or "").split(",")) if row["area_ids"] else (),
+            guidance_category=category, difficulty=difficulty,
+            estimated_minutes=minutes,
+            recommended_sections=("Visão geral", "Secções ligadas aos conceitos desta leitura"),
+            version_scope=(f"edição/estado de {year}" if year else "conceitos estáveis"),
         )
 
     def reading_detail(self, evidence_id: str, *, query: str = "") -> ReadingDetailDTO:
@@ -265,6 +289,89 @@ class KnowledgeStructureRepository:
                 "A versão simplificada é uma síntese automática e deve ser confrontada com o original."
             ),
         )
+
+    def toggle_bookmark(self, user_id: UUID, evidence_id: str) -> bool:
+        """Toggle a local bookmark and return its resulting state."""
+        with self._database.read_connection() as connection:
+            exists = connection.execute(
+                "SELECT 1 FROM reading_bookmarks WHERE user_id=? AND evidence_id=?",
+                (str(user_id), evidence_id),
+            ).fetchone()
+        if exists:
+            with self._database.transaction() as connection:
+                connection.execute(
+                    "DELETE FROM reading_bookmarks WHERE user_id=? AND evidence_id=?",
+                    (str(user_id), evidence_id),
+                )
+            return False
+        detail = self.reading_detail(evidence_id)
+        with self._database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO reading_bookmarks VALUES(?,?,?,?,?)",
+                (str(user_id), evidence_id, detail.title, detail.source,
+                 datetime.now(UTC).isoformat()),
+            )
+        return True
+
+    def bookmarks(self, user_id: UUID) -> tuple[dict[str, object], ...]:
+        with self._database.read_connection() as connection:
+            rows = connection.execute(
+                """SELECT evidence_id,title,source,created_at FROM reading_bookmarks
+                   WHERE user_id=? ORDER BY created_at DESC""", (str(user_id),),
+            ).fetchall()
+        return tuple(dict(row) for row in rows)
+
+    def save_note(
+        self, user_id: UUID, evidence_id: str, note: str, *,
+        selection_start: int | None = None, selection_end: int | None = None,
+        selected_text: str = "",
+    ) -> dict[str, object]:
+        cleaned = note.strip()
+        if not cleaned or len(cleaned) > 20_000:
+            raise ValueError("A nota deve conter entre 1 e 20 000 caracteres.")
+        if selection_start is not None and selection_end is not None and selection_end < selection_start:
+            raise ValueError("A seleção da nota é inválida.")
+        identity, now = str(uuid4()), datetime.now(UTC).isoformat()
+        encrypted = self._cipher.encrypt(
+            cleaned.encode("utf-8"),
+            associated_data=f"reading_notes.note:{identity}".encode(),
+        )
+        quote_hash = hashlib.sha256(selected_text.encode("utf-8")).hexdigest() if selected_text else ""
+        with self._database.transaction() as connection:
+            connection.execute(
+                """INSERT INTO reading_notes(
+                    id,user_id,evidence_id,selection_start,selection_end,note_encrypted,
+                    quote_hash,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)""",
+                (identity, str(user_id), evidence_id, selection_start, selection_end,
+                 encrypted, quote_hash, now, now),
+            )
+        return {"id": identity, "evidence_id": evidence_id, "note": cleaned,
+                "selection_start": selection_start, "selection_end": selection_end,
+                "created_at": now}
+
+    def notes(self, user_id: UUID, evidence_id: str) -> tuple[dict[str, object], ...]:
+        with self._database.read_connection() as connection:
+            rows = connection.execute(
+                """SELECT * FROM reading_notes WHERE user_id=? AND evidence_id=?
+                   ORDER BY updated_at DESC""", (str(user_id), evidence_id),
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["note"] = self._cipher.decrypt(
+                item.pop("note_encrypted"),
+                associated_data=f"reading_notes.note:{row['id']}".encode(),
+            ).decode("utf-8")
+            result.append(item)
+        return tuple(result)
+
+    def compare_readings(
+        self, evidence_ids: tuple[str, ...], *, query: str = ""
+    ) -> tuple[ReadingDetailDTO, ...]:
+        unique = tuple(dict.fromkeys(evidence_ids))
+        if not 2 <= len(unique) <= 4:
+            raise ValueError("Seleciona entre duas e quatro fontes para comparar.")
+        return tuple(self.reading_detail(item, query=query) for item in unique)
 
     def _assistance(self, chunk_id: UUID, original: str, query: str):
         with self._database.read_connection() as connection:

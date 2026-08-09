@@ -1,4 +1,4 @@
-# Instalação móvel do Aprendix 0.18.0
+# Instalação móvel do Aprendix 1.0.0
 
 O Android e o iOS usam formatos e regras de assinatura diferentes. Um APK só
 funciona em Android; não pode ser instalado num iPhone ou iPad.
@@ -16,11 +16,11 @@ Não é necessário instalar Python, criar uma venv ou manter ligação à Inter
 
 Ficheiro:
 
-`dist/mobile/Aprendix-0.18.0-android-arm64-debug.apk`
+`dist/mobile/Aprendix-1.0.0-android-arm64-release.apk`
 
 SHA-256:
 
-`EBCE41D6BFB7F0A477B5F65970079250CA7D19D814A26EF3C035FCE5E2C4B080`
+`9C1869F0271DC1622CB3A2B26C262CCF772988F80CD28E2B8059CC8918FF0F3F`
 
 ### Método A — pelo gestor de ficheiros
 
@@ -49,11 +49,13 @@ dispositivo.
 
 ### Atualizações e assinatura
 
-Este artefacto está assinado com a chave Android de debug usada neste ambiente. É
-adequado a instalação direta e testes privados, mas não é uma release de loja. Android
+Este artefacto é um APK release não-debuggable, assinado com uma identidade local
+persistente guardada fora do repositório. Não é uma release de loja. Android
 só permite atualizar uma aplicação quando o novo APK tem o mesmo package ID e a mesma
 chave. Conserva a instalação atual e usa APKs produzidos com a mesma chave; caso a chave
 mude, será necessário desinstalar primeiro, perdendo os dados locais não exportados.
+A identidade encontra-se no ambiente WSL em `~/.config/aprendix/signing`; guarda uma
+cópia privada desse diretório e nunca o distribuas juntamente com o APK.
 
 ## iOS/iPadOS — compilação e instalação fora da App Store
 

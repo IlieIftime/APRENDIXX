@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ast
+import hashlib
 import json
 import re
 import unicodedata
@@ -9,18 +11,25 @@ from difflib import SequenceMatcher
 from datetime import UTC, datetime
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
-from aprendix.application.learning_catalog import EXTRA_GLOSSARY
+from aprendix.application.academy_catalog import ACADEMY_MODULES, ACADEMY_TRACKS
+from aprendix.application.learning_catalog import EXTRA_GLOSSARY, GLOSSARY_ALIASES
 
 
 def _id(kind: str, slug: str) -> str:
     return str(uuid5(NAMESPACE_URL, f"aprendix:curriculum:{kind}:{slug}"))
 
 
-TRACKS = (
+LEGACY_TRACKS = (
     ("python-foundations", "Python: bases", "Prática progressiva de valores, decisões e funções.", 0),
     ("python-oop", "Python: POO", "Objetos pequenos, estado explícito e comportamento testável.", 1),
     ("python-algorithms", "Python: algoritmos", "Resolução determinística, casos-limite e análise de passos.", 2),
     ("python-data-structures", "Python: estruturas de dados", "Escolha consciente de listas, mapas e conjuntos.", 3),
+)
+
+
+TRACKS = tuple(
+    (slug, title, description, position)
+    for slug, title, description, _technology, position in ACADEMY_TRACKS
 )
 
 
@@ -100,6 +109,26 @@ CHAPTERS = (
 )
 
 
+def _chapter_specs():
+    """Return legacy authored chapters plus the expanded academy modules."""
+    generated = []
+    for slug, track_slug, title, objective, theory, starter, _test in ACADEMY_MODULES:
+        generated.append((
+            slug, track_slug, slug, title, objective, f"academy-{slug}",
+            theory, starter,
+            f"Qual prática torna '{title}' verificável?",
+            ("Ignorar o contrato e observar apenas o resultado final",
+             "Declarar o contrato e testar um caso normal e um caso-limite",
+             "Usar rede ou ficheiros externos sem necessidade"),
+            "b",
+            "Um contrato observável e casos representativos distinguem uma solução correta de uma coincidência.",
+            "Antes de executar, qual ação permite comparar a previsão com o resultado?",
+            "validar",
+            "Validar é definir a expectativa primeiro e compará-la com a evidência da execução.",
+        ))
+    return (*CHAPTERS, *generated)
+
+
 GLOSSARY = (
     ("print", "python", "Mostra uma representação textual dos valores recebidos no output padrão.", "print(*valores, sep=' ', end='\\n')", "print('total', 3)", ("output", "str")),
     ("len", "python", "Devolve a quantidade de elementos de uma coleção finita.", "len(objeto)", "len([4, 8])  # 2", ("list", "tuple")),
@@ -160,14 +189,40 @@ class CurriculumRepository:
         return self._cipher.decrypt(value, associated_data=f"{table_field}:{identity}".encode()).decode("utf-8")
 
     def seed(self) -> None:
+        chapters = _chapter_specs()
         with self._database.transaction() as connection:
+            technology_by_track = {item[0]: item[3] for item in ACADEMY_TRACKS}
             for slug, title, description, position in TRACKS:
                 connection.execute(
-                    "INSERT OR IGNORE INTO learning_tracks VALUES(?,?,?,?,?,?)",
-                    (_id("track", slug), slug, title, description, "python", position),
+                    """INSERT INTO learning_tracks VALUES(?,?,?,?,?,?)
+                       ON CONFLICT(id) DO UPDATE SET title=excluded.title,
+                       description=excluded.description,technology=excluded.technology,
+                       position=excluded.position""",
+                    (_id("track", slug), slug, title, description,
+                     technology_by_track[slug], position),
+                )
+            now = datetime.now(UTC).isoformat()
+            track_position = {item[0]: item[4] for item in ACADEMY_TRACKS}
+            for slug, track_slug, title, objective, _theory, starter, test in ACADEMY_MODULES:
+                node_id = _id("graph-node", slug)
+                difficulty = min(2.5, -1.25 + track_position[track_slug] * 0.3)
+                connection.execute(
+                    """INSERT OR IGNORE INTO graph_nodes(
+                       id,slug,title,description,difficulty,created_at,updated_at)
+                       VALUES(?,?,?,?,?,?,?)""",
+                    (node_id, slug, title, objective, difficulty, now, now),
+                )
+                exercise_id = _id("exercise", f"academy-{slug}")
+                connection.execute(
+                    """INSERT OR IGNORE INTO exercises(
+                       id,graph_node_id,slug,title,prompt,starter_code,tests_json,
+                       difficulty,version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,1,?,?)""",
+                    (exercise_id, node_id, f"academy-{slug}", f"Prática · {title}",
+                     f"{objective}\n\nCompleta o contrato iniciado. A solução deve passar todos os casos normais e limites sem rede nem ficheiros externos.",
+                     starter, json.dumps((test,), ensure_ascii=False), difficulty, now, now),
                 )
             last_hybrid: dict[str, str] = {}
-            for chapter_position, data in enumerate(CHAPTERS):
+            for chapter_position, data in enumerate(chapters):
                 (slug, track_slug, node_slug, title, objective, exercise_slug,
                  theory, example, question, options, answer, explanation,
                  hybrid_prompt, hybrid_answer, hybrid_explanation) = data
@@ -201,6 +256,15 @@ class CurriculumRepository:
                         "INSERT OR IGNORE INTO learning_unit_dependencies VALUES(?,?)",
                         (unit_ids[child], unit_ids[parent]),
                     )
+                objective_id = _id("objective", slug)
+                connection.execute(
+                    "INSERT OR IGNORE INTO curriculum_objectives VALUES(?,?,?,'apply')",
+                    (objective_id, f"OBJ-{slug.upper()}", objective),
+                )
+                connection.executemany(
+                    "INSERT OR IGNORE INTO unit_objectives VALUES(?,?,1)",
+                    ((unit_id, objective_id) for unit_id in unit_ids.values()),
+                )
                 assessments = (
                     ("practical", unit_ids["practice"], "Conclui e valida o exercício no IDE.", "passed", "O corretor AST e os testes isolados decidem o resultado.", 0.0, ()),
                     ("theory", unit_ids["quiz"], question, answer, explanation, 0.0,
@@ -236,6 +300,16 @@ class CurriculumRepository:
                         (unit_id, first_chapter["id"], None, "project", f"Projeto · {title}",
                          self._encrypt("learning_units.body", unit_id, body), None, 99, 1),
                     )
+                    project_objective_id = _id("objective", f"{slug}-project")
+                    connection.execute(
+                        "INSERT OR IGNORE INTO curriculum_objectives VALUES(?,?,?,'create')",
+                        (project_objective_id, f"OBJ-{slug.upper()}-PROJECT",
+                         f"Criar e justificar um artefacto local verificável para {title}."),
+                    )
+                    connection.execute(
+                        "INSERT OR IGNORE INTO unit_objectives VALUES(?,?,1)",
+                        (unit_id, project_objective_id),
+                    )
                     if slug in last_hybrid:
                         connection.execute(
                             "INSERT OR IGNORE INTO learning_unit_dependencies VALUES(?,?)",
@@ -244,27 +318,115 @@ class CurriculumRepository:
             # Stable prerequisite spine for an ARPG-like skill tree.  Dynamic
             # co-occurrence later strengthens these edges without replacing it.
             ordered_nodes = []
-            for data in CHAPTERS:
+            for data in chapters:
                 node = connection.execute("SELECT id FROM graph_nodes WHERE slug=?", (data[2],)).fetchone()
                 if node and node["id"] not in ordered_nodes:
                     ordered_nodes.append(node["id"])
-            now = datetime.now(UTC).isoformat()
             for source, target in zip(ordered_nodes, ordered_nodes[1:]):
                 connection.execute(
                     """INSERT OR IGNORE INTO graph_edges(source_node_id,target_node_id,
                        weight,co_occurrence_count,updated_at) VALUES(?,?,0.35,0,?)""",
                     (source, target, now),
                 )
+            # Public hierarchy: each principal pathway currently contains one
+            # independently versionable course; the schema supports adding more.
+            for slug, title, description, position in TRACKS:
+                path_id = _id("path", slug)
+                track_id = _id("track", slug)
+                connection.execute(
+                    "INSERT OR IGNORE INTO learning_paths VALUES(?,?,?,?,?,1)",
+                    (path_id, slug, f"Percurso · {title}", description, position),
+                )
+                connection.execute(
+                    "INSERT OR IGNORE INTO learning_path_courses VALUES(?,?,0,1)",
+                    (path_id, track_id),
+                )
+            for previous, current in zip(TRACKS, TRACKS[1:]):
+                previous_track, current_track = _id("track", previous[0]), _id("track", current[0])
+                connection.execute(
+                    "INSERT OR IGNORE INTO course_prerequisites VALUES(?,?,0.70)",
+                    (current_track, previous_track),
+                )
+                first_practice = connection.execute(
+                    """SELECT u.id FROM learning_units u JOIN learning_chapters c ON c.id=u.chapter_id
+                       WHERE c.track_id=? AND u.kind='practice' ORDER BY c.position,u.position LIMIT 1""",
+                    (current_track,),
+                ).fetchone()
+                previous_project = _id("unit", f"{previous[0]}-project")
+                project_exists = connection.execute(
+                    "SELECT 1 FROM learning_units WHERE id=?", (previous_project,)
+                ).fetchone()
+                if first_practice is not None and project_exists is not None:
+                    connection.execute(
+                        "INSERT OR IGNORE INTO learning_unit_dependencies VALUES(?,?)",
+                        (first_practice["id"], previous_project),
+                    )
+            checksum_payload = json.dumps(
+                {"tracks": ACADEMY_TRACKS, "modules": ACADEMY_MODULES},
+                ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+            ).encode("utf-8")
+            unit_count = int(connection.execute("SELECT count(*) FROM learning_units").fetchone()[0])
+            connection.execute(
+                """INSERT INTO curriculum_releases VALUES(?,?,?,?,?,?)
+                   ON CONFLICT(version) DO UPDATE SET status=excluded.status,
+                   catalog_checksum=excluded.catalog_checksum,track_count=excluded.track_count,
+                   unit_count=excluded.unit_count,activated_at=excluded.activated_at""",
+                ("academy-1", "active", hashlib.sha256(checksum_payload).hexdigest(),
+                 len(TRACKS), unit_count, now),
+            )
+            glossary_nodes: dict[str, str] = {}
+            glossary_relations: list[tuple[str, tuple[str, ...]]] = []
             for term, technology, definition, signature, example, related in (*GLOSSARY, *EXTRA_GLOSSARY):
                 identity = _id("glossary", _normalize(term))
+                normalized_term = _normalize(term)
                 connection.execute(
                     "INSERT OR IGNORE INTO glossary_entries VALUES(?,?,?,?,?,?,?,?)",
-                    (identity, term, _normalize(term), technology,
+                    (identity, term, normalized_term, technology,
                      self._encrypt("glossary_entries.definition", identity, definition),
                      self._encrypt("glossary_entries.signature", identity, signature),
                      self._encrypt("glossary_entries.example", identity, example),
                      json.dumps(related, ensure_ascii=False, separators=(",", ":"))),
                 )
+                node_id = _id("graph-node", f"concept:{normalized_term}")
+                node_slug = "concept-" + re.sub(r"[^a-z0-9]+", "-", normalized_term).strip("-")
+                if node_slug == "concept-":
+                    node_slug += hashlib.sha256(term.encode("utf-8")).hexdigest()[:12]
+                connection.execute(
+                    """INSERT OR IGNORE INTO graph_nodes(
+                       id,slug,title,description,difficulty,created_at,updated_at)
+                       VALUES(?,?,?,?,0.0,?,?)""",
+                    (node_id, node_slug[:120], term,
+                     f"Conceito local de {technology}; abre o dicionário para definição, exemplo e fontes.",
+                     now, now),
+                )
+                glossary_nodes[normalized_term] = node_id
+                glossary_relations.append((normalized_term, related))
+            for canonical, aliases in GLOSSARY_ALIASES:
+                entry = connection.execute(
+                    "SELECT id FROM glossary_entries WHERE normalized_term=?",
+                    (_normalize(canonical),),
+                ).fetchone()
+                if entry is None:
+                    continue
+                for alias in aliases:
+                    normalized_alias = _normalize(alias)
+                    if not normalized_alias or normalized_alias == _normalize(canonical):
+                        continue
+                    connection.execute(
+                        "INSERT OR IGNORE INTO glossary_aliases VALUES(?,?,?,'und')",
+                        (entry["id"], alias, normalized_alias),
+                    )
+            for source_term, related_terms in glossary_relations:
+                source_node = glossary_nodes[source_term]
+                for related_term in related_terms:
+                    target_node = glossary_nodes.get(_normalize(related_term))
+                    if target_node is None or target_node == source_node:
+                        continue
+                    connection.execute(
+                        """INSERT OR IGNORE INTO graph_edges(source_node_id,target_node_id,
+                           weight,co_occurrence_count,updated_at) VALUES(?,?,0.20,0,?)""",
+                        (source_node, target_node, now),
+                    )
 
     def rebuild_bibliography_links(self) -> int:
         with self._database.transaction() as connection:
@@ -291,6 +453,27 @@ class CurriculumRepository:
                 SELECT previous, id, 'same-concept', 0.9 FROM ordered
                 WHERE previous IS NOT NULL AND previous <> id
             """)
+            connection.execute("""
+                WITH ranked AS (
+                    SELECT kac.area_id, kac.chunk_id, kac.relevance,
+                           lag(kac.chunk_id) OVER(
+                               PARTITION BY kac.area_id
+                               ORDER BY kac.relevance DESC, kac.chunk_id
+                           ) previous
+                    FROM knowledge_area_chunks kac
+                    JOIN document_chunks c ON c.id=kac.chunk_id
+                    JOIN documents d ON d.id=c.document_id
+                    LEFT JOIN chunk_quality q ON q.chunk_id=c.id
+                    WHERE d.lifecycle='active'
+                      AND COALESCE(q.status,'accepted')='accepted'
+                )
+                INSERT OR IGNORE INTO bibliography_links(
+                    source_chunk_id,target_chunk_id,relation,weight
+                )
+                SELECT previous,chunk_id,'related',min(0.88,max(0.35,relevance))
+                FROM ranked
+                WHERE previous IS NOT NULL AND previous <> chunk_id
+            """)
             return int(connection.execute("SELECT count(*) FROM bibliography_links").fetchone()[0])
 
     def tracks(self) -> tuple[dict[str, object], ...]:
@@ -302,6 +485,113 @@ class CurriculumRepository:
                 GROUP BY t.id ORDER BY t.position
             """).fetchall()
         return tuple(dict(row) for row in rows)
+
+    def paths(self, user_id: UUID) -> tuple[dict[str, object], ...]:
+        with self._database.read_connection() as connection:
+            rows = connection.execute(
+                """SELECT p.id,p.slug,p.title,p.description,p.position,t.id track_id,
+                          t.slug track_slug,t.title course_title,
+                          count(DISTINCT u.id) total_units,
+                          count(DISTINCT up.unit_id) completed_units
+                   FROM learning_paths p JOIN learning_path_courses pc ON pc.path_id=p.id
+                   JOIN learning_tracks t ON t.id=pc.track_id
+                   LEFT JOIN learning_chapters c ON c.track_id=t.id
+                   LEFT JOIN learning_units u ON u.chapter_id=c.id
+                   LEFT JOIN learning_unit_progress up ON up.unit_id=u.id AND up.user_id=?
+                   WHERE p.active=1 GROUP BY p.id,t.id ORDER BY p.position,pc.position""",
+                (str(user_id),),
+            ).fetchall()
+            completed_projects = {row[0] for row in connection.execute(
+                """SELECT c.track_id FROM learning_unit_progress up
+                   JOIN learning_units u ON u.id=up.unit_id
+                   JOIN learning_chapters c ON c.id=u.chapter_id
+                   WHERE up.user_id=? AND u.kind='project'""", (str(user_id),)
+            )}
+            started_tracks = {row[0] for row in connection.execute(
+                """SELECT DISTINCT c.track_id FROM learning_unit_progress up
+                   JOIN learning_units u ON u.id=up.unit_id
+                   JOIN learning_chapters c ON c.id=u.chapter_id WHERE up.user_id=?""",
+                (str(user_id),),
+            )}
+            prerequisites = {}
+            for row in connection.execute("SELECT * FROM course_prerequisites"):
+                prerequisites.setdefault(row["track_id"], set()).add(row["prerequisite_track_id"])
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["unlocked"] = (
+                item["track_id"] in started_tracks or
+                prerequisites.get(item["track_id"], set()).issubset(completed_projects)
+            )
+            item["progress"] = (
+                item["completed_units"] / item["total_units"] if item["total_units"] else 0.0
+            )
+            result.append(item)
+        return tuple(result)
+
+    def validate_catalog(self) -> dict[str, object]:
+        """Return a deterministic structural audit used as the CURR-1 gate."""
+        with self._database.read_connection() as connection:
+            counts = {
+                "paths": connection.execute("SELECT count(*) FROM learning_paths WHERE active=1").fetchone()[0],
+                "tracks": connection.execute("SELECT count(*) FROM learning_tracks").fetchone()[0],
+                "chapters": connection.execute("SELECT count(*) FROM learning_chapters").fetchone()[0],
+                "units": connection.execute("SELECT count(*) FROM learning_units").fetchone()[0],
+                "objectives": connection.execute("SELECT count(*) FROM curriculum_objectives").fetchone()[0],
+                "exercises": connection.execute("SELECT count(*) FROM exercises").fetchone()[0],
+            }
+            defects = {
+                "orphan_units": connection.execute(
+                    """SELECT count(*) FROM learning_units u LEFT JOIN learning_chapters c
+                       ON c.id=u.chapter_id WHERE c.id IS NULL"""
+                ).fetchone()[0],
+                "units_without_objective": connection.execute(
+                    """SELECT count(*) FROM learning_units u LEFT JOIN unit_objectives o
+                       ON o.unit_id=u.id WHERE o.unit_id IS NULL"""
+                ).fetchone()[0],
+                "practice_without_exercise": connection.execute(
+                    "SELECT count(*) FROM learning_units WHERE kind='practice' AND exercise_id IS NULL"
+                ).fetchone()[0],
+                "tracks_without_project": connection.execute(
+                    """SELECT count(*) FROM learning_tracks t WHERE NOT EXISTS(
+                       SELECT 1 FROM learning_chapters c JOIN learning_units u ON u.chapter_id=c.id
+                       WHERE c.track_id=t.id AND u.kind='project')"""
+                ).fetchone()[0],
+                "assessments_without_objective": connection.execute(
+                    """SELECT count(*) FROM assessment_items a JOIN learning_units u ON u.id=a.unit_id
+                       LEFT JOIN unit_objectives o ON o.unit_id=u.id WHERE o.objective_id IS NULL"""
+                ).fetchone()[0],
+            }
+            edges = connection.execute(
+                "SELECT unit_id,prerequisite_unit_id FROM learning_unit_dependencies"
+            ).fetchall()
+            executable_sources = connection.execute(
+                "SELECT starter_code,tests_json FROM exercises"
+            ).fetchall()
+        invalid_syntax = 0
+        for source in executable_sources:
+            try:
+                ast.parse(source["starter_code"])
+                for test in json.loads(source["tests_json"]):
+                    if test.lower().startswith("stdout equals"):
+                        continue
+                    ast.parse(test)
+            except (SyntaxError, TypeError, json.JSONDecodeError):
+                invalid_syntax += 1
+        defects["invalid_executable_syntax"] = invalid_syntax
+        graph = {}
+        for edge in edges:
+            graph.setdefault(edge["unit_id"], set()).add(edge["prerequisite_unit_id"])
+        visiting, visited = set(), set()
+        def has_cycle(node):
+            if node in visiting: return True
+            if node in visited: return False
+            visiting.add(node)
+            cycle = any(has_cycle(parent) for parent in graph.get(node, ()))
+            visiting.remove(node); visited.add(node)
+            return cycle
+        defects["dependency_cycles"] = int(any(has_cycle(node) for node in tuple(graph)))
+        return {"valid": not any(defects.values()), "counts": counts, "defects": defects}
 
     def units(self, track_slug: str, user_id: UUID) -> tuple[dict[str, object], ...]:
         with self._database.read_connection() as connection:
@@ -331,6 +621,39 @@ class CurriculumRepository:
             result.append(item)
         return tuple(result)
 
+    def diagnostic(self, user_id: UUID, *, limit: int = 5) -> tuple[dict[str, object], ...]:
+        """Choose an auditable cold-start sequence without jumping prerequisites."""
+        with self._database.read_connection() as connection:
+            ability = float(connection.execute(
+                "SELECT COALESCE(avg(irt_ability),-1.0) FROM mastery_states WHERE user_id=?",
+                (str(user_id),),
+            ).fetchone()[0])
+            rows = connection.execute(
+                """SELECT DISTINCT e.id,e.slug,e.title,e.difficulty,c.title chapter_title,
+                          t.slug track_slug,
+                          EXISTS(SELECT 1 FROM attempts a WHERE a.user_id=? AND a.exercise_id=e.id) attempted
+                   FROM exercises e JOIN learning_units u ON u.exercise_id=e.id
+                   JOIN learning_chapters c ON c.id=u.chapter_id
+                   JOIN learning_tracks t ON t.id=c.track_id
+                   WHERE u.kind='practice' AND (EXISTS(
+                     SELECT 1 FROM learning_unit_progress started
+                     JOIN learning_units su ON su.id=started.unit_id
+                     JOIN learning_chapters sc ON sc.id=su.chapter_id
+                     WHERE started.user_id=? AND sc.track_id=t.id
+                   ) OR NOT EXISTS(
+                     SELECT 1 FROM course_prerequisites cp WHERE cp.track_id=t.id
+                     AND NOT EXISTS(
+                       SELECT 1 FROM learning_unit_progress up
+                       JOIN learning_units pu ON pu.id=up.unit_id
+                       JOIN learning_chapters pc ON pc.id=pu.chapter_id
+                       WHERE up.user_id=? AND pu.kind='project'
+                       AND pc.track_id=cp.prerequisite_track_id)))
+                   ORDER BY attempted,abs(e.difficulty-?),e.difficulty,e.slug LIMIT ?""",
+                (str(user_id), str(user_id), str(user_id), ability, max(1, min(10, limit))),
+            ).fetchall()
+        return tuple({**dict(row), "target_ability": ability,
+                      "reason_code": "maximum_information_near_ability"} for row in rows)
+
     def complete_unit(self, user_id: UUID, unit_id: str) -> None:
         now = datetime.now(UTC).isoformat()
         with self._database.transaction() as connection:
@@ -338,6 +661,12 @@ class CurriculumRepository:
             if row is None: raise KeyError(unit_id)
             if row["kind"] == "practice":
                 raise ValueError("practice units are completed only by a passed IDE attempt")
+            if row["kind"] == "project":
+                has_project = connection.execute(
+                    "SELECT 1 FROM local_projects WHERE user_id=? LIMIT 1", (str(user_id),)
+                ).fetchone()
+                if has_project is None:
+                    raise ValueError("guarda primeiro um projeto verificável no IDE")
             prerequisites = {
                 item[0] for item in connection.execute(
                     "SELECT prerequisite_unit_id FROM learning_unit_dependencies WHERE unit_id=?", (unit_id,)
@@ -359,19 +688,35 @@ class CurriculumRepository:
         normalized = _normalize(term)
         with self._database.read_connection() as connection:
             rows = connection.execute("SELECT * FROM glossary_entries ORDER BY normalized_term").fetchall()
+            alias_rows = connection.execute(
+                "SELECT entry_id,alias,normalized_alias FROM glossary_aliases ORDER BY normalized_alias"
+            ).fetchall()
+        aliases_by_entry: dict[str, list[tuple[str, str]]] = {}
+        for alias in alias_rows:
+            aliases_by_entry.setdefault(alias["entry_id"], []).append(
+                (alias["alias"], alias["normalized_alias"])
+            )
         query_tokens = set(normalized.split())
         def rank(row):
             candidate = row["normalized_term"]
+            aliases = aliases_by_entry.get(row["id"], ())
+            alias_values = tuple(value for _label, value in aliases)
             related = " ".join(json.loads(row["related_terms_json"])).casefold()
             exact = candidate == normalized
-            prefix = candidate.startswith(normalized) or normalized.startswith(candidate)
-            substring = normalized in candidate or candidate in normalized
-            overlap = len(query_tokens & set((candidate + " " + related).split()))
-            similarity = SequenceMatcher(None, normalized, candidate).ratio() if normalized else 0.0
-            return (int(exact), int(prefix), int(substring), overlap, similarity, -len(candidate))
+            exact_alias = normalized in alias_values
+            prefix = (candidate.startswith(normalized) or normalized.startswith(candidate) or
+                      any(value.startswith(normalized) or normalized.startswith(value) for value in alias_values))
+            substring = (normalized in candidate or candidate in normalized or
+                         any(normalized in value or value in normalized for value in alias_values))
+            overlap = len(query_tokens & set((candidate + " " + related + " " + " ".join(alias_values)).split()))
+            similarity = max(
+                (SequenceMatcher(None, normalized, value).ratio()
+                 for value in (candidate, *alias_values)), default=0.0,
+            ) if normalized else 0.0
+            return (int(exact), int(exact_alias), int(prefix), int(substring), overlap, similarity, -len(candidate))
         rows = sorted(rows, key=rank, reverse=True)
         if normalized:
-            rows = [row for row in rows if rank(row)[:4] != (0, 0, 0, 0) or rank(row)[4] >= .36]
+            rows = [row for row in rows if rank(row)[:5] != (0, 0, 0, 0, 0) or rank(row)[5] >= .36]
         rows = rows[:max(1, min(limit, 30))]
         result = []
         for row in rows:
@@ -379,6 +724,7 @@ class CurriculumRepository:
             for name in ("definition", "signature", "example"):
                 item[name] = self._decrypt(f"glossary_entries.{name}", identity, item.pop(f"{name}_encrypted"))
             item["related_terms"] = tuple(json.loads(item.pop("related_terms_json")))
+            item["aliases"] = tuple(label for label, _normalized in aliases_by_entry.get(identity, ()))
             reference_map = {
                 "python": (("Documentação Python", "https://docs.python.org/3/"),),
                 "sql": (("PostgreSQL Documentation", "https://www.postgresql.org/docs/current/"),),
@@ -456,6 +802,7 @@ class CurriculumRepository:
                     (str(user_id), row["unit_id"], now),
                 )
         return {"attempt_id": attempt_id, "passed": passed, "score": 1.0 if passed else 0.0,
+                "kind": row["kind"],
                 "explanation": explanation}
 
     def graph_node_for_assessment(self, item_id: str) -> str:

@@ -30,4 +30,4 @@ finally {
     }
 }
 
-Write-Output "Desktop artifact created at dist/Aprendix.exe."
+Write-Output "Desktop artifact created at dist/Aprendix/Aprendix.exe."

@@ -8,7 +8,7 @@ from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from aprendix.application.clustering import TaxonomyClassifier
 from aprendix.application.contracts import (
-    CodeEditDTO, CopyKateRequest, EvaluationReceiptDTO, EventDTO, ExerciseDTO,
+    CodeEditDTO, CopyKateRequest, ErrorCategory, EvaluationReceiptDTO, EventDTO, ExerciseDTO,
     ExerciseTemplateDTO, FadedHintDTO, FallbackReason, GenerateExerciseRequest,
     GradingTestCaseDTO, HintStage, HintTemplateDTO, ProjectDTO, SandboxRequest,
     SmartCorrectionRequestDTO, SmartCorrectionResponseDTO, SubmitAttemptCommand,
@@ -25,7 +25,7 @@ class DesktopLearningService:
     def __init__(
         self, *, user, exercises, submissions: AttemptSubmissionService,
         attempts, events: EventIngestionService, workspace, sandbox, corrector,
-        cache=None,
+        cache=None, progress=None, debugger=None,
     ) -> None:
         self.user = user
         self._exercises = exercises
@@ -36,6 +36,8 @@ class DesktopLearningService:
         self._sandbox = sandbox
         self._corrector = corrector
         self._cache = cache
+        self._progress = progress
+        self._debugger = debugger
         self.copykate = CopyKateService()
         self.completion = StructuralCompletionEngine()
         self.provenance = CodeProvenanceGuard()
@@ -46,10 +48,18 @@ class DesktopLearningService:
             memory_limit_mb=192, max_output_bytes=32_768,
         ))
 
+    def debug(self, request, exercise_id: UUID | None = None):
+        if self._debugger is None:
+            raise RuntimeError("Debugger isolado indisponível.")
+        result = self._debugger.debug(request)
+        self._workspace.record_debug_session(self.user.id, exercise_id, request, result)
+        return result
+
     def evaluate(
         self, exercise: ExerciseDTO, source_code: str, duration_ms: int, *,
         telemetry: EditTelemetry | None = None, justification: str = "",
-        proficiency: float = 0.0,
+        proficiency: float = 0.0, active_seconds: int | None = None,
+        response_confidence: float = 0.5,
     ) -> EvaluationReceiptDTO:
         telemetry = telemetry or EditTelemetry(typed_characters=len(source_code), pasted_characters=0)
         decision = self.provenance.assess(
@@ -64,6 +74,19 @@ class DesktopLearningService:
         )
         submission = self._submissions.submit(command)
         correction, output = self._correct(exercise, source_code)
+        public = tuple(item for item in correction.test_outcomes if item.visibility == "public")
+        hidden = tuple(item for item in correction.test_outcomes if item.visibility == "hidden")
+        self._workspace.record_test_run(
+            self.user.id, exercise.id,
+            public_passed=sum(item.passed for item in public), public_total=len(public),
+            hidden_passed=sum(item.passed for item in hidden), hidden_total=len(hidden),
+            coverage_percent=0.0,
+            result={
+                "status": correction.status, "score": correction.score,
+                "outcomes": [item.model_dump(mode="json") for item in correction.test_outcomes],
+                "rubric": [item.model_dump(mode="json") for item in correction.rubric],
+            },
+        )
         passed = correction.status == "passed"
         final_status = AttemptStatus.PASSED if passed else (
             AttemptStatus.ERROR if correction.status == "error" else AttemptStatus.FAILED
@@ -96,6 +119,23 @@ class DesktopLearningService:
         ) if passed else None
         if passed:
             self._workspace.complete_practice_unit(self.user.id, exercise.id)
+        if self._progress is not None:
+            total_edits = telemetry.typed_characters + telemetry.pasted_characters
+            error_category = (
+                ErrorCategory.NONE if passed else
+                ErrorCategory.SYNTAX if not correction.syntax_valid else
+                ErrorCategory.RUNTIME if correction.status == "error" else
+                ErrorCategory.CONCEPTUAL
+            )
+            self._progress.record_attempt(
+                user_id=self.user.id, node_id=exercise.graph_node_id,
+                attempt_id=submission.attempt_id, score=correction.score,
+                duration_seconds=max(0, duration_ms // 1000),
+                active_seconds=active_seconds,
+                paste_ratio=(telemetry.pasted_characters / total_edits if total_edits else 0.0),
+                error_category=error_category, item_difficulty=exercise.difficulty,
+                response_confidence=response_confidence,
+            )
         return EvaluationReceiptDTO(
             attempt_id=submission.attempt_id, passed=passed, score=correction.score,
             feedback=correction.feedback, milestone=milestone,
@@ -122,18 +162,27 @@ class DesktopLearningService:
                 syntax_valid=execution.error_type != "SyntaxError",
                 policy_safe=execution.status != "rejected", feedback=feedback,
             ), actual or (execution.error_message or execution.status)
-        executable_tests = tuple(
-            GradingTestCaseDTO(name=f"Teste {index}", code=test)
-            for index, test in enumerate(exercise.tests, start=1)
-            if test.lstrip().startswith("assert ")
-        )
+        executable_tests = []
+        for index, raw_test in enumerate(exercise.tests, start=1):
+            marker, test = "", raw_test.strip()
+            while test.startswith("[") and "]" in test:
+                current, test = test[1:].split("]", 1)
+                marker += " " + current.lower()
+                test = test.lstrip()
+            if test.startswith("assert "):
+                visibility = "hidden" if "hidden" in marker else "public"
+                kind = "property" if "property" in marker else "example"
+                executable_tests.append(GradingTestCaseDTO(
+                    name=(f"Caso oculto {index}" if visibility == "hidden" else f"Teste {index}"),
+                    code=test, visibility=visibility, kind=kind,
+                ))
         _technologies, themes = TaxonomyClassifier.classify(
             f"{exercise.title} {exercise.prompt}"
         )
         required = ("ClassDef",) if any(theme.value == "oop" for theme in themes) else ()
         correction = self._corrector.correct(SmartCorrectionRequestDTO(
             source_code=source_code,
-            tests=executable_tests,
+            tests=tuple(executable_tests),
             required_constructs=required,
         ))
         return correction, "\n".join(correction.feedback)
@@ -170,17 +219,55 @@ class DesktopLearningService:
     def gamification(self):
         return self._workspace.gamification(self.user.id)
 
-    def review_card(self, card_id: UUID, *, known: bool) -> None:
-        self._workspace.record_card_review(self.user.id, card_id, known=known)
+    def review_card(
+        self, card_id: UUID, *, known: bool | None = None, feedback: str | None = None,
+    ) -> None:
+        normalized = feedback or ("already_knew" if known else "review")
+        self._workspace.record_card_review(
+            self.user.id, card_id, known=known, feedback=normalized,
+        )
+        if self._progress is not None:
+            node_id = self._progress.node_for_card(card_id)
+            if node_id is not None:
+                self._progress.record_review(
+                    user_id=self.user.id, node_id=node_id,
+                    review_key=f"card:{card_id}:{uuid4()}",
+                    known=normalized in {"already_knew", "useful"},
+                )
 
-    def save_project(self, name: str, source_code: str, project_id: UUID | None = None):
+    def daily_card_ids(self, *, limit: int = 30) -> tuple[UUID, ...]:
+        return self._workspace.daily_card_ids(self.user.id, limit=limit)
+
+    def save_project(
+        self, name: str, source_code: str, project_id: UUID | None = None, *,
+        relative_path: str = "main.py",
+    ):
         return self._workspace.save_project(ProjectDTO(
             id=project_id or uuid4(),
             user_id=self.user.id, name=name, source_code=source_code,
+            relative_path=relative_path,
         ))
 
     def projects(self):
         return self._workspace.list_projects(self.user.id)
+
+    def project_files(self, project_id: UUID):
+        return self._workspace.project_files(self.user.id, project_id)
+
+    def project_versions(self, project_id: UUID, relative_path: str = "main.py"):
+        return self._workspace.project_versions(project_id, relative_path)
+
+    def save_debug_recovery(
+        self, exercise_id: UUID, source: str, *, cursor_index: int,
+        breakpoints=(), watches=(),
+    ) -> None:
+        self._workspace.save_debug_recovery(
+            self.user.id, exercise_id, source, cursor_index=cursor_index,
+            breakpoints=breakpoints, watches=watches,
+        )
+
+    def load_debug_recovery(self, exercise_id: UUID):
+        return self._workspace.load_debug_recovery(self.user.id, exercise_id)
 
     def record_focus(self, minutes: int, elapsed_seconds: int, status: str) -> None:
         self._workspace.record_focus(

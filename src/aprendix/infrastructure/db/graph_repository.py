@@ -63,6 +63,30 @@ class SQLiteGraphRepository:
             ).fetchone()
         return row is not None
 
+    def eligible_node_ids(self, user_id: UUID) -> tuple[UUID, ...]:
+        """Exclude nodes behind an unfinished blocking course prerequisite."""
+        with self._database.read_connection() as connection:
+            rows = connection.execute(
+                """SELECT DISTINCT g.id FROM graph_nodes g
+                   LEFT JOIN learning_chapters c ON c.graph_node_id=g.id
+                   WHERE EXISTS(SELECT 1 FROM exercises e WHERE e.graph_node_id=g.id)
+                   AND (c.track_id IS NULL OR EXISTS(
+                     SELECT 1 FROM learning_unit_progress started
+                     JOIN learning_units su ON su.id=started.unit_id
+                     JOIN learning_chapters sc ON sc.id=su.chapter_id
+                     WHERE started.user_id=? AND sc.track_id=c.track_id
+                   ) OR NOT EXISTS(
+                     SELECT 1 FROM course_prerequisites cp
+                     WHERE cp.track_id=c.track_id AND NOT EXISTS(
+                       SELECT 1 FROM learning_unit_progress up
+                       JOIN learning_units u ON u.id=up.unit_id
+                       JOIN learning_chapters pc ON pc.id=u.chapter_id
+                       WHERE up.user_id=? AND u.kind='project'
+                       AND pc.track_id=cp.prerequisite_track_id)))
+                   ORDER BY g.id""", (str(user_id), str(user_id))
+            ).fetchall()
+        return tuple(UUID(row["id"]) for row in rows)
+
     def apply_event(
         self,
         event: EventDTO,

@@ -18,6 +18,7 @@ from aprendix.application.contracts import (
     SandboxRequest,
     SandboxResult,
 )
+from aprendix.infrastructure.windows_job import WindowsJobLimit
 
 _MAX_AST_NODES: Final = 5_000
 _MAX_NESTING: Final = 80
@@ -417,6 +418,13 @@ class PythonSandbox:
                 error_message="isolated interpreter could not be started",
             )
 
+        windows_job = WindowsJobLimit.attach(
+            process,
+            memory_limit_mb=request.memory_limit_mb,
+            cpu_limit_ms=request.timeout_ms,
+        )
+        host_memory_enforced = os.name == "posix" or windows_job is not None
+
         try:
             startup_allowance_ms = (
                 6_000 if getattr(sys, "frozen", False) and helper.is_file()
@@ -430,14 +438,19 @@ class PythonSandbox:
         except subprocess.TimeoutExpired:
             self._terminate(process)
             process.communicate()
+            if windows_job is not None:
+                windows_job.close()
             return SandboxResult(
                 status="timeout",
                 duration_ms=self._elapsed_ms(started),
                 exit_code=process.returncode,
-                memory_limit_enforced=False,
+                memory_limit_enforced=host_memory_enforced,
                 error_type="TimeoutExpired",
                 error_message=f"execution exceeded {request.timeout_ms} ms",
             )
+
+        if windows_job is not None:
+            windows_job.close()
 
         maximum_envelope = request.max_output_bytes * 6 + 16_384
         if len(stdout) > maximum_envelope:
@@ -445,7 +458,7 @@ class PythonSandbox:
                 status="infrastructure_error",
                 duration_ms=self._elapsed_ms(started),
                 exit_code=process.returncode,
-                memory_limit_enforced=False,
+                memory_limit_enforced=host_memory_enforced,
                 error_type="MalformedChildOutput",
                 error_message="child result exceeded the trusted envelope size",
             )
@@ -455,7 +468,7 @@ class PythonSandbox:
                 status="resource_limit",
                 duration_ms=self._elapsed_ms(started),
                 exit_code=process.returncode,
-                memory_limit_enforced=os.name == "posix",
+                memory_limit_enforced=host_memory_enforced,
                 error_type="ChildTerminated",
                 error_message=message or "child terminated without a trusted result",
             )
@@ -484,7 +497,10 @@ class PythonSandbox:
                 exit_code=process.returncode,
                 error_type=decoded.get("error_type"),
                 error_message=decoded.get("error_message"),
-                memory_limit_enforced=bool(decoded.get("memory_limit_enforced")),
+                memory_limit_enforced=(
+                    host_memory_enforced
+                    or bool(decoded.get("memory_limit_enforced"))
+                ),
                 output_truncated=bool(decoded.get("output_truncated")),
             )
         except (UnicodeDecodeError, json.JSONDecodeError, SandboxInfrastructureError) as exc:
@@ -492,7 +508,7 @@ class PythonSandbox:
                 status="infrastructure_error",
                 duration_ms=self._elapsed_ms(started),
                 exit_code=process.returncode,
-                memory_limit_enforced=False,
+                memory_limit_enforced=host_memory_enforced,
                 error_type=type(exc).__name__,
                 error_message="child returned an invalid result envelope",
             )

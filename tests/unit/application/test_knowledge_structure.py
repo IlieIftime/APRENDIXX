@@ -6,6 +6,7 @@ from aprendix.application.contracts import (
     ContentKind,
     SearchFiltersDTO,
     SearchRequestDTO,
+    UserDTO,
 )
 from aprendix.application.knowledge import HybridSearchService
 from aprendix.application.knowledge_structure import (
@@ -18,6 +19,7 @@ from aprendix.infrastructure.db import (
     IndexedDocument,
     KnowledgeRepository,
     KnowledgeStructureRepository,
+    UserRepository,
 )
 from aprendix.infrastructure.ingestion import FeatureHashEmbedding
 
@@ -124,3 +126,53 @@ def test_curated_search_respects_result_limit_and_stays_local(database, cipher) 
     assert len({item.title.casefold() for item in response.evidence}) == 3
     assert response.used_web_fallback is False
     assert response.local_confidence > 0.0
+
+
+def test_private_documents_never_enter_plaintext_fts(database, cipher) -> None:
+    knowledge = KnowledgeRepository(database, cipher)
+    private_chunk = _indexed_vision_document(knowledge)
+    KnowledgeStructureRepository(database, cipher).seed()
+    knowledge.seed_authored_facts()
+    count = knowledge.rebuild_public_fts(force=True)
+    assert count > 0
+    with database.read_connection() as connection:
+        private = connection.execute(
+            "SELECT 1 FROM search_fts_public WHERE chunk_id=?", (private_chunk,)
+        ).fetchone()
+        public_body = connection.execute(
+            "SELECT body FROM search_fts_public LIMIT 1"
+        ).fetchone()[0]
+    assert private is None
+    assert public_body
+    assert knowledge.public_lexical_scores("Python")
+
+
+def test_blind_private_index_shortlists_without_plaintext(database, cipher) -> None:
+    knowledge = KnowledgeRepository(database, cipher)
+    private_chunk = _indexed_vision_document(knowledge)
+    knowledge.rebuild_private_search_index(force=True)
+    query_vector = FeatureHashEmbedding(64).embed("convolutional kernel vision")
+    candidates, scores = knowledge.search_candidates_for_query(
+        SearchFiltersDTO(), "convolutional kernel vision", query_vector, limit=10
+    )
+    assert private_chunk in {str(item.chunk_id) for item in candidates}
+    assert scores[private_chunk] > 0
+    assert b"convolutional kernel vision" not in database.path.read_bytes()
+
+
+def test_reader_bookmarks_and_notes_are_local_and_encrypted(database, cipher) -> None:
+    knowledge = KnowledgeRepository(database, cipher)
+    chunk_id = _indexed_vision_document(knowledge)
+    CurriculumRepository(database, cipher).seed()
+    structure = KnowledgeStructureRepository(database, cipher)
+    structure.seed()
+    user = UserDTO(display_name="Leitor")
+    UserRepository(database, cipher).add(user)
+
+    assert structure.toggle_bookmark(user.id, chunk_id) is True
+    assert structure.bookmarks(user.id)[0]["evidence_id"] == chunk_id
+    stored = structure.save_note(user.id, chunk_id, "Comparar filtros e kernels")
+    assert structure.notes(user.id, chunk_id)[0]["note"] == "Comparar filtros e kernels"
+    assert b"Comparar filtros e kernels" not in database.path.read_bytes()
+    assert stored["id"]
+    assert structure.toggle_bookmark(user.id, chunk_id) is False

@@ -1,0 +1,17 @@
+{
+  "generated_at": "2026-08-09T14:56:41.866277+00:00",
+  "dataset": "generated-multiformat-and-degraded-code-v1",
+  "format_cases": {
+    "png_clear": 1.0,
+    "jpeg_compressed": 1.0,
+    "webp_lossless": 1.0,
+    "rotated_1_5deg": 1.0,
+    "low_contrast": 1.0
+  },
+  "clear_accuracy_target": 0.95,
+  "clear_accuracy_passed": true,
+  "all_require_confirmation": true,
+  "malformed_cases": 64,
+  "malformed_rejected": 64,
+  "passed": true
+}

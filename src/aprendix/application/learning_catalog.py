@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from aprendix.application.academy_catalog import ACADEMY_MODULES, ACADEMY_TRACKS
+
 
 @dataclass(frozen=True, slots=True)
 class FactDefinition:
@@ -69,6 +71,107 @@ FACTS: tuple[FactDefinition, ...] = (
     FactDefinition("least-privilege", "cybersecurity-app", "Código deve receber apenas as permissões necessárias durante o menor tempo possível.", "Isolamento, allowlists e limites de recursos reduzem impacto mesmo quando há um erro. Validação de entrada não substitui sandboxing.", "permissões = mínimo(necessário)", "intermediate", ("src-python-docs",)),
     FactDefinition("numerical-stability", "science-app", "Expressões matematicamente equivalentes podem ter erros numéricos muito diferentes.", "Evita subtrair números quase iguais e acompanha escala, unidade e condicionamento. Valida com casos de referência.", "logsumexp(x)=m+log Σ exp(xᵢ−m)", "advanced", ("src-numpy",)),
     FactDefinition("quantization", "edge-mobile-app", "Quantização int8 reduz aproximadamente quatro vezes o armazenamento face a float32.", "O ganho real depende de operadores e hardware. Mede erro por camada e calibra com dados representativos antes de aceitar o modelo.", "real ≈ escala × (q − zero_point)", "advanced", ("src-pytorch-autograd", "src-ai-index")),
+)
+
+
+_TRACK_AREAS = {
+    "computer-literacy": "prog-foundations",
+    "logic-pseudocode": "prog-foundations",
+    "python-foundations": "prog-foundations",
+    "python-oop": "oop",
+    "python-algorithms": "classic-algorithms",
+    "python-data-structures": "data-structures",
+    "math-programming": "linear-algebra",
+    "testing-debugging": "software-engineering",
+    "python-advanced": "python",
+    "sql-databases": "databases",
+    "web-apis": "web",
+    "data-ai": "classical-ml",
+}
+
+_MODULE_AREAS = {
+    "sets-and-relations": "data-structures",
+    "probability-summary": "probability",
+    "vectors-and-dot-product": "linear-algebra",
+    "bounded-scheduling": "systems",
+    "data-pipelines": "data-practice",
+    "classical-ml": "classical-ml",
+    "neural-agents": "neural-networks",
+}
+
+_AREA_SOURCES = {
+    "prog-foundations": ("src-python-docs",),
+    "python": ("src-python-docs", "src-fluent-python"),
+    "oop": ("src-python-docs", "src-fluent-python"),
+    "classic-algorithms": ("src-clrs",),
+    "data-structures": ("src-clrs", "src-python-docs"),
+    "linear-algebra": ("src-numpy",),
+    "probability": ("src-probml",),
+    "software-engineering": ("src-python-docs",),
+    "systems": ("src-python-docs",),
+    "databases": ("src-postgresql",),
+    "web": ("src-mdn",),
+    "data-practice": ("src-numpy", "src-pandas"),
+    "classical-ml": ("src-sklearn", "src-esl"),
+    "neural-networks": ("src-dlbook", "src-pytorch-autograd"),
+}
+
+
+def _module_fact(spec: tuple[str, str, str, str, str, str, str]) -> FactDefinition:
+    slug, track, title, objective, explanation, starter, _test = spec
+    area = _MODULE_AREAS.get(slug, _TRACK_AREAS[track])
+    return FactDefinition(
+        slug=f"curriculum-{slug}",
+        area_id=area,
+        fact=f"{title}: {objective}",
+        explanation=explanation,
+        formula_or_code=starter.strip(),
+        complexity="intermediate" if track not in {"computer-literacy", "logic-pseudocode", "python-foundations"} else "beginner",
+        source_ids=_AREA_SOURCES.get(area, ("src-python-docs",)),
+    )
+
+
+_LEGACY_CURRICULUM_FACTS = (
+    FactDefinition("curriculum-visible-output", "prog-foundations", "Resultados observáveis: produzir e verificar output antes de abstrair.", "O output é evidência direta de uma transformação. Compara valores, espaços, acentos e linhas com uma expectativa escrita antes da execução.", "print('resultado:', 2 + 3)", source_ids=("src-python-docs",)),
+    FactDefinition("curriculum-values-and-names", "prog-foundations", "Valores e nomes: ligar nomes claros a valores e transformar sem efeitos ocultos.", "Uma atribuição associa um nome a um valor. A expressão do lado direito é avaliada primeiro; o nome deve comunicar o papel desse resultado.", "total = preco * quantidade", source_ids=("src-python-docs",)),
+    FactDefinition("curriculum-safe-decisions", "prog-foundations", "Decisões explícitas: cobrir ramos e fronteiras de uma condição.", "Testa pelo menos um caso verdadeiro, um falso e o valor exato de fronteira. `else` representa o caminho usado quando as condições anteriores não se verificam.", "estado = 'adulto' if idade >= 18 else 'menor'", source_ids=("src-python-docs",)),
+    FactDefinition("curriculum-objects-and-state", "oop", "Objetos e estado: construir uma classe com invariantes simples.", "Cada instância conserva o seu estado. O construtor estabelece um estado inicial válido e os métodos preservam as regras após cada operação pública.", "class Contador:\n    def __init__(self):\n        self.valor = 0", "intermediate", ("src-python-docs", "src-fluent-python")),
+    FactDefinition("curriculum-methods-and-invariants", "oop", "Métodos e invariantes: alterar estado sem quebrar regras do domínio.", "Valida a operação antes de confirmar uma alteração. Quando uma pré-condição falha, o objeto deve permanecer num estado válido e previsível.", "if valor > self.saldo:\n    return False", "intermediate", ("src-fluent-python",)),
+    FactDefinition("curriculum-iteration-and-search", "classic-algorithms", "Iteração e pesquisa: percorrer uma sequência com critério de paragem claro.", "A pesquisa linear compara por ordem e termina ao encontrar o alvo ou ao esgotar a entrada. O caso ausente faz parte do contrato.", "for indice, valor in enumerate(valores):\n    if valor == alvo:\n        return indice", "intermediate", ("src-clrs",)),
+    FactDefinition("curriculum-algorithm-boundaries", "classic-algorithms", "Casos-limite: testar vazio, mínimo e valores repetidos.", "Os limites tornam suposições visíveis. Um contrato deve explicar coleções vazias, um único elemento, repetição e falhas esperadas.", "casos = [[], [alvo], [alvo, alvo]]", "intermediate", ("src-clrs",)),
+    FactDefinition("curriculum-maps-and-frequency", "data-structures", "Mapas e frequências: associar chaves únicas a contagens.", "Um dicionário responde eficientemente a perguntas por chave. A contagem começa num elemento neutro e é atualizada uma vez por observação.", "contagens[valor] = contagens.get(valor, 0) + 1", "intermediate", ("src-python-docs", "src-clrs")),
+    FactDefinition("curriculum-sets-and-order", "data-structures", "Pertença e ordem: combinar `set` para pertença com `list` para ordem.", "O conjunto evita repetições; a lista conserva a ordem de primeira ocorrência. Duas estruturas podem representar responsabilidades diferentes do mesmo algoritmo.", "vistos, resultado = set(), []", "intermediate", ("src-python-docs", "src-clrs")),
+)
+
+
+_MODULE_CURRICULUM_FACTS = tuple(_module_fact(spec) for spec in ACADEMY_MODULES)
+
+_PROJECT_CURRICULUM_FACTS = tuple(
+    FactDefinition(
+        slug=f"curriculum-{slug}-project",
+        area_id=_TRACK_AREAS[slug],
+        fact=f"Projeto de {title}: criar e justificar um artefacto local verificável.",
+        explanation=(
+            f"Um projeto de {title} demonstra transferência quando declara requisitos, "
+            "regista decisões, inclui testes reproduzíveis e explica pelo menos um caso-limite. "
+            f"O foco técnico é: {description}"
+        ),
+        formula_or_code="requisitos → testes → implementação → revisão",
+        complexity="intermediate",
+        source_ids=_AREA_SOURCES.get(_TRACK_AREAS[slug], ("src-python-docs",)),
+    )
+    for slug, title, description, _technology, _position in ACADEMY_TRACKS
+)
+
+
+# A single, stable catalogue used by search, cards and curriculum evidence.
+# Every generated item is original Aprendix copy assembled from the authored
+# curriculum specifications above; no external body text is copied.
+ALL_FACTS: tuple[FactDefinition, ...] = (
+    *FACTS,
+    *_LEGACY_CURRICULUM_FACTS,
+    *_MODULE_CURRICULUM_FACTS,
+    *_PROJECT_CURRICULUM_FACTS,
 )
 
 
@@ -138,4 +241,132 @@ EXTRA_GLOSSARY: tuple[tuple[str, str, str, str, str, tuple[str, ...]], ...] = (
     ("RAG", "artificial-intelligence", "Arquitetura que recupera evidência antes de sintetizar uma resposta condicionada.", "pergunta → retrieval → contexto → síntese", "citar chunks recuperados", ("embedding", "information retrieval")),
     ("ReAct", "artificial-intelligence", "Padrão de agente que intercala raciocínio operacional, ação e nova observação.", "reason → act → observe", "usar ferramenta e verificar resultado", ("agente", "tool use", "Reflexion")),
     ("IoU", "computer-vision", "Razão entre interseção e união de duas regiões, usada em deteção e segmentação.", "IoU=|A∩B|/|A∪B|", "comparar máscara prevista e real", ("segmentação", "object detection")),
+    ("Django model", "django", "Classe que declara dados persistentes, relações e regras de acesso através do ORM do Django.", "class Modelo(models.Model): ...", "class Artigo(models.Model):\n    titulo = models.CharField(max_length=200)", ("migration", "QuerySet", "ORM")),
+    ("Django view", "django", "Função ou classe que recebe um pedido HTTP e produz uma resposta, normalmente coordenando domínio e apresentação.", "view(request, ...) -> response", "def detalhe(request, pk): ...", ("URLconf", "template", "HTTP")),
+    ("Django template", "django", "Documento de apresentação que combina marcação com variáveis e tags limitadas, mantendo a lógica de negócio fora da vista.", "{% tag %} {{ variável }}", "<h1>{{ artigo.titulo }}</h1>", ("Django view", "context", "HTML")),
+    ("Django migration", "django", "Transformação versionada do esquema que mantém a base de dados alinhada com o estado dos modelos.", "python manage.py migrate", "python manage.py makemigrations", ("Django model", "schema", "transaction")),
+    ("QuerySet", "django", "Representação preguiçosa e combinável de uma consulta a objetos do ORM do Django.", "Modelo.objects.filter(...)", "ativos = Utilizador.objects.filter(ativo=True)", ("Django model", "ORM", "lazy evaluation")),
+    ("path operation", "fastapi", "Combinação de caminho, método HTTP e função que implementa uma operação de API em FastAPI.", "@app.get('/recurso')", "@app.post('/itens')\ndef criar(item: Item): ...", ("HTTP", "OpenAPI", "response model")),
+    ("dependency injection", "fastapi", "Mecanismo que resolve e fornece dependências declaradas, permitindo composição, testes e controlo do ciclo de vida.", "Depends(dependência)", "user = Depends(utilizador_atual)", ("path operation", "inversion of control", "fixture")),
+    ("response model", "fastapi", "Contrato tipado usado para validar, documentar e filtrar os dados devolvidos por uma operação.", "response_model=Tipo", "@app.get('/itens', response_model=list[Item])", ("Pydantic", "OpenAPI", "schema")),
+    ("OpenAPI", "web", "Especificação independente de linguagem para descrever operações, parâmetros, respostas e esquemas de uma API HTTP.", "openapi.json", "GET /itens -> 200: Item[]", ("HTTP", "JSON Schema", "path operation")),
+    ("Flask blueprint", "flask", "Conjunto reutilizável de rotas e configuração que ajuda a decompor uma aplicação Flask.", "Blueprint(nome, __name__)", "api = Blueprint('api', __name__)", ("routing", "application factory", "Flask")),
+    ("application context", "flask", "Contexto que torna disponíveis recursos associados à aplicação ativa durante uma operação.", "with app.app_context():", "with app.app_context(): inicializar_bd()", ("request context", "current_app", "lifecycle")),
+    ("request context", "flask", "Contexto criado para um pedido e que expõe proxies como request e session apenas durante esse ciclo.", "with app.test_request_context(...):", "metodo = request.method", ("application context", "HTTP", "session")),
+    ("SQLAlchemy Engine", "sqlalchemy", "Fábrica de conexões e ponto de entrada para executar operações contra uma base de dados configurada.", "create_engine(url)", "engine = create_engine('sqlite:///app.db')", ("connection pool", "transaction", "Session")),
+    ("SQLAlchemy Session", "sqlalchemy", "Unidade de trabalho que acompanha objetos persistentes e coordena consultas, flush, commit e rollback.", "Session(engine)", "with Session(engine) as session: ...", ("Unit of Work", "ORM", "transaction")),
+    ("Unit of Work", "software-engineering", "Padrão que acompanha alterações relacionadas e as confirma ou reverte como uma unidade consistente.", "begin → mutate → commit/rollback", "with session.begin(): guardar(pedido)", ("transaction", "SQLAlchemy Session", "repository")),
+    ("declarative mapping", "sqlalchemy", "Forma de associar classes Python a tabelas e colunas através de metadata declarada.", "class Entidade(Base): ...", "id: Mapped[int] = mapped_column(primary_key=True)", ("ORM", "metadata", "SQLAlchemy Session")),
+    ("pytest fixture", "pytest", "Função declarativa que prepara uma dependência de teste e pode controlar o seu âmbito e limpeza.", "@pytest.fixture", "def cliente(app): return app.test_client()", ("dependency injection", "test isolation", "pytest")),
+    ("pytest parametrization", "pytest", "Execução do mesmo teste com casos de entrada e resultados esperados distintos.", "@pytest.mark.parametrize(...)", "@pytest.mark.parametrize('n,par', [(2, True), (3, False)])", ("test case", "boundary value", "pytest")),
+    ("assertion introspection", "pytest", "Análise que o pytest faz de uma expressão assert para explicar valores e diferenças quando esta falha.", "assert obtido == esperado", "assert resultado.total == 3", ("assert", "diagnostic", "pytest")),
+    ("MongoDB document", "mongodb", "Registo BSON com campos e valores aninháveis, armazenado dentro de uma coleção.", "{campo: valor}", "{'nome': 'Ada', 'skills': ['Python']}", ("collection", "BSON", "schema design")),
+    ("aggregation pipeline", "mongodb", "Sequência ordenada de etapas que filtra, transforma, agrupa ou combina documentos.", "[{$match: ...}, {$group: ...}]", "db.vendas.aggregate(pipeline)", ("MongoDB document", "index", "query")),
+    ("replica set", "mongodb", "Grupo de processos que mantém cópias do mesmo conjunto de dados para redundância e eleição de primário.", "primary + secondary nodes", "rs.status()", ("availability", "consistency", "failover")),
+    ("sharding", "databases", "Particionamento horizontal que distribui dados e carga por vários nós segundo uma chave escolhida.", "shard key → partitions", "distribuir eventos por tenant e intervalo", ("partitioning", "replica set", "scalability")),
+    ("Git commit", "git", "Snapshot identificado do conteúdo versionado, acompanhado por pais e metadados de autoria.", "git commit", "git commit -m 'Adiciona validação'", ("Git branch", "repository", "staging area")),
+    ("Git branch", "git", "Nome móvel que aponta para um commit e permite desenvolver uma linha de histórico independente.", "git switch -c nome", "git switch -c feature/pesquisa", ("Git commit", "merge", "rebase")),
+    ("Git merge", "git", "Integra histórias divergentes, criando quando necessário um commit com mais de um pai.", "git merge ramo", "git merge feature/pesquisa", ("Git branch", "merge conflict", "rebase")),
+    ("Git rebase", "git", "Reaplica commits sobre uma nova base, reescrevendo os identificadores dessa linha de história.", "git rebase base", "git rebase main", ("Git commit", "Git merge", "history rewrite")),
+    ("working tree", "git", "Conjunto de ficheiros atualmente materializados para edição, que pode divergir do índice e do último commit.", "git status", "editar → stage → commit", ("staging area", "Git commit", "repository")),
+    ("Docker image", "docker", "Artefacto imutável por camadas que contém filesystem, configuração e metadados para iniciar contentores.", "docker build -t nome .", "docker image inspect nome", ("Docker container", "Dockerfile", "layer")),
+    ("Docker container", "docker", "Processo isolado iniciado a partir de uma imagem, com filesystem gravável e recursos configurados.", "docker run imagem", "docker run --rm app:test", ("Docker image", "volume", "namespace")),
+    ("Dockerfile", "docker", "Receita declarativa e ordenada para construir as camadas e a configuração de uma imagem.", "FROM ...\nRUN ...\nCMD ...", "FROM python:3.12-slim", ("Docker image", "build context", "layer")),
+    ("Docker volume", "docker", "Armazenamento gerido fora da camada gravável do contentor para preservar ou partilhar dados.", "docker volume create nome", "docker run -v dados:/app/data imagem", ("Docker container", "persistence", "bind mount")),
+    ("container registry", "docker", "Serviço que armazena e distribui imagens identificadas por repositório e tag ou digest.", "registry/repo:tag", "docker pull exemplo/app@sha256:...", ("Docker image", "digest", "supply chain")),
+    ("wheel", "python-packaging", "Formato binário de distribuição Python que pode ser instalado sem executar um processo de build no destino.", "*.whl", "python -m pip install pacote.whl", ("sdist", "pyproject.toml", "distribution package")),
+    ("sdist", "python-packaging", "Arquivo de distribuição de código-fonte que contém os elementos necessários para construir um pacote.", "*.tar.gz", "python -m build --sdist", ("wheel", "build backend", "pyproject.toml")),
+    ("pyproject.toml", "python-packaging", "Ficheiro padrão para declarar sistema de build e configuração de ferramentas e projeto Python.", "[build-system] / [project]", "[project]\nname = 'exemplo'", ("wheel", "build backend", "dependency")),
+    ("virtual environment", "python-packaging", "Ambiente isolado que possui o seu próprio contexto de instalação de pacotes Python.", "python -m venv .venv", ".venv\\Scripts\\python -m pip install -r requirements.txt", ("dependency", "pip", "reproducibility")),
+    ("coroutine", "asyncio", "Função assíncrona suspensível ou o objeto aguardável produzido quando essa função é chamada.", "async def operação(): ...", "resultado = await operação()", ("await", "asyncio Task", "event loop")),
+    ("asyncio Task", "asyncio", "Agendamento de uma coroutine no event loop que guarda o seu estado, resultado e cancelamento.", "asyncio.create_task(coro())", "tarefas = [asyncio.create_task(f(x)) for x in dados]", ("coroutine", "event loop", "cancellation")),
+    ("event loop", "asyncio", "Coordenador que avança tarefas cooperativas quando operações aguardáveis ficam prontas.", "asyncio.run(main())", "asyncio.run(processar())", ("coroutine", "asyncio Task", "I/O concurrency")),
+    ("awaitable", "asyncio", "Objeto que pode aparecer numa expressão await e produzir um resultado após eventual suspensão.", "await objeto", "dados = await fila.get()", ("coroutine", "Future", "event loop")),
+)
+
+
+# Canonical term followed by common Portuguese/English names, acronyms and
+# spellings. Aliases only improve retrieval; they never duplicate or replace
+# the reviewed definition of the canonical entry.
+GLOSSARY_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("print", ("imprimir", "mostrar output", "output function")),
+    ("len", ("comprimento", "tamanho", "length")),
+    ("range", ("intervalo inteiro", "integer range")),
+    ("list", ("lista", "array dinâmico", "python list")),
+    ("dict", ("dicionário", "dictionary", "mapa", "mapping")),
+    ("set", ("conjunto", "hash set")),
+    ("tuple", ("tuplo", "immutable sequence")),
+    ("def", ("definir função", "function definition", "função")),
+    ("return", ("retornar", "devolver valor", "function return")),
+    ("class", ("classe", "POO", "OOP", "object oriented programming")),
+    ("method", ("método", "instance method")),
+    ("invariant", ("invariante", "class invariant")),
+    ("exception", ("exceção", "erro Python", "Python error")),
+    ("SELECT", ("consulta SQL", "query select", "selecionar linhas")),
+    ("JOIN", ("junção SQL", "combinar tabelas", "SQL join")),
+    ("index", ("índice SQL", "database index", "índice de base de dados")),
+    ("transaction", ("transação", "transação ACID", "database transaction")),
+    ("NoSQL", ("base não relacional", "non relational database", "not only SQL")),
+    ("Django", ("Django framework", "framework web Python")),
+    ("FastAPI", ("Fast API", "API Python tipada")),
+    ("Flask", ("Flask framework", "microframework Python")),
+    ("NumPy", ("numpy array", "numerical Python")),
+    ("pandas", ("DataFrame", "dados tabulares Python")),
+    ("JavaScript", ("JS", "ECMAScript")),
+    ("Bootstrap", ("Bootstrap CSS", "CSS framework")),
+    ("recursão", ("recursion", "função recursiva")),
+    ("complexidade temporal", ("time complexity", "custo temporal")),
+    ("pesquisa binária", ("binary search", "busca binária")),
+    ("BFS", ("breadth first search", "pesquisa em largura")),
+    ("DFS", ("depth first search", "pesquisa em profundidade")),
+    ("programação dinâmica", ("dynamic programming", "DP", "memoização tabulação")),
+    ("produto interno", ("dot product", "inner product", "produto escalar")),
+    ("derivada", ("derivative", "taxa de variação")),
+    ("regra da cadeia", ("chain rule", "derivada de composição")),
+    ("variância", ("variance", "dispersão quadrática")),
+    ("desvio padrão", ("standard deviation", "sigma estatístico")),
+    ("precisão", ("precision metric", "valor preditivo positivo")),
+    ("recall", ("sensibilidade", "revocação", "true positive rate")),
+    ("F1", ("F1 score", "F-score")),
+    ("cross-validation", ("validação cruzada", "k-fold")),
+    ("data leakage", ("fuga de dados", "information leakage")),
+    ("regularização", ("regularization", "penalização do modelo")),
+    ("feedforward", ("forward pass", "propagação direta")),
+    ("ReLU", ("rectified linear unit", "unidade linear retificada")),
+    ("CNN", ("convolutional neural network", "rede neuronal convolucional")),
+    ("RNN", ("recurrent neural network", "rede neuronal recorrente")),
+    ("RAG", ("retrieval augmented generation", "geração aumentada por recuperação")),
+    ("ReAct", ("reason and act", "raciocinar e agir")),
+    ("IoU", ("intersection over union", "interseção sobre união")),
+    ("Django model", ("modelo Django", "ORM model")),
+    ("Django view", ("view Django", "vista Django")),
+    ("Django migration", ("migração Django", "schema migration Django")),
+    ("QuerySet", ("consulta ORM Django", "Django query set")),
+    ("dependency injection", ("injeção de dependências", "DI")),
+    ("path operation", ("operação de rota", "FastAPI route")),
+    ("SQLAlchemy Engine", ("engine SQLAlchemy", "motor de conexão")),
+    ("SQLAlchemy Session", ("sessão SQLAlchemy", "ORM session")),
+    ("Unit of Work", ("unidade de trabalho", "UoW")),
+    ("pytest fixture", ("fixture pytest", "test fixture")),
+    ("pytest parametrization", ("parametrização pytest", "parameterized test")),
+    ("MongoDB document", ("documento MongoDB", "BSON document")),
+    ("aggregation pipeline", ("pipeline de agregação", "MongoDB aggregate")),
+    ("Git commit", ("commit Git", "snapshot Git")),
+    ("Git branch", ("branch Git", "ramo Git")),
+    ("Git merge", ("merge Git", "fusão de ramos")),
+    ("Git rebase", ("rebase Git", "reaplicar commits")),
+    ("working tree", ("árvore de trabalho", "working directory Git")),
+    ("Docker image", ("imagem Docker", "container image")),
+    ("Docker container", ("contentor Docker", "contêiner Docker")),
+    ("Dockerfile", ("ficheiro Docker", "container build recipe")),
+    ("Docker volume", ("volume Docker", "persistent container storage")),
+    ("container registry", ("registo de imagens", "Docker registry")),
+    ("wheel", ("Python wheel", "bdist wheel", "WHL")),
+    ("sdist", ("source distribution", "distribuição de código fonte")),
+    ("pyproject.toml", ("pyproject", "configuração de projeto Python")),
+    ("virtual environment", ("ambiente virtual", "virtualenv", "venv")),
+    ("coroutine", ("corrotina", "async function")),
+    ("asyncio Task", ("tarefa asyncio", "async task")),
+    ("event loop", ("ciclo de eventos", "asyncio loop")),
+    ("awaitable", ("aguardável", "objeto awaitable")),
 )

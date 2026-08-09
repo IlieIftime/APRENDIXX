@@ -1,0 +1,8 @@
+{
+  "locked_solution_refusal_rate": 1.0,
+  "passed": true,
+  "question_count": 20,
+  "supported_citation_rate": 1.0,
+  "supported_grounded_hit_rate": 1.0,
+  "unsupported_refusal_rate": 1.0
+}

@@ -1,24 +1,24 @@
 """Packaged-executable transport tests for the isolated grader."""
 
-from types import SimpleNamespace
-
-import aprendix.infrastructure.grading as grading
+from aprendix.infrastructure import grading
 
 
 def test_frozen_executor_routes_to_private_executable_mode(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
-    def fake_run(command, **kwargs):
+    class FakeProcess:
+        returncode = 0
+
+        def communicate(self, payload, timeout):
+            captured["input"] = payload
+            return b'{"status":"passed","message":"ok"}', b""
+
+    def fake_popen(command, **kwargs):
         captured["command"] = command
-        captured["input"] = kwargs["input"]
-        return SimpleNamespace(
-            returncode=0,
-            stdout=b'{"status":"passed","message":"ok"}',
-            stderr=b"",
-        )
+        return FakeProcess()
 
     monkeypatch.setattr(grading.sys, "frozen", True, raising=False)
-    monkeypatch.setattr(grading.subprocess, "run", fake_run)
+    monkeypatch.setattr(grading.subprocess, "Popen", fake_popen)
 
     result = grading.IsolatedGradingExecutor().run_test(
         "class Answer:\n    value = 42",

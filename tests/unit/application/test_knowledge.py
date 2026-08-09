@@ -20,6 +20,7 @@ from aprendix.application.knowledge import (
     ExtractiveAnswerSynthesizer,
     HybridSearchService,
     SearchCandidate,
+    SearchCancellationToken,
 )
 
 
@@ -105,3 +106,24 @@ def test_search_filter_rejects_reversed_date_range() -> None:
             published_from=date(2025, 1, 1), published_to=date(2024, 1, 1)
         )
 
+
+def test_search_expands_technical_alias_and_explains_ranking() -> None:
+    service = HybridSearchService(Index((candidate("Uma ANN é uma rede neuronal artificial."),)),
+                                  embedder=Embedder())
+    response = service.search(SearchRequestDTO(
+        query="o que é ANN", allow_web_fallback=False,
+    ))
+    assert response.intent.value == "definition"
+    assert "artificial neural network" in response.expanded_query
+    assert response.elapsed_ms >= 0
+    assert response.evidence[0].why_shown
+
+
+def test_search_can_be_cancelled_before_retrieval() -> None:
+    token = SearchCancellationToken()
+    token.cancel()
+    response = HybridSearchService(Index((candidate(),)), embedder=Embedder()).search(
+        SearchRequestDTO(query="classes", allow_web_fallback=False), token
+    )
+    assert response.cancelled is True
+    assert response.fallback_reason == "cancelled"

@@ -1,7 +1,5 @@
 """Security and resource-boundary tests for isolated Python execution."""
 
-import os
-
 import pytest
 
 from aprendix.application.contracts import SandboxRequest
@@ -95,5 +93,4 @@ def test_memory_limit_capability_is_reported_truthfully() -> None:
     result = PythonSandbox().run(SandboxRequest(source_code="print(1)"))
 
     assert result.status == "ok"
-    assert result.memory_limit_enforced is (os.name == "posix")
-
+    assert result.memory_limit_enforced is True

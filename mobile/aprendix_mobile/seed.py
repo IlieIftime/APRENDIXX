@@ -13,10 +13,11 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from aprendix.application.knowledge_structure import AREAS, SOURCES, area_depths, fold
-from aprendix.application.learning_catalog import EXTRA_GLOSSARY, FACTS
+from aprendix.application.learning_catalog import ALL_FACTS, EXTRA_GLOSSARY, GLOSSARY_ALIASES
+from aprendix.application.academy_catalog import ACADEMY_MODULES, ACADEMY_TRACKS
 
 APPLICATION_ID = 0x41505258  # APRX
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
 MAX_SEED_BYTES = 200 * 1024 * 1024
 
 
@@ -154,7 +155,8 @@ def build_seed(database_path: Path, manifest_path: Path, *, content_version: str
                 FOREIGN KEY(card_id) REFERENCES cards(id)
             ) STRICT;
             CREATE TABLE glossary(
-                term TEXT PRIMARY KEY, definition TEXT NOT NULL, signature TEXT NOT NULL
+                term TEXT PRIMARY KEY, definition TEXT NOT NULL, signature TEXT NOT NULL,
+                aliases_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(aliases_json))
             ) STRICT;
             CREATE TABLE areas(
                 id TEXT PRIMARY KEY, parent_id TEXT, title TEXT NOT NULL,
@@ -173,6 +175,17 @@ def build_seed(database_path: Path, manifest_path: Path, *, content_version: str
                 canonical_url TEXT NOT NULL, overview TEXT NOT NULL,
                 why_it_matters TEXT NOT NULL, access_note TEXT NOT NULL
             ) STRICT;
+            CREATE TABLE learning_tracks(
+                slug TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL,
+                technology TEXT NOT NULL, position INTEGER NOT NULL
+            ) STRICT;
+            CREATE TABLE learning_units(
+                slug TEXT PRIMARY KEY, track_slug TEXT NOT NULL, title TEXT NOT NULL,
+                objective TEXT NOT NULL, explanation TEXT NOT NULL,
+                starter_code TEXT NOT NULL, test_code TEXT NOT NULL, position INTEGER NOT NULL,
+                FOREIGN KEY(track_slug) REFERENCES learning_tracks(slug)
+            ) STRICT;
+            CREATE INDEX learning_units_track ON learning_units(track_slug,position);
         """)
         depths = area_depths()
         for order, area in enumerate(AREAS):
@@ -211,7 +224,7 @@ def build_seed(database_path: Path, manifest_path: Path, *, content_version: str
                  json.dumps(options, ensure_ascii=False), correct, explanation),
             )
         area_map = {area.id: (index, area) for index, area in enumerate(AREAS)}
-        for fact in FACTS:
+        for fact in ALL_FACTS:
             order, area = area_map[fact.area_id]
             body = fact.fact + "\n\n" + fact.explanation
             code = fact.formula_or_code
@@ -227,12 +240,32 @@ def build_seed(database_path: Path, manifest_path: Path, *, content_version: str
                 (source.id, json.dumps(source.area_ids), source.title,
                  json.dumps(source.authors, ensure_ascii=False), source.year,
                  source.source_type, source.url, source.overview, source.why,
-                 source.access_note),
+                source.access_note),
             )
-        connection.executemany("INSERT INTO glossary VALUES(?,?,?)", LITE_GLOSSARY)
+        for slug, title, description, technology, position in ACADEMY_TRACKS:
+            connection.execute(
+                "INSERT INTO learning_tracks VALUES(?,?,?,?,?)",
+                (slug, title, description, technology, position),
+            )
+        unit_positions: dict[str, int] = {}
+        for slug, track_slug, title, objective, explanation, starter, test in ACADEMY_MODULES:
+            position = unit_positions.get(track_slug, 0); unit_positions[track_slug] = position + 1
+            connection.execute(
+                "INSERT INTO learning_units VALUES(?,?,?,?,?,?,?,?)",
+                (slug, track_slug, title, objective, explanation, starter, test, position),
+            )
+        aliases = {term.casefold(): values for term, values in GLOSSARY_ALIASES}
         connection.executemany(
-            "INSERT OR IGNORE INTO glossary(term,definition,signature) VALUES(?,?,?)",
-            ((term, definition, signature) for term, _technology, definition, signature, _example, _related in EXTRA_GLOSSARY),
+            "INSERT INTO glossary VALUES(?,?,?,?)",
+            ((term, definition, signature,
+              json.dumps(aliases.get(term.casefold(), ()), ensure_ascii=False))
+             for term, definition, signature in LITE_GLOSSARY),
+        )
+        connection.executemany(
+            "INSERT OR IGNORE INTO glossary(term,definition,signature,aliases_json) VALUES(?,?,?,?)",
+            ((term, definition, signature,
+              json.dumps(aliases.get(term.casefold(), ()), ensure_ascii=False))
+             for term, _technology, definition, signature, _example, _related in EXTRA_GLOSSARY),
         )
         connection.commit()
         connection.execute("VACUUM")
@@ -336,6 +369,29 @@ class LiteContentStore:
         finally:
             connection.close()
 
+    def courses(self) -> tuple[dict[str, object], ...]:
+        connection = sqlite3.connect(self._uri, uri=True); connection.row_factory = sqlite3.Row
+        try:
+            rows = connection.execute(
+                """SELECT t.*,count(u.slug) unit_count FROM learning_tracks t
+                   LEFT JOIN learning_units u ON u.track_slug=t.slug
+                   GROUP BY t.slug ORDER BY t.position"""
+            ).fetchall()
+            return tuple(dict(row) for row in rows)
+        finally:
+            connection.close()
+
+    def course_units(self, track_slug: str) -> tuple[dict[str, object], ...]:
+        connection = sqlite3.connect(self._uri, uri=True); connection.row_factory = sqlite3.Row
+        try:
+            rows = connection.execute(
+                "SELECT * FROM learning_units WHERE track_slug=? ORDER BY position,slug",
+                (track_slug,),
+            ).fetchall()
+            return tuple(dict(row) for row in rows)
+        finally:
+            connection.close()
+
     def shortcuts(self, area_id: str | None = None, *, limit: int = 30) -> tuple[dict[str, object], ...]:
         connection = sqlite3.connect(self._uri, uri=True); connection.row_factory = sqlite3.Row
         try:
@@ -423,11 +479,23 @@ class LiteContentStore:
             query = fold(prefix.strip())
             def rank(row):
                 candidate = fold(row["term"])
-                return (candidate == query, candidate.startswith(query), query in candidate,
-                        SequenceMatcher(None, query, candidate).ratio() if query else 0)
+                aliases = tuple(fold(value) for value in json.loads(row["aliases_json"]))
+                values = (candidate, *aliases)
+                return (
+                    candidate == query,
+                    query in aliases,
+                    any(value.startswith(query) for value in values),
+                    any(query in value for value in values),
+                    max((SequenceMatcher(None, query, value).ratio() for value in values), default=0)
+                    if query else 0,
+                )
             ordered = sorted(rows, key=rank, reverse=True)
             if query:
-                ordered = [row for row in ordered if rank(row)[0] or rank(row)[1] or rank(row)[2] or rank(row)[3] >= .36]
-            return tuple(dict(row) for row in ordered[:max(1, min(limit, 30))])
+                ordered = [row for row in ordered if any(rank(row)[:4]) or rank(row)[4] >= .36]
+            result = []
+            for row in ordered[:max(1, min(limit, 30))]:
+                item = dict(row); item["aliases"] = tuple(json.loads(item.pop("aliases_json")))
+                result.append(item)
+            return tuple(result)
         finally:
             connection.close()

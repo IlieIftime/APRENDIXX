@@ -40,3 +40,21 @@ def test_corrector_never_marks_an_untested_solution_as_passed() -> None:
     assert response.status == "failed"
     assert response.score < 1
     assert "Não existem testes" in response.feedback[0]
+
+
+def test_hidden_property_test_does_not_disclose_failure_detail() -> None:
+    response = corrector().correct(SmartCorrectionRequestDTO(
+        source_code="def dobro(value):\n    return value",
+        tests=(GradingTestCaseDTO(
+            name="Caso oculto 1", code="assert dobro(-4) == -8",
+            visibility="hidden", kind="property",
+        ),),
+        required_constructs=("FunctionDef",),
+    ))
+    assert response.status == "failed"
+    assert response.test_outcomes[0].visibility == "hidden"
+    assert response.test_outcomes[0].kind == "property"
+    assert "assert" not in response.test_outcomes[0].message.lower()
+    assert {item.criterion for item in response.rubric} == {
+        "Resultado", "Estrutura", "Qualidade",
+    }

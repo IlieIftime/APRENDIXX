@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Annotated, Any
 from uuid import UUID, uuid4
 
@@ -36,7 +36,7 @@ Slug = Annotated[
 def utc_now() -> datetime:
     """Return an aware UTC timestamp suitable for persisted contracts."""
 
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 class ContractModel(BaseModel):
@@ -60,7 +60,7 @@ class ContractModel(BaseModel):
         if isinstance(value, datetime):
             if value.tzinfo is None or value.utcoffset() is None:
                 raise ValueError("timestamps must include a timezone")
-            return value.astimezone(UTC)
+            return value.astimezone(timezone.utc)
         return value
 
     def to_json(self) -> str:

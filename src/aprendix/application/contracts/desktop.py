@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
-from enum import StrEnum
+from aprendix.domain.enums import StrEnum
 from uuid import UUID, uuid4
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from aprendix.application.contracts.models import ContractModel, NonBlankText, utc_now
 from aprendix.application.contracts.knowledge import LearningTheme, Technology
@@ -35,10 +36,23 @@ class ProjectDTO(ContractModel):
     user_id: UUID
     name: NonBlankText = Field(max_length=160)
     technology: Technology = Technology.PYTHON
-    relative_path: str = Field(default="main.py", pattern=r"^[A-Za-z0-9_.-]{1,120}$")
+    relative_path: str = Field(default="main.py", min_length=1, max_length=240)
     source_code: str = Field(default="", max_length=100_000)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+
+    @field_validator("relative_path")
+    @classmethod
+    def validate_relative_path(cls, value: str) -> str:
+        normalized = value.strip().replace("\\", "/")
+        parts = normalized.split("/")
+        if (
+            normalized.startswith("/") or normalized.endswith("/")
+            or any(part in {"", ".", ".."} for part in parts)
+            or any(not re.fullmatch(r"[A-Za-z0-9_.-]{1,120}", part) for part in parts)
+        ):
+            raise ValueError("Caminho relativo inválido ou inseguro.")
+        return normalized
 
 
 class EvaluationReceiptDTO(ContractModel):
@@ -47,4 +61,3 @@ class EvaluationReceiptDTO(ContractModel):
     score: float = Field(ge=0.0, le=1.0)
     feedback: tuple[str, ...] = Field(default=(), max_length=100)
     milestone: MilestoneProgressDTO | None = None
-

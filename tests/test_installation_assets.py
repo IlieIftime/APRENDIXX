@@ -17,11 +17,17 @@ def test_windows_installer_separates_build_venv_and_installed_application() -> N
     assert "$shortcut.TargetPath = $installedExecutable" in script
 
 
+def test_release_scan_only_allows_dynamic_execution_in_child_boundaries() -> None:
+    script = (ROOT / "scripts" / "verify_release.ps1").read_text(encoding="utf-8")
+    for boundary in ("python_sandbox.py", "grading.py", "debugger.py"):
+        assert f'-g "!**/{boundary}"' in script
+
+
 def test_clickable_installers_reference_valid_artifacts_and_launchers() -> None:
     windows = (ROOT / "Instalar-Aprendix.bat").read_text(encoding="utf-8")
     android = (ROOT / "Instalar-Android-ADB.bat").read_text(encoding="utf-8")
     assert "scripts\\install_windows.ps1" in windows
-    assert "Aprendix-0.18.0-android-arm64-debug.apk" in android
+    assert "Aprendix-1.0.0-android-arm64-release.apk" in android
     assert 'install -r "%APK%"' in android
     assert "io.aprendix.aprendix/org.kivy.android.PythonActivity" in android
 
@@ -109,7 +115,7 @@ def test_windows_uninstaller_dry_run_and_isolated_removal(tmp_path: Path) -> Non
 
 def test_mobile_install_readme_distinguishes_android_from_ios() -> None:
     guide = (ROOT / "INSTALL-MOBILE.md").read_text(encoding="utf-8")
-    assert "EBCE41D6BFB7F0A477B5F65970079250CA7D19D814A26EF3C035FCE5E2C4B080" in guide
+    assert "9C1869F0271DC1622CB3A2B26C262CCF772988F80CD28E2B8059CC8918FF0F3F" in guide
     assert "Instalar-Android-ADB.bat" in guide
     assert "build_ios.sh" in guide
     assert "não pode ser instalado num iPhone" in guide

@@ -11,6 +11,7 @@ from aprendix.application.contracts import (
 )
 from aprendix.infrastructure.db.database import Database
 from aprendix.infrastructure.security import AesGcmFieldCipher
+from aprendix.infrastructure.security.field_cipher import EncryptionError
 
 
 _MILESTONES = (
@@ -25,6 +26,26 @@ class DesktopRepository:
     def __init__(self, database: Database, cipher: AesGcmFieldCipher) -> None:
         self._database = database
         self._cipher = cipher
+
+    @staticmethod
+    def _project_file_aad(project_id: UUID, relative_path: str) -> bytes:
+        return f"project_files.content:{project_id}:{relative_path}".encode()
+
+    def _decrypt_project_file(
+        self, project_id: UUID, relative_path: str, envelope: bytes,
+    ) -> str:
+        try:
+            payload = self._cipher.decrypt(
+                envelope,
+                associated_data=self._project_file_aad(project_id, relative_path),
+            )
+        except EncryptionError:
+            # Compatibility with project files created before multi-file AAD.
+            payload = self._cipher.decrypt(
+                envelope,
+                associated_data=f"project_files.content:{project_id}:main".encode(),
+            )
+        return payload.decode()
 
     def seed_milestones(self) -> None:
         with self._database.transaction() as connection:
@@ -204,7 +225,13 @@ class DesktopRepository:
             "achievements": tuple(dict(item) for item in achievements),
         }
 
-    def record_card_review(self, user_id: UUID, card_id: UUID, *, known: bool) -> None:
+    def record_card_review(
+        self, user_id: UUID, card_id: UUID, *, known: bool | None = None,
+        feedback: str | None = None,
+    ) -> None:
+        feedback = feedback or ("already_knew" if known else "review")
+        if feedback not in {"already_knew", "useful", "confusing", "review"}:
+            raise ValueError("Feedback de card desconhecido.")
         now = datetime.now(UTC)
         with self._database.transaction() as connection:
             row = connection.execute(
@@ -212,10 +239,17 @@ class DesktopRepository:
                 (str(user_id), str(card_id)),
             ).fetchone()
             mastery = float(row["mastery"]) if row else 0.0
+            mastery_before = mastery
             reviews = int(row["successful_reviews"]) if row else 0
-            if known:
+            if feedback == "already_knew":
                 mastery, reviews = min(1.0, mastery + 0.16), reviews + 1
                 due = now + timedelta(days=min(30, 2 ** min(reviews - 1, 4)))
+            elif feedback == "useful":
+                mastery, reviews = min(1.0, mastery + 0.08), reviews + 1
+                due = now + timedelta(days=1)
+            elif feedback == "confusing":
+                mastery, reviews = max(0.0, mastery - 0.15), 0
+                due = now + timedelta(hours=2)
             else:
                 mastery, reviews = max(0.0, mastery - 0.12), 0
                 due = now + timedelta(hours=4)
@@ -227,6 +261,34 @@ class DesktopRepository:
                 (str(user_id), str(card_id), mastery, reviews,
                  due.isoformat(), now.isoformat()),
             )
+            connection.execute(
+                "INSERT INTO card_feedback_events VALUES(?,?,?,?,?,?,?)",
+                (str(uuid4()), str(user_id), str(card_id), feedback,
+                 mastery_before, mastery, now.isoformat()),
+            )
+
+    def daily_card_ids(self, user_id: UUID, *, limit: int = 30) -> tuple[UUID, ...]:
+        now = datetime.now(UTC).isoformat()
+        with self._database.read_connection() as connection:
+            rows = connection.execute(
+                """SELECT tc.id,
+                          CASE WHEN cr.card_id IS NULL THEN 1 ELSE 0 END unseen,
+                          COALESCE(cr.next_review_at, '') due,
+                          COALESCE(cr.mastery, 0.0) mastery
+                   FROM theory_cards tc
+                   JOIN document_chunks dc ON dc.id=tc.chunk_id
+                   JOIN documents d ON d.id=dc.document_id
+                   LEFT JOIN chunk_quality q ON q.chunk_id=dc.id
+                   LEFT JOIN card_review_state cr ON cr.card_id=tc.id AND cr.user_id=?
+                   WHERE d.lifecycle='active'
+                     AND d.source_path='aprendix://authored-facts/v1'
+                     AND COALESCE(q.status,'accepted')='accepted'
+                     AND (cr.card_id IS NULL OR cr.next_review_at <= ?)
+                   ORDER BY unseen ASC, due ASC, mastery ASC, tc.created_at DESC
+                   LIMIT ?""",
+                (str(user_id), now, max(1, min(limit, 100))),
+            ).fetchall()
+        return tuple(UUID(row["id"]) for row in rows)
 
     @staticmethod
     def _progress_from_row(row) -> MilestoneProgressDTO:
@@ -244,7 +306,8 @@ class DesktopRepository:
             project.name.encode(), associated_data=f"local_projects.name:{project.id}".encode()
         )
         content = self._cipher.encrypt(
-            project.source_code.encode(), associated_data=f"project_files.content:{project.id}:main".encode()
+            project.source_code.encode(),
+            associated_data=self._project_file_aad(project.id, project.relative_path),
         )
         file_id = uuid5(NAMESPACE_URL, f"aprendix:project-file:{project.id}:{project.relative_path}")
         with self._database.transaction() as connection:
@@ -263,25 +326,176 @@ class DesktopRepository:
                        content_encrypted=excluded.content_encrypted, updated_at=excluded.updated_at""",
                 (str(file_id), str(project.id), project.relative_path, content, project.updated_at.isoformat()),
             )
+            version = int(connection.execute(
+                "SELECT COALESCE(max(version),0)+1 FROM project_file_versions WHERE file_id=?",
+                (str(file_id),),
+            ).fetchone()[0])
+            version_id = uuid5(
+                NAMESPACE_URL, f"aprendix:project-version:{file_id}:{version}"
+            )
+            version_content = self._cipher.encrypt(
+                project.source_code.encode(),
+                associated_data=f"project_file_versions.content:{version_id}".encode(),
+            )
+            connection.execute(
+                "INSERT INTO project_file_versions VALUES(?,?,?,?,?,?,?)",
+                (str(version_id), str(project.id), str(file_id), version,
+                 version_content, "manual-save", project.updated_at.isoformat()),
+            )
         return project
+
+    def project_versions(self, project_id: UUID, relative_path: str = "main.py") -> tuple[dict[str, object], ...]:
+        with self._database.read_connection() as connection:
+            rows = connection.execute(
+                """SELECT v.* FROM project_file_versions v
+                   JOIN project_files f ON f.id=v.file_id
+                   WHERE v.project_id=? AND f.relative_path=? ORDER BY v.version DESC""",
+                (str(project_id), relative_path),
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["source_code"] = self._cipher.decrypt(
+                item.pop("content_encrypted"),
+                associated_data=f"project_file_versions.content:{row['id']}".encode(),
+            ).decode()
+            result.append(item)
+        return tuple(result)
+
+    def save_debug_recovery(
+        self, user_id: UUID, exercise_id: UUID, source: str, *, cursor_index: int,
+        breakpoints: tuple[dict[str, object], ...] = (), watches: tuple[str, ...] = (),
+    ) -> None:
+        identity = f"{user_id}:{exercise_id}"
+        def encrypt(field: str, value: object) -> bytes:
+            payload = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+            return self._cipher.encrypt(
+                payload.encode(), associated_data=f"editor_recovery_state.{field}:{identity}".encode()
+            )
+        with self._database.transaction() as connection:
+            connection.execute(
+                """INSERT INTO editor_recovery_state VALUES(?,?,?,?,?,?,?)
+                   ON CONFLICT(user_id,exercise_id) DO UPDATE SET
+                   source_encrypted=excluded.source_encrypted,cursor_index=excluded.cursor_index,
+                   breakpoints_encrypted=excluded.breakpoints_encrypted,
+                   watches_encrypted=excluded.watches_encrypted,updated_at=excluded.updated_at""",
+                (str(user_id), str(exercise_id), encrypt("source", source), max(0, cursor_index),
+                 encrypt("breakpoints", breakpoints), encrypt("watches", watches),
+                 datetime.now(UTC).isoformat()),
+            )
+
+    def load_debug_recovery(self, user_id: UUID, exercise_id: UUID) -> dict[str, object] | None:
+        with self._database.read_connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM editor_recovery_state WHERE user_id=? AND exercise_id=?",
+                (str(user_id), str(exercise_id)),
+            ).fetchone()
+        if row is None:
+            return None
+        identity = f"{user_id}:{exercise_id}"
+        def decrypt(field: str) -> str:
+            return self._cipher.decrypt(
+                row[f"{field}_encrypted"],
+                associated_data=f"editor_recovery_state.{field}:{identity}".encode(),
+            ).decode()
+        return {
+            "source": decrypt("source"), "cursor_index": row["cursor_index"],
+            "breakpoints": tuple(json.loads(decrypt("breakpoints"))),
+            "watches": tuple(json.loads(decrypt("watches"))),
+            "updated_at": row["updated_at"],
+        }
+
+    def record_debug_session(self, user_id: UUID, exercise_id: UUID | None, request, result) -> str:
+        identity, now = uuid4(), datetime.now(UTC).isoformat()
+        def encrypt(field: str, value: object) -> bytes:
+            return self._cipher.encrypt(
+                json.dumps(value, ensure_ascii=False).encode(),
+                associated_data=f"debug_sessions.{field}:{identity}".encode(),
+            )
+        with self._database.transaction() as connection:
+            connection.execute(
+                """INSERT INTO debug_sessions VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (str(identity), str(user_id), str(exercise_id) if exercise_id else None,
+                 result.status, encrypt("breakpoints", [item.model_dump(mode="json") for item in request.breakpoints]),
+                 encrypt("watches", request.watches), max(0, len(result.frames) - 1),
+                 result.coverage_percent, result.duration_ms, now),
+            )
+        return str(identity)
+
+    def record_test_run(
+        self, user_id: UUID, exercise_id: UUID | None, *, public_passed: int,
+        public_total: int, hidden_passed: int, hidden_total: int,
+        coverage_percent: float, result: dict[str, object],
+    ) -> str:
+        identity, now = uuid4(), datetime.now(UTC).isoformat()
+        encrypted = self._cipher.encrypt(
+            json.dumps(result, ensure_ascii=False).encode(),
+            associated_data=f"local_test_runs.result:{identity}".encode(),
+        )
+        with self._database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO local_test_runs VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (str(identity), str(user_id), str(exercise_id) if exercise_id else None,
+                 public_passed, public_total, hidden_passed, hidden_total,
+                 min(100.0, max(0.0, coverage_percent)), encrypted, now),
+            )
+        return str(identity)
 
     def list_projects(self, user_id: UUID) -> tuple[ProjectDTO, ...]:
         with self._database.read_connection() as connection:
             rows = connection.execute(
                 """SELECT p.*, f.relative_path, f.content_encrypted
                    FROM local_projects p JOIN project_files f ON f.project_id=p.id
-                   WHERE p.user_id=? ORDER BY p.updated_at DESC""", (str(user_id),)
+                   WHERE p.user_id=?
+                   ORDER BY p.updated_at DESC,
+                            CASE WHEN f.relative_path='main.py' THEN 0 ELSE 1 END,
+                            f.relative_path""", (str(user_id),)
             ).fetchall()
-        result = []
+        result, seen = [], set()
         for row in rows:
             project_id = UUID(row["id"])
+            if project_id in seen:
+                continue
+            seen.add(project_id)
             result.append(ProjectDTO(
                 id=project_id, user_id=user_id,
                 name=self._cipher.decrypt(row["name_encrypted"], associated_data=f"local_projects.name:{project_id}".encode()).decode(),
                 technology=Technology(row["technology"]), relative_path=row["relative_path"],
-                source_code=self._cipher.decrypt(row["content_encrypted"], associated_data=f"project_files.content:{project_id}:main".encode()).decode(),
+                source_code=self._decrypt_project_file(
+                    project_id, row["relative_path"], row["content_encrypted"],
+                ),
                 created_at=datetime.fromisoformat(row["created_at"]),
                 updated_at=datetime.fromisoformat(row["updated_at"]),
+            ))
+        return tuple(result)
+
+    def project_files(self, user_id: UUID, project_id: UUID) -> tuple[ProjectDTO, ...]:
+        with self._database.read_connection() as connection:
+            rows = connection.execute(
+                """SELECT p.*, f.relative_path, f.content_encrypted, f.updated_at file_updated_at
+                   FROM local_projects p JOIN project_files f ON f.project_id=p.id
+                   WHERE p.user_id=? AND p.id=?
+                   ORDER BY CASE WHEN f.relative_path='main.py' THEN 0 ELSE 1 END,
+                            f.relative_path""",
+                (str(user_id), str(project_id)),
+            ).fetchall()
+        result = []
+        for row in rows:
+            identity = UUID(row["id"])
+            result.append(ProjectDTO(
+                id=identity,
+                user_id=user_id,
+                name=self._cipher.decrypt(
+                    row["name_encrypted"],
+                    associated_data=f"local_projects.name:{identity}".encode(),
+                ).decode(),
+                technology=Technology(row["technology"]),
+                relative_path=row["relative_path"],
+                source_code=self._decrypt_project_file(
+                    identity, row["relative_path"], row["content_encrypted"],
+                ),
+                created_at=datetime.fromisoformat(row["created_at"]),
+                updated_at=datetime.fromisoformat(row["file_updated_at"]),
             ))
         return tuple(result)
 

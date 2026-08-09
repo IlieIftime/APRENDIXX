@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import secrets
+import hashlib
+import hmac
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -91,6 +93,7 @@ class AesGcmFieldCipher:
         if len(key) != _KEY_LENGTH:
             raise ValueError("AES-256-GCM requires a 32-byte key")
         self._cipher = AESGCM(key)
+        self._blind_key = hmac.new(key, b"aprendix:blind-index:v1", hashlib.sha256).digest()
 
     @classmethod
     def from_key_store(cls, key_store: KeyStore) -> AesGcmFieldCipher:
@@ -112,3 +115,12 @@ class AesGcmFieldCipher:
         except InvalidTag as exc:
             raise EncryptionError("ciphertext authentication failed") from exc
 
+    def blind_index(self, value: bytes, *, namespace: bytes) -> bytes:
+        """Create a keyed, deterministic digest suitable for equality indexes.
+
+        The digest cannot be reversed or checked with an offline dictionary
+        without the profile key. Namespaces prevent correlation across fields.
+        """
+        if not namespace or len(namespace) > 120:
+            raise ValueError("blind-index namespace must contain 1 to 120 bytes")
+        return hmac.new(self._blind_key, namespace + b"\x00" + value, hashlib.sha256).digest()

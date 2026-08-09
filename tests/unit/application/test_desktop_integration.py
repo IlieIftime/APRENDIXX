@@ -3,11 +3,14 @@
 from datetime import date
 from uuid import uuid4
 
+import pytest
+
 from aprendix.application.clustering import (
     ClusterAssignment, ClusterInput, HdbscanClusterService, TaxonomyClassifier,
 )
 from aprendix.application.contracts import (
-    Complexity, ContentKind, LearningTheme, SearchRequestDTO, Technology,
+    Complexity, ContentKind, DebugBreakpointDTO, DebugRequestDTO, LearningTheme,
+    SearchRequestDTO, Technology,
 )
 from aprendix.application.knowledge import HybridSearchService, SearchCandidate
 from aprendix.bootstrap import build_runtime
@@ -107,6 +110,52 @@ def test_projects_are_encrypted_and_round_trip(tmp_path):
     assert b"Meu projeto" not in raw
 
 
+def test_debug_state_and_project_versions_survive_locally_encrypted(tmp_path):
+    runtime = build_runtime(tmp_path / "profile")
+    exercise = runtime.exercises.list_all()[0]
+    request = DebugRequestDTO(
+        source_code="x = 2\nprint(x)",
+        breakpoints=(DebugBreakpointDTO(line=2),), watches=("x",),
+    )
+    result = runtime.desktop.debug(request, exercise.id)
+    assert result.status == "completed" and result.token_verified
+    runtime.desktop.save_debug_recovery(
+        exercise.id, request.source_code, cursor_index=4,
+        breakpoints=tuple(item.model_dump(mode="json") for item in request.breakpoints),
+        watches=request.watches,
+    )
+    recovered = runtime.desktop.load_debug_recovery(exercise.id)
+    assert recovered["source"] == request.source_code
+    assert recovered["watches"] == ("x",)
+
+    project = runtime.desktop.save_project("Versões", "valor = 1")
+    runtime.desktop.save_project("Versões", "valor = 2", project.id)
+    versions = runtime.desktop.project_versions(project.id)
+    assert [item["source_code"] for item in versions] == ["valor = 2", "valor = 1"]
+    raw = runtime.database.path.read_bytes()
+    assert b"valor = 2" not in raw and b"x = 2" not in raw
+
+
+def test_project_workspace_supports_encrypted_nested_files_without_duplicate_projects(tmp_path):
+    runtime = build_runtime(tmp_path / "profile")
+    project = runtime.desktop.save_project("Pacote", "from src.calculos import soma")
+    module = runtime.desktop.save_project(
+        "Pacote", "SEGREDO_MULTIFILE_94721 = 42\n", project.id,
+        relative_path="src/calculos.py",
+    )
+
+    assert len(runtime.desktop.projects()) == 1
+    files = runtime.desktop.project_files(project.id)
+    assert [item.relative_path for item in files] == ["main.py", "src/calculos.py"]
+    assert files[1].source_code == module.source_code
+    assert b"SEGREDO_MULTIFILE_94721" not in runtime.database.path.read_bytes()
+
+    with pytest.raises(ValueError):
+        runtime.desktop.save_project(
+            "Pacote", "segredo", project.id, relative_path="../segredo.py",
+        )
+
+
 def test_local_onboarding_streak_xp_badge_and_certificate(tmp_path):
     runtime = build_runtime(tmp_path / "profile")
     solutions = {
@@ -163,3 +212,23 @@ def test_a2_variations_are_persisted_encrypted(tmp_path):
         ).fetchone()
     assert row["variation"] == 1
     assert generated.prompt.encode("utf-8") not in bytes(row["payload_encrypted"])
+
+
+def test_daily_cards_and_four_feedback_actions_are_persisted(tmp_path):
+    runtime = build_runtime(tmp_path / "profile")
+    cards = runtime.knowledge.list_theory_cards(authored_only=True)
+    assert cards
+    card = cards[0]
+    assert card.id in runtime.desktop.daily_card_ids(limit=100)
+
+    for feedback in ("already_knew", "useful", "confusing", "review"):
+        runtime.desktop.review_card(card.id, feedback=feedback)
+
+    with runtime.database.read_connection() as connection:
+        rows = connection.execute(
+            "SELECT feedback FROM card_feedback_events WHERE card_id=? ORDER BY created_at,id",
+            (str(card.id),),
+        ).fetchall()
+    assert {row["feedback"] for row in rows} == {
+        "already_knew", "useful", "confusing", "review",
+    }

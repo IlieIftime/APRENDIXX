@@ -22,6 +22,51 @@ def _sudoku_solution(seed: int) -> list[list[int]]:
     return [[numbers[pattern(row, col)] for col in cols] for row in rows]
 
 
+def _sudoku_solution_count(board: list[list[int]], *, limit: int = 2) -> int:
+    """Count solutions up to ``limit`` using minimum-remaining-values search."""
+    rows = [set(range(1, 10)) - set(row) for row in board]
+    cols = [set(range(1, 10)) - {board[row][col] for row in range(9)} for col in range(9)]
+    boxes = [set(range(1, 10)) for _ in range(9)]
+    for row in range(9):
+        for col in range(9):
+            value = board[row][col]
+            if value:
+                boxes[(row // 3) * 3 + col // 3].discard(value)
+
+    def solve() -> int:
+        candidate_cell: tuple[int, int] | None = None
+        candidates: set[int] | None = None
+        for row in range(9):
+            for col in range(9):
+                if board[row][col]:
+                    continue
+                available = rows[row] & cols[col] & boxes[(row // 3) * 3 + col // 3]
+                if not available:
+                    return 0
+                if candidates is None or len(available) < len(candidates):
+                    candidate_cell, candidates = (row, col), available
+                    if len(available) == 1:
+                        break
+            if candidates is not None and len(candidates) == 1:
+                break
+        if candidate_cell is None or candidates is None:
+            return 1
+        row, col = candidate_cell
+        box = (row // 3) * 3 + col // 3
+        total = 0
+        for value in sorted(candidates):
+            board[row][col] = value
+            rows[row].remove(value); cols[col].remove(value); boxes[box].remove(value)
+            total += solve()
+            rows[row].add(value); cols[col].add(value); boxes[box].add(value)
+            board[row][col] = 0
+            if total >= limit:
+                return total
+        return total
+
+    return solve()
+
+
 @dataclass(slots=True)
 class SudokuGame:
     difficulty: str = "Fácil"
@@ -37,8 +82,17 @@ class SudokuGame:
         self.board = [row[:] for row in self.solution]
         holes = {"Fácil": 34, "Médio": 46, "Difícil": 54}[self.difficulty]
         positions = list(range(81)); random.Random(self.seed + 7919).shuffle(positions)
-        for value in positions[:holes]:
-            self.board[value // 9][value % 9] = 0
+        removed = 0
+        for position in positions:
+            if removed >= holes:
+                break
+            row, col = divmod(position, 9)
+            previous = self.board[row][col]
+            self.board[row][col] = 0
+            if _sudoku_solution_count(self.board) == 1:
+                removed += 1
+            else:
+                self.board[row][col] = previous
         self.fixed = {(row, col) for row in range(9) for col in range(9) if self.board[row][col]}
 
     def set(self, row: int, col: int, value: int) -> bool:
