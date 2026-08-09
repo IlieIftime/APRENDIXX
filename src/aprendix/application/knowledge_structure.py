@@ -7,11 +7,14 @@ was explicitly ingested from a local file by the user.
 
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 from collections import Counter
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable
+from urllib.parse import quote
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,7 +34,7 @@ class SourceDefinition:
     area_ids: tuple[str, ...]
     title: str
     authors: tuple[str, ...]
-    year: int
+    year: int | None
     source_type: str
     url: str
     doi: str | None
@@ -95,7 +98,7 @@ AREAS: tuple[AreaDefinition, ...] = (
 )
 
 
-SOURCES: tuple[SourceDefinition, ...] = (
+PRIMARY_SOURCES: tuple[SourceDefinition, ...] = (
     SourceDefinition("src-clrs", ("classic-algorithms", "data-structures"), "Introduction to Algorithms", ("Thomas H. Cormen", "Charles E. Leiserson", "Ronald L. Rivest", "Clifford Stein"), 2022, "book", "https://mitpress.mit.edu/9780262046305/introduction-to-algorithms/", None, "Referência sistemática para estruturas de dados, análise assintótica e desenho de algoritmos.", "Liga implementações a invariantes, provas de correção e custos de tempo/memória."),
     SourceDefinition("src-esl", ("classical-ml", "probability"), "The Elements of Statistical Learning", ("Trevor Hastie", "Robert Tibshirani", "Jerome Friedman"), 2009, "book", "https://hastie.su.domains/ElemStatLearn/", None, "Tratamento estatístico de regressão, classificação, regularização, kernels, árvores e ensembles.", "Ajuda a compreender pressupostos e trade-offs por trás dos algoritmos clássicos."),
     SourceDefinition("src-probml", ("probabilistic-ml", "classical-ml", "probability"), "Probabilistic Machine Learning: An Introduction", ("Kevin P. Murphy",), 2022, "book", "https://probml.github.io/pml-book/book1.html", None, "Percurso unificado por modelos probabilísticos, decisão Bayesiana e aprendizagem moderna.", "Explicita incerteza, inferência e ligação entre modelos clássicos e deep learning."),
@@ -131,6 +134,72 @@ SOURCES: tuple[SourceDefinition, ...] = (
     SourceDefinition("src-python-packaging", ("python", "software-engineering"), "Python Packaging User Guide", ("Python Packaging Authority",), 2026, "documentation", "https://packaging.python.org/en/latest/", None, "Guia oficial para ambientes virtuais, dependências, pyproject.toml, builds, formatos e especificações de distribuição.", "Ajuda a transformar código local num projeto reproduzível sem misturar import packages e distribution packages."),
     SourceDefinition("src-python-asyncio", ("python", "systems", "web"), "asyncio — Asynchronous I/O", ("Python Software Foundation",), 2026, "documentation", "https://docs.python.org/3/library/asyncio.html", None, "Referência oficial para coroutines, tasks, event loops, streams, filas e sincronização assíncrona.", "Enquadra async/await como concorrência cooperativa indicada sobretudo para I/O, não como aceleração automática de CPU."),
 )
+
+
+_LOCAL_TOPIC_AREAS = {
+    "python-foundations": "prog-foundations",
+    "object-oriented-python": "oop",
+    "classic-algorithms": "classic-algorithms",
+    "data-structures": "data-structures",
+    "databases": "databases",
+    "classical-ml": "classical-ml",
+    "unsupervised-learning": "classical-ml",
+    "deep-learning": "deep-learning",
+    "reinforcement-learning": "reinforcement-learning",
+    "autonomous-agents": "autonomous-agents",
+    "computer-vision": "computer-vision",
+    "web": "web",
+    "mathematics": "math-data",
+    "software-engineering": "software-engineering",
+}
+
+
+def _local_library_sources() -> tuple[SourceDefinition, ...]:
+    """Load metadata-only references generated from explicitly approved PDFs."""
+
+    asset = Path(__file__).resolve().parents[1] / "presentation" / "assets" / "local-library-catalog.json"
+    try:
+        payload = json.loads(asset.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return ()
+    result = []
+    for item in payload.get("sources", ()):  # the asset never contains book body
+        locators = item.get("locators") or ()
+        if not locators:
+            continue
+        locator = locators[0]
+        area_ids = tuple(dict.fromkeys(
+            _LOCAL_TOPIC_AREAS[topic]
+            for topic in item.get("topics", ())
+            if topic in _LOCAL_TOPIC_AREAS
+        )) or ("software-engineering",)
+        title = str(item.get("title") or "Referência local")[:500]
+        root_key = str(locator["root"])
+        relative_path = quote(str(locator["relative_path"]), safe="/")
+        page_count = max(0, int(item.get("page_count") or 0))
+        overview = (
+            f"Referência bibliográfica local catalogada para orientar o estudo de "
+            f"{', '.join(area_ids)}. O catálogo regista {page_count} páginas, sem "
+            "copiar o texto integral nem enunciados da obra."
+        )
+        result.append(SourceDefinition(
+            id=str(item["id"]), area_ids=area_ids, title=title,
+            authors=tuple(str(author)[:160] for author in item.get("authors", ())),
+            year=None, source_type="book",
+            url=f"aprendix-library://{root_key}/{relative_path}", doi=None,
+            overview=overview,
+            why=("Serve como referência de renome ou material académico validado pelo "
+                 "utilizador; o Aprendix produz explicações e práticas originais."),
+            access_note="Abre o PDF local apenas se a biblioteca aprovada continuar disponível.",
+            license_note=("A obra permanece no diretório privado do utilizador. O Aprendix "
+                          "guarda apenas metadados bibliográficos e um localizador relativo."),
+            provenance="user-approved-local-library-metadata-2026-08",
+        ))
+    return tuple(result)
+
+
+LOCAL_LIBRARY_SOURCES = _local_library_sources()
+SOURCES: tuple[SourceDefinition, ...] = (*PRIMARY_SOURCES, *LOCAL_LIBRARY_SOURCES)
 
 
 def fold(text: str) -> str:

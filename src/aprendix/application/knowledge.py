@@ -237,7 +237,7 @@ class HybridSearchService:
         query_vector = self._embedder.embed(expanded_query)
         shortlist_provider = getattr(self._repository, "search_candidates_for_query", None)
         if callable(shortlist_provider):
-            shortlist_limit = min(120, max(50, request.max_results * 6))
+            shortlist_limit = min(100, max(40, request.max_results * 5))
             candidates, indexed_sparse = shortlist_provider(
                 request.filters, expanded_query, query_vector, limit=shortlist_limit
             )

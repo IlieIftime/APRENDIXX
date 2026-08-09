@@ -10,6 +10,59 @@ from uuid import UUID, uuid4
 from aprendix.application.contracts import PortfolioEntryDTO, ProjectTemplateDTO
 
 
+# id, track, title, brief, requirements, milestones, level, capstone
+CORE_PROJECTS = (
+    ("guided-foundations-study-log", "python-foundations", "Diário de estudo no terminal",
+     "Cria uma aplicação local que regista sessões, valida entradas e produz um resumo semanal reproduzível.",
+     ("Menu textual sem recursão acidental", "Registos representados por estruturas Python explícitas",
+      "Validação de datas, durações e campos vazios", "Resumo por dia e por tema com testes"),
+     ("Contratos e exemplos de entrada/saída", "Registo e listagem ponta a ponta",
+      "Agregações e casos-limite", "Testes, ajuda e revisão final"), "beginner", 0),
+    ("capstone-foundations-data-cleaner", "python-foundations", "Laboratório de limpeza de registos",
+     "Constrói um pipeline puro que interpreta linhas, normaliza campos, separa erros e gera métricas sem alterar a entrada.",
+     ("Formato de entrada e política para valores ausentes", "Pipeline composto por funções pequenas",
+      "Relatório de erros por linha", "Testes para vazio, duplicados, Unicode e fronteiras"),
+     ("Amostras e critérios de aceitação", "Parser e normalização", "Relatório e métricas",
+      "Suite de regressão e documentação"), "intermediate", 1),
+    ("guided-oop-library", "python-oop", "Biblioteca orientada a objetos",
+     "Modela livros, membros e empréstimos com invariantes, composição e histórico observável.",
+     ("Entidades com identidade e valores validados", "Empréstimo sem estados impossíveis",
+      "Composição em vez de hierarquia artificial", "Testes que provam isolamento entre instâncias"),
+     ("Modelo e invariantes", "Casos de uso principais", "Falhas e histórico",
+      "Refactoring e testes"), "intermediate", 0),
+    ("capstone-oop-workflow", "python-oop", "Motor de workflows extensível",
+     "Implementa estados, comandos e políticas substituíveis para processar pedidos sem condicionais centrais crescentes.",
+     ("Protocolos para comandos e políticas", "Transições válidas e inválidas auditáveis",
+      "Injeção de dependências e doubles de teste", "Serialização explícita sem executar código"),
+     ("Contrato de domínio", "Primeiro workflow", "Extensibilidade e recuperação",
+      "Testes de arquitetura e relatório"), "advanced", 1),
+    ("guided-algorithms-route", "python-algorithms", "Planeador de rotas auditável",
+     "Compara BFS, Dijkstra e uma heurística simples em grafos locais, mostrando caminho, custo e nós visitados.",
+     ("Grafo validado e casos sem caminho", "Algoritmos independentes da interface",
+      "Reconstrução determinística do caminho", "Medição de operações em grafos distintos"),
+     ("Representação e baselines", "BFS e reconstrução", "Dijkstra e comparação",
+      "Experiências, testes e conclusões"), "intermediate", 0),
+    ("capstone-algorithms-scheduler", "python-algorithms", "Escalonador de tarefas com restrições",
+     "Ordena tarefas com dependências, deteta ciclos e produz um plano explicando cada decisão e limite.",
+     ("Ordenação topológica estável", "Deteção e descrição de ciclos",
+      "Prioridades sem violar pré-requisitos", "Análise de complexidade e testes gerados"),
+     ("Contrato e exemplos", "Grafo e ciclos", "Prioridades e explicações",
+      "Benchmark, propriedade e documentação"), "advanced", 1),
+    ("guided-structures-index", "python-data-structures", "Índice de pesquisa offline",
+     "Cria um índice invertido de pequenas notas e compara lista, conjunto, mapa e heap nas operações relevantes.",
+     ("Tokenização determinística", "Mapa termo→documentos e frequência",
+      "Ranking estável com empates", "Atualização e remoção sem reconstrução total"),
+     ("Modelo e corpus de teste", "Indexação e consulta", "Ranking e atualizações",
+      "Medições e revisão"), "intermediate", 0),
+    ("capstone-structures-cache", "python-data-structures", "Cache LRU com expiração lógica",
+     "Implementa uma cache limitada com acesso O(1) médio, ordem LRU e relógio injetado para testes determinísticos.",
+     ("Mapa e lista ligada coerentes", "Evicção LRU e atualização de existentes",
+      "TTL baseado em relógio colaborador", "Invariantes e testes aleatórios reproduzíveis"),
+     ("Contrato e invariantes", "Get/put e evicção", "TTL e recuperação",
+      "Testes de propriedade, perfil e relatório"), "advanced", 1),
+)
+
+
 class PortfolioRepository:
     def __init__(self, database, cipher) -> None:
         self._database, self._cipher = database, cipher
@@ -53,7 +106,30 @@ class PortfolioRepository:
                       ("beginner" if track["position"] < 4 else
                       "intermediate" if track["position"] < 8 else "advanced"),
                      int(track["position"] >= 8),
-                     datetime.now(UTC).isoformat()),
+                    datetime.now(UTC).isoformat()),
+                )
+            now = datetime.now(UTC).isoformat()
+            for (identity, track_slug, title, brief, requirements, milestones,
+                 level, capstone) in CORE_PROJECTS:
+                rubric = (
+                    "correção observável", "arquitetura e invariantes",
+                    "testes normais/limite/falha", "complexidade e desempenho",
+                    "documentação e decisões",
+                )
+                connection.execute(
+                    """INSERT INTO guided_project_templates(
+                       id,track_slug,title,brief,requirements_json,milestones_json,
+                       rubric_json,level,capstone,professional_briefing,created_at)
+                       VALUES(?,?,?,?,?,?,?,?,?,1,?)
+                       ON CONFLICT(id) DO UPDATE SET title=excluded.title,
+                       brief=excluded.brief,requirements_json=excluded.requirements_json,
+                       milestones_json=excluded.milestones_json,rubric_json=excluded.rubric_json,
+                       level=excluded.level,capstone=excluded.capstone,
+                       professional_briefing=excluded.professional_briefing""",
+                    (identity, track_slug, title, brief,
+                     json.dumps(requirements, ensure_ascii=False),
+                     json.dumps(milestones, ensure_ascii=False),
+                     json.dumps(rubric, ensure_ascii=False), level, capstone, now),
                 )
 
     def templates(self) -> tuple[ProjectTemplateDTO, ...]:

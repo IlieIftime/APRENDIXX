@@ -1,6 +1,6 @@
 """Versioned SQLite schema for the local-first learning platform."""
 
-SCHEMA_VERSION = 31
+SCHEMA_VERSION = 33
 
 MIGRATIONS: dict[int, tuple[str, ...]] = {
     1: (
@@ -1392,5 +1392,32 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         ) WITHOUT ROWID, STRICT
         """,
         "CREATE INDEX glossary_aliases_lookup ON glossary_aliases(normalized_alias,entry_id)",
+    ),
+    32: (
+        """
+        CREATE TABLE exercise_source_links (
+            exercise_id TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            rationale TEXT NOT NULL CHECK(length(trim(rationale)) BETWEEN 1 AND 500),
+            PRIMARY KEY(exercise_id,source_id),
+            FOREIGN KEY(exercise_id) REFERENCES exercises(id) ON DELETE CASCADE,
+            FOREIGN KEY(source_id) REFERENCES curated_sources(id) ON DELETE CASCADE
+        ) WITHOUT ROWID, STRICT
+        """,
+        "CREATE INDEX exercise_source_links_source ON exercise_source_links(source_id,exercise_id)",
+    ),
+    33: (
+        """
+        CREATE TABLE glossary_source_links (
+            entry_id TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            position INTEGER NOT NULL CHECK(position >= 0),
+            rationale TEXT NOT NULL CHECK(length(trim(rationale)) BETWEEN 1 AND 500),
+            PRIMARY KEY(entry_id,source_id),
+            FOREIGN KEY(entry_id) REFERENCES glossary_entries(id) ON DELETE CASCADE,
+            FOREIGN KEY(source_id) REFERENCES curated_sources(id) ON DELETE CASCADE
+        ) WITHOUT ROWID, STRICT
+        """,
+        "CREATE INDEX glossary_source_links_source ON glossary_source_links(source_id,entry_id)",
     ),
 }

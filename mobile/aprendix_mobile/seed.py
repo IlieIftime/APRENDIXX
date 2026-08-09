@@ -12,7 +12,7 @@ from difflib import SequenceMatcher
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from aprendix.application.knowledge_structure import AREAS, SOURCES, area_depths, fold
+from aprendix.application.knowledge_structure import AREAS, PRIMARY_SOURCES, area_depths, fold
 from aprendix.application.learning_catalog import ALL_FACTS, EXTRA_GLOSSARY, GLOSSARY_ALIASES
 from aprendix.application.academy_catalog import ACADEMY_MODULES, ACADEMY_TRACKS
 
@@ -234,7 +234,7 @@ def build_seed(database_path: Path, manifest_path: Path, *, content_version: str
                  body, code, f"cluster-{area.parent_id or area.id}", area.id, order,
                  _embedding(f"{area.title} {body} {code}")),
             )
-        for source in SOURCES:
+        for source in PRIMARY_SOURCES:
             connection.execute(
                 "INSERT INTO sources VALUES(?,?,?,?,?,?,?,?,?,?)",
                 (source.id, json.dumps(source.area_ids), source.title,

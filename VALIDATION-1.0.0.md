@@ -29,14 +29,14 @@ gate AAA estejam fechados.
 
 | Fase | Resultado integrado | Evidência/gate |
 | --- | --- | --- |
-| 0 — Fundação | baseline, métricas locais, diagnóstico e 14 feature flags | schema 31 íntegro; runtime `healthy` |
+| 0 — Fundação | baseline, métricas locais, diagnóstico e 14 feature flags | schema 33 íntegro; runtime `healthy` |
 | 1 — UX | temas escuro/claro/contraste, escala tipográfica, navegação, histórico e comandos | contraste WCAG/touch/DPI lógico automatizados; smoke visual do EXE |
-| 2 — Progresso | evidência, mastery, recomendações, plano semanal e metas pessoais | 175 nós; recomendações sempre ligadas a exercícios; testes e self-test |
-| 3 — Academia | 12 percursos, prática antes da teoria, avaliações, milestones e projetos | 12 projetos/modelos no self-test; catálogo testado |
+| 2 — Progresso | evidência, mastery, recomendações, plano semanal e metas pessoais | 3 398 nós; recomendações sempre ligadas a exercícios; testes e self-test |
+| 3 — Academia | 12 percursos, prática antes da teoria, avaliações, milestones e projetos | 248 unidades, 3 063 exercícios e 20 projetos/modelos; catálogo testado |
 | 4 — Pesquisa | BM25, dense quantizado, fusão, reranking, clusters, filtros e explicabilidade | benchmark SEARCH-1 aprovado |
 | 5 — Atualizações | broker opt-in, fontes governadas, quarentena, `.apxpack` Ed25519, importação transacional, preview, rollback e cache | testes de adulteração, traversal, ativação e rollback |
 | 6 — IDE | editor, lint, execução/correção/debug isolados, testes e CopyKate | sandbox real no EXE, stdout `42`, memória limitada |
-| 7 — Conteúdo UI | dicionário rankeado, 142 entradas + 180 aliases, 96 cards autorais e bibliografia orientada | `else` e aliases encontrados; cards e fontes testados |
+| 7 — Conteúdo UI | dicionário rankeado, 3 343 entradas + 9 757 aliases, 1 131 cards autorais e bibliografia orientada | API pública da stdlib, conceitos centrais, cards e fontes testados |
 | 8 — Tutor | recuperação local fundamentada, estratégias, cache e recusa em avaliação | resposta com evidência no self-test |
 | 9 — Projetos | projetos guiados, versões, avaliação e portefólio local | 12 templates e testes de exportação/avaliação |
 | 10 — Plataformas | Windows instalado; Android APK release; fonte/bridge iOS | Windows aprovado; gates físicos mobile abaixo |
@@ -46,14 +46,14 @@ gate AAA estejam fechados.
 
 ## Testes e qualidade
 
-- `scripts/verify_release.ps1`: **289 passed**, 1 aviso esperado, cobertura total **65%**.
+- Regressão integral atual: **293 passed**, 1 aviso esperado. A cobertura é regenerada por `scripts/verify_release.ps1` na build final.
 - O aviso cria deliberadamente uma entrada ZIP duplicada para provar que um pack
   hostil é rejeitado; não corresponde a comportamento de produção.
 - Foram exercitados testes unitários, integração, transações, migrações,
   idempotência, corrupção/rollback, parsers, sandbox, pesquisa, perfil portátil,
   currículo, UI controller, Android runtime e jogos.
 - Self-test do binário instalado: `passed=true`, integridade SQLite `ok`, schema
-  31, sandbox `ok`, limite de memória ativo, 96 facts, dicionário, tutor, jogos,
+  33, sandbox `ok`, limite de memória ativo, 1 131 cards autorais, dicionário, tutor, jogos,
   projetos e funcionalidades alargadas operacionais.
 - Smoke visual real: janela `Aprendix` responsiva e conteúdo Curso/IDE renderizado,
   sem o anterior `KeyError: surface`, sem janela duplicada e sem tela preta.
@@ -63,8 +63,11 @@ gate AAA estejam fechados.
 
 ### Pesquisa local
 
-50 golden queries: Recall@10 **0,9733**, MRR **0,8850**, NDCG@10 **0,9086**,
-P95 **394,57 ms**. Gate `<500 ms`: **aprovado**.
+50 golden queries: Recall@10 **0,9667**, MRR **0,8660**, NDCG@10 **0,8893**,
+P95 **438,61 ms**. Gate `<500 ms`: **aprovado**.
+
+O benchmark de operações sobre perfil novo mediu pesquisa comum em P95 **94,19 ms**
+e dicionário exato em P95 **19,81 ms**, já com 1 131 cards e 3 343 entradas.
 
 ### OCR local
 
@@ -107,7 +110,7 @@ quando a sua população fica desatualizada.
 ## Artefactos Windows
 
 - Executável instalado: `C:\Users\iliei\AppData\Local\Programs\Aprendix\1.0.0\Aprendix.exe`
-- SHA-256: `71FE3E53739C06A4515C5F0218DD81997D9CE3533744A139DFCDB174F5EB3B56`
+- SHA-256: consultar `RELEASE-MANIFEST-1.0.0.json`, gerado depois do self-test do EXE instalado.
 - Runtime `_internal`: 321 ficheiros, 265 596 590 bytes, tree SHA-256
   `7da89b65e504cfe7ec1b0bab1110aef3d317ab4f0ba9676bfd903fccc2f54b26`
 - Sandbox SHA-256: `04C6328F2A95257136ECE0E239650C92A520E87CD097FAC1B28A7B94EF89EE7D`
@@ -165,7 +168,7 @@ gates externos que não podem ser simulados neste host.
 
 Gates internos prioritários:
 
-1. fechar cobertura editorial e pedagógica CURR-1 com conteúdo revisto;
+1. expandir as 200 fontes bibliográficas reais e deduplicadas até à meta editorial de 1 000, sem fabricar referências;
 2. executar revisão humana ampla do conteúdo importado e das referências;
 3. validar screen reader, DPI misto e UX tátil em hardware real;
 4. executar soak prolongado, bateria e medições em hardware fraco/dispositivos físicos.

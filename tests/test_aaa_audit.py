@@ -29,5 +29,7 @@ def test_aaa_audit_is_aggregate_and_does_not_false_pass(tmp_path):
     assert report["counts"]["learning_tracks"] >= 12
     assert report["counts"]["learning_units"] >= 150
     assert report["curriculum"]["status"] == "open"
-    assert report["curriculum"]["targets"]["authored_cards"]["passed"] is False
-    assert report["curriculum"]["targets"]["glossary_entries"]["passed"] is False
+    assert report["curriculum"]["targets"]["authored_cards"]["passed"] is True
+    assert report["curriculum"]["targets"]["glossary_entries"]["passed"] is True
+    assert report["curriculum"]["targets"]["graph_nodes"]["passed"] is True
+    assert report["curriculum"]["targets"]["curated_sources"]["passed"] is False

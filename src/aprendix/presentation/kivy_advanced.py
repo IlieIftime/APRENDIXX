@@ -1498,11 +1498,22 @@ def launch_advanced_kivy(controller) -> int:
                     links = BoxLayout(size_hint_y=None, height=dp(42), spacing=dp(5))
                     for title, url in references[:4]:
                         links.add_widget(action(
-                            title[:28], lambda _button, target=url: webbrowser.open(target)
-                            if target.startswith(("https://", "http://")) else None,
+                            title[:28],
+                            lambda _button, target=url: self._open_reference(target),
                         ))
                     card.add_widget(links)
                 self.column.add_widget(card)
+
+        @staticmethod
+        def _open_reference(target):
+            if target.startswith(("https://", "http://")):
+                webbrowser.open(target)
+                return
+            if target.startswith("aprendix-library://"):
+                from aprendix.application.local_library import resolve_library_uri
+                path = resolve_library_uri(target)
+                if path is not None:
+                    webbrowser.open(path.as_uri())
 
         def _try_in_ide(self, code):
             ide = self.manager.get_screen("learning")
@@ -2196,6 +2207,18 @@ def launch_advanced_kivy(controller) -> int:
             if self.detail is None:
                 return
             target = self.detail.canonical_url or self.detail.source
+            if target.startswith("aprendix-library://"):
+                from aprendix.application.local_library import resolve_library_uri
+                path = resolve_library_uri(target)
+                if path is None:
+                    self.status.text = (
+                        "PDF local não encontrado. Confirma a biblioteca aprovada ou configura "
+                        "APRENDIX_LIBRARY_ESTUDO_FERIAS/APRENDIX_LIBRARY_EBOOKS_PAPERS."
+                    )
+                    return
+                webbrowser.open(path.as_uri())
+                self.status.text = "PDF bibliográfico aberto na aplicação predefinida."
+                return
             if target.startswith(("https://", "http://")):
                 webbrowser.open(target)
                 self.status.text = "Fonte aberta no navegador."

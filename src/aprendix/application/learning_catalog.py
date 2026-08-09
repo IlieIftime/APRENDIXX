@@ -8,7 +8,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from aprendix.application.academy_catalog import ACADEMY_MODULES, ACADEMY_TRACKS
+from aprendix.application.academy_catalog import (
+    ACADEMY_MODULES,
+    ACADEMY_TRACKS,
+    VERTICAL_CORE_MODULES,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +150,51 @@ _LEGACY_CURRICULUM_FACTS = (
 
 _MODULE_CURRICULUM_FACTS = tuple(_module_fact(spec) for spec in ACADEMY_MODULES)
 
+_CARD_OPERATIONS = (
+    ("previsão", "prevê o resultado antes de executar e regista a razão"),
+    ("traçado", "acompanha apenas as mudanças de estado relevantes"),
+    ("fronteira", "procura o menor caso que muda o comportamento"),
+    ("invariante", "declara o que tem de continuar verdadeiro em cada passo"),
+    ("contrato", "separa entradas aceites, resultado e falhas esperadas"),
+    ("diagnóstico", "localiza a primeira divergência em vez do último sintoma"),
+    ("teste", "transforma uma expectativa concreta numa verificação repetível"),
+    ("complexidade", "identifica a operação cujo número mais cresce com a entrada"),
+    ("transferência", "aplica o mesmo contrato a dados e contexto diferentes"),
+    ("comparação", "contrasta duas soluções pelo comportamento e pelos custos"),
+    ("refactoring", "reduz duplicação sem alterar os resultados observáveis"),
+)
+
+_CARD_EVIDENCE = (
+    ("exemplo mínimo", "usa primeiro uma entrada pequena que possas calcular à mão"),
+    ("contraexemplo", "tenta falsificar a solução com vazio, repetição ou valor extremo"),
+    ("explicação", "justifica cada decisão com o contrato, não com coincidência de output"),
+    ("medição", "regista resultado, custo e estado antes/depois para comparar objetivamente"),
+)
+
+
+def _vertical_fact_bank() -> tuple[FactDefinition, ...]:
+    facts = []
+    for slug, track, title, objective, explanation, starter, _test in VERTICAL_CORE_MODULES:
+        area = _MODULE_AREAS.get(slug, _TRACK_AREAS[track])
+        for operation_index, (operation, action) in enumerate(_CARD_OPERATIONS):
+            for evidence_index, (evidence, method) in enumerate(_CARD_EVIDENCE):
+                facts.append(FactDefinition(
+                    slug=f"core-card-{slug}-{operation_index:02d}-{evidence_index:02d}",
+                    area_id=area,
+                    fact=f"{title} · {operation}: {action}.",
+                    explanation=(
+                        f"{explanation} Para obter evidência por {evidence}, {method}. "
+                        f"O objetivo verificável desta unidade é: {objective}"
+                    ),
+                    formula_or_code=starter.strip(),
+                    complexity=("beginner" if track == "python-foundations" else "intermediate"),
+                    source_ids=_AREA_SOURCES.get(area, ("src-python-docs",)),
+                ))
+    return tuple(facts)
+
+
+_VERTICAL_PRACTICE_FACTS = _vertical_fact_bank()
+
 _PROJECT_CURRICULUM_FACTS = tuple(
     FactDefinition(
         slug=f"curriculum-{slug}-project",
@@ -172,6 +221,7 @@ ALL_FACTS: tuple[FactDefinition, ...] = (
     *_LEGACY_CURRICULUM_FACTS,
     *_MODULE_CURRICULUM_FACTS,
     *_PROJECT_CURRICULUM_FACTS,
+    *_VERTICAL_PRACTICE_FACTS,
 )
 
 

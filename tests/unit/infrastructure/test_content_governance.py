@@ -79,7 +79,7 @@ def test_trusted_registry_and_curriculum_coverage_are_deterministic(database, ci
     coverage = service.refresh_coverage()
 
     assert len(service.sources()) == len(DEFAULT_TRUSTED_SOURCES) == 18
-    assert len(coverage) == 48
+    assert len(coverage) == 71
     assert all(item.exercise_count >= 1 for item in coverage)
     assert all(item.gap_code.value == "needs-theory" for item in coverage)
 

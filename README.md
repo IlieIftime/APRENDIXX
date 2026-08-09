@@ -55,7 +55,7 @@ offers persistent dark/light themes and dictionary lookup from both its own
 screen and the embedded IDE.
 
 The independent `mobile/` subtree ships a deliberately smaller offline seed:
-102 hierarchical cards, 34 curated sources, 92 search shortcuts, 135 glossary
+1,131 hierarchical cards, 200 curated sources, 92 search shortcuts, 3,343 glossary
 entries plus 180 explicit aliases, six executable practical challenges and six
 theory checks. Android
 uses an AST interpreter that never calls

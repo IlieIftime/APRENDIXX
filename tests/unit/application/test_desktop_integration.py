@@ -218,8 +218,9 @@ def test_daily_cards_and_four_feedback_actions_are_persisted(tmp_path):
     runtime = build_runtime(tmp_path / "profile")
     cards = runtime.knowledge.list_theory_cards(authored_only=True)
     assert cards
-    card = cards[0]
-    assert card.id in runtime.desktop.daily_card_ids(limit=100)
+    daily = set(runtime.desktop.daily_card_ids(limit=100))
+    assert len(daily) == 100
+    card = next(item for item in cards if item.id in daily)
 
     for feedback in ("already_knew", "useful", "confusing", "review"):
         runtime.desktop.review_card(card.id, feedback=feedback)

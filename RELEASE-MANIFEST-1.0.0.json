@@ -1,17 +1,22 @@
 {
   "product": "Aprendix",
   "version": "1.0.0",
-  "generated_at": "2026-08-09T15:13:32.840274+00:00",
+  "generated_at": "2026-08-09T19:37:18.699035+00:00",
   "files": {
     "windows_executable": {
       "path": "C:\\Users\\iliei\\AppData\\Local\\Programs\\Aprendix\\1.0.0\\Aprendix.exe",
-      "size_bytes": 12744813,
-      "sha256": "71fe3e53739c06a4515c5f0218dd81997d9ce3533744a139dfcdb174f5eb3b56"
+      "size_bytes": 13126402,
+      "sha256": "56e63eee6eb66cd87c3c257ef1dff3624ba39140a92b498a93e3fe2dd46d4219"
     },
     "windows_sandbox": {
       "path": "C:\\Users\\iliei\\AppData\\Local\\Programs\\Aprendix\\1.0.0\\AprendixSandbox\\AprendixSandbox.exe",
-      "size_bytes": 8802096,
-      "sha256": "04c6328f2a95257136ece0e239650c92a520e87cd097fac1b28a7b94ef89ee7d"
+      "size_bytes": 4893976,
+      "sha256": "96ab5feff11bd0cc7cc990057897fd44f40a03ce6b937b746c2854a8ae7f6200"
+    },
+    "windows_installation_record": {
+      "path": "C:\\Users\\iliei\\AppData\\Local\\Programs\\Aprendix\\1.0.0\\installation.json",
+      "size_bytes": 539,
+      "sha256": "a5277f3ed47e8ce5c79a03b81f3c574eadaf1426a9e9a242f1005d311b943542"
     },
     "android_apk": {
       "path": "dist\\mobile\\Aprendix-1.0.0-android-arm64-release.apk",
@@ -35,8 +40,8 @@
     },
     "search_benchmark": {
       "path": "SEARCH-BENCHMARK-1.0.0.json",
-      "size_bytes": 172,
-      "sha256": "a6583f7efa14aa3ec410afff4c53d2980c2ece7ea486410b4d5ff2e5512b7a12"
+      "size_bytes": 171,
+      "sha256": "de5421a2b0f0f21c74cdf988cdfa054fb0cf22087d898dce6d5712062aade927"
     },
     "tutor_benchmark": {
       "path": "TUTOR-BENCHMARK-AAA.json",
@@ -45,13 +50,13 @@
     },
     "baseline_benchmark": {
       "path": "BASELINE-1.0.0.json",
-      "size_bytes": 970,
-      "sha256": "2e17f4eedc74a3d914a27cd439cc5a45d935613861c78b2a98d21c36c4d571a2"
+      "size_bytes": 979,
+      "sha256": "0b79f676aea5327021d354cf328e50caea480cc32da9a87e3ed9fe276052958c"
     },
     "aaa_audit": {
       "path": "AAA-AUDIT-1.0.0.json",
-      "size_bytes": 1971,
-      "sha256": "1e1d336ce1a771e5153a1a3df4e4c329c3b8d64ca779921b1b1bcc159e48f34c"
+      "size_bytes": 1985,
+      "sha256": "5060b4f9762fbf7011ed2fa5a994ab58e173b26d729563b5bf48a23ccc1ddd1b"
     },
     "accessibility_audit": {
       "path": "ACCESSIBILITY-AUDIT-1.0.0.json",
@@ -70,13 +75,13 @@
     },
     "validation_report": {
       "path": "VALIDATION-1.0.0.md",
-      "size_bytes": 10037,
-      "sha256": "e9e0bd8a49d3dedbde4ee83ab500cbbd2e373c90c3622735a770ca006a985996"
+      "size_bytes": 10374,
+      "sha256": "8a23ec226a58aa4144d996d6a11baa7b82a6de21dffbdb9c8fe4214799176c4a"
     },
     "release_notes": {
       "path": "RELEASE-NOTES-1.0.0.md",
-      "size_bytes": 2361,
-      "sha256": "5906b58df27b7cdfbde11085a29a2489ac1f629b4f92246dabc9d631ba0ef872"
+      "size_bytes": 2716,
+      "sha256": "ce0d24e0d211aa6c6f427376c3bde94dabf4b9e3a2484265ae1fdfe6249dadb8"
     },
     "threat_model": {
       "path": "THREAT-MODEL-1.0.md",
@@ -112,9 +117,16 @@
   "directories": {
     "windows_runtime": {
       "path": "C:\\Users\\iliei\\AppData\\Local\\Programs\\Aprendix\\1.0.0\\_internal",
-      "file_count": 321,
-      "size_bytes": 265596590,
-      "tree_sha256": "7da89b65e504cfe7ec1b0bab1110aef3d317ab4f0ba9676bfd903fccc2f54b26"
+      "file_count": 320,
+      "size_bytes": 268408128,
+      "tree_sha256": "d69b4645ed88b0b7abc3ca4cca6a7e7618a64058cd7536bfb1bed9834e74d2d6"
+    },
+    "build_inputs": {
+      "file_count": 176,
+      "size_bytes": 4728030,
+      "tree_sha256": "3a2e2314ab3629e992e9d7d7033713cf031014236cf94b33cd11614a1fb2fef0",
+      "git_revision": "f56addad209d581bac064a7f3316c200b0a0834b",
+      "git_dirty": true
     }
   }
 }

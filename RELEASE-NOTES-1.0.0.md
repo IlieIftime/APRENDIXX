@@ -7,7 +7,9 @@ Primeira release integrada do ambiente local-first de aprendizagem.
 - IDE com execução/correção isolada, debugger, lint, testes públicos/ocultos/property-based, CopyKate e Pomodoro.
 - Tutor offline fundamentado e analisador local de texto, código, pseudocódigo e imagens com confirmação de OCR.
 - Cards autorais com referências e quatro sinais de utilidade; Sudoku e Minesweeper independentes do mastery.
-- Catálogo expandido para 12 percursos/156 unidades, 96 cards autorais e dicionário com 142 entradas e 180 aliases explícitos.
+- Catálogo expandido para 12 percursos/248 unidades, 3 063 exercícios, 1 131 cards autorais e dicionário com 3 343 entradas e 9 757 aliases explícitos.
+- 166 referências locais deduplicadas foram catalogadas apenas por metadados, sem copiar livros ou guardar caminhos absolutos; total de fontes curadas: 200.
+- O núcleo Python Base/POO/Algoritmos/Estruturas de Dados recebeu 23 módulos, 2 990 variações de prática e oito projetos adicionais com proveniência bibliográfica.
 - Desktop Windows, APK Android sideloadable e projeto iOS preparado para build/assinatura obrigatória em macOS.
 - Packs de conteúdo Ed25519, perfil portátil cifrado, backups, telemetria estritamente local e controlos de acessibilidade.
 - APK release arm64 assinado, sem permissão de Internet, com Python 3.11/OpenSSL 3 e criptografia nativa Android.

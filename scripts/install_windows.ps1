@@ -181,6 +181,17 @@ $manifest = [ordered]@{
 }
 $manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $installPath "installation.json") -Encoding UTF8
 
+# The public release manifest must describe the exact executable that has just
+# passed the installed self-test, never a previous build copied into the folder.
+Invoke-Checked -FilePath $venvPython `
+    -Arguments @("scripts/create_release_manifest.py") `
+    -FailureMessage "Nao foi possivel criar o manifesto da release instalada"
+Invoke-Checked -FilePath $venvPython `
+    -Arguments @("scripts/verify_release_manifest.py", "RELEASE-MANIFEST-$productVersion.json") `
+    -FailureMessage "O manifesto nao corresponde ao executavel instalado"
+Copy-Item -LiteralPath (Join-Path $projectRoot "RELEASE-MANIFEST-$productVersion.json") `
+    -Destination (Join-Path $installPath "RELEASE-MANIFEST-$productVersion.json") -Force
+
 if (-not $NoDesktopShortcut) {
     $desktop = [Environment]::GetFolderPath("Desktop")
     if ([string]::IsNullOrWhiteSpace($desktop)) {

@@ -7,8 +7,11 @@ from aprendix.bootstrap import build_runtime
 def test_every_track_has_capstone_and_portfolio_distinguishes_mode(tmp_path) -> None:
     runtime = build_runtime(tmp_path / "profile")
     templates = runtime.portfolio.templates()
-    assert len(templates) == len(runtime.curriculum.tracks()) == 12
-    assert all(item.capstone for item in templates)
+    assert len(runtime.curriculum.tracks()) == 12
+    assert len(templates) == 20
+    assert sum(item.capstone for item in templates) >= 8
+    capstone_tracks = {item.track_slug for item in templates if item.capstone}
+    assert capstone_tracks == {item["slug"] for item in runtime.curriculum.tracks()}
     project = runtime.portfolio.start(templates[0].id, mode="autonomous")
     runtime.portfolio.set_milestone(project.id, 0)
     entry = runtime.portfolio.entries()[0]

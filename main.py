@@ -68,7 +68,14 @@ if "--self-test" in sys.argv:
     snippet_result = runtime.snippets.analyze(SnippetRequestDTO(
         text="def dobro(x):\n    return x * 2"
     ))
-    projects_ok = len(runtime.portfolio.templates()) == len(runtime.curriculum.tracks()) >= 12
+    project_templates = runtime.portfolio.templates()
+    track_slugs = {track["slug"] for track in runtime.curriculum.tracks()}
+    # Some tracks intentionally offer both a guided project and a capstone.
+    # Validate complete track coverage instead of requiring a 1:1 count.
+    projects_ok = (
+        len(project_templates) >= len(track_slugs) >= 12
+        and track_slugs.issubset({template.track_slug for template in project_templates})
+    )
     game_session = runtime.games.new("sudoku", "Fácil", daily=True)
     extended_ok = all((
         not tutor_result.declined, bool(tutor_result.evidence),
@@ -87,7 +94,7 @@ if "--self-test" in sys.argv:
                     "authored_fact_cards": facts, "dictionary_else": glossary_ok,
                     "games": games_ok, "extended_features": extended_ok,
                     "tutor_confidence": tutor_result.confidence,
-                    "projects": len(runtime.portfolio.templates()),
+                    "projects": len(project_templates),
                     "runtime_health": health.status.value,
                     "feature_flags": len(feature_flags)},
                    ensure_ascii=False, indent=2),

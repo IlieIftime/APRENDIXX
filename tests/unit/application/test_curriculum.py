@@ -16,7 +16,7 @@ def test_curriculum_is_original_ordered_and_practice_gated(tmp_path):
     assert units[1]["practice_gate"] == 1
     with runtime.database.read_connection() as connection:
         assert connection.execute("SELECT count(*) FROM learning_unit_dependencies").fetchone()[0] >= 119
-        assert connection.execute("SELECT count(*) FROM assessment_items").fetchone()[0] == 108
+        assert connection.execute("SELECT count(*) FROM assessment_items").fetchone()[0] == 177
 
 
 def test_academy_has_complete_acyclic_hierarchy_and_gated_paths(tmp_path):
@@ -26,13 +26,14 @@ def test_academy_has_complete_acyclic_hierarchy_and_gated_paths(tmp_path):
 
     assert audit["valid"] is True
     assert audit["counts"] == {
-        "paths": 12, "tracks": 12, "chapters": 36, "units": 156,
-        "objectives": 48, "exercises": 50,
+        "paths": 12, "tracks": 12, "chapters": 59, "units": 248,
+        "objectives": 71, "exercises": 3063,
     }
     assert len(paths) == 12
     assert paths[0]["unlocked"] is True
     assert all(item["unlocked"] is False for item in paths[1:])
-    assert all(item["total_units"] == 13 for item in paths)
+    assert all(item["total_units"] >= 13 for item in paths)
+    assert next(item for item in paths if item["slug"] == "python-foundations")["total_units"] > 13
     diagnostic = runtime.curriculum.diagnostic(limit=3)
     assert len(diagnostic) == 3
     assert {item["track_slug"] for item in diagnostic} == {"computer-literacy"}
@@ -78,7 +79,19 @@ def test_glossary_resolves_explicit_aliases_without_duplicating_definitions(tmp_
     assert oop[0]["term"] == "class" and "OOP" in oop[0]["aliases"]
     assert virtualenv[0]["term"] == "virtual environment"
     with runtime.database.read_connection() as connection:
-        assert connection.execute("SELECT count(*) FROM glossary_aliases").fetchone()[0] >= 100
+        assert connection.execute("SELECT count(*) FROM glossary_aliases").fetchone()[0] >= 9_000
+
+
+def test_stdlib_dictionary_is_offline_source_linked_and_searchable(tmp_path):
+    runtime = build_runtime(tmp_path / "profile")
+    result = runtime.curriculum.glossary("heapq.heappush", limit=4)
+    assert result[0]["term"] == "heapq.heappush"
+    assert "função pública" in result[0]["definition"]
+    assert result[0]["signature"].startswith("heappush(")
+    assert any(title == "Python 3 Documentation" for title, _url in result[0]["references"])
+    with runtime.database.read_connection() as connection:
+        assert connection.execute("SELECT count(*) FROM glossary_entries").fetchone()[0] >= 3_300
+        assert connection.execute("SELECT count(*) FROM glossary_source_links").fetchone()[0] >= 3_180
 
 
 def test_theory_assessment_updates_adaptive_graph(tmp_path):
@@ -115,3 +128,27 @@ def test_all_practical_assessments_link_existing_exercises(tmp_path):
             WHERE ai.kind='practical' AND u.exercise_id IS NULL
         """).fetchone()[0]
     assert missing == 0
+
+
+def test_core_practice_bank_is_original_unique_and_source_linked(tmp_path):
+    runtime = build_runtime(tmp_path / "profile")
+    with runtime.database.read_connection() as connection:
+        amount = int(connection.execute(
+            "SELECT count(*) FROM exercises WHERE slug LIKE 'core-%'"
+        ).fetchone()[0])
+        unique_prompts = int(connection.execute(
+            "SELECT count(DISTINCT prompt) FROM exercises WHERE slug LIKE 'core-%'"
+        ).fetchone()[0])
+        linked = int(connection.execute(
+            "SELECT count(DISTINCT exercise_id) FROM exercise_source_links"
+        ).fetchone()[0])
+        broken = int(connection.execute("""
+            SELECT count(*) FROM exercise_source_links l
+            LEFT JOIN exercises e ON e.id=l.exercise_id
+            LEFT JOIN curated_sources s ON s.id=l.source_id
+            WHERE e.id IS NULL OR s.id IS NULL
+        """).fetchone()[0])
+    assert amount == 2990
+    assert unique_prompts == amount
+    assert linked == amount
+    assert broken == 0

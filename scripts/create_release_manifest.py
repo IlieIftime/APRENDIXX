@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -44,12 +45,50 @@ def _directory_record(path: Path) -> dict[str, object]:
     }
 
 
+def _build_input_record() -> dict[str, object]:
+    roots = (ROOT / "src", ROOT / "mobile", ROOT / "packaging", ROOT / "scripts")
+    files = [
+        item for root in roots if root.is_dir()
+        for item in root.rglob("*")
+        if item.is_file() and "__pycache__" not in item.parts
+    ]
+    files.extend(path for path in (ROOT / "main.py", ROOT / "pyproject.toml") if path.is_file())
+    digest = hashlib.sha256()
+    total = 0
+    for item in sorted(set(files)):
+        relative = item.relative_to(ROOT).as_posix()
+        size = item.stat().st_size
+        total += size
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(size).encode("ascii"))
+        digest.update(b"\0")
+        digest.update(bytes.fromhex(_sha256(item)))
+    try:
+        revision = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, check=True,
+            capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+        dirty = bool(subprocess.run(
+            ["git", "status", "--porcelain"], cwd=ROOT, check=True,
+            capture_output=True, text=True, timeout=10,
+        ).stdout.strip())
+    except (OSError, subprocess.SubprocessError):
+        revision, dirty = None, None
+    return {
+        "file_count": len(set(files)), "size_bytes": total,
+        "tree_sha256": digest.hexdigest(), "git_revision": revision,
+        "git_dirty": dirty,
+    }
+
+
 def main() -> int:
     local = Path(os.environ["LOCALAPPDATA"])
     installation = local / "Programs" / "Aprendix" / VERSION
     artefacts = {
         "windows_executable": installation / "Aprendix.exe",
         "windows_sandbox": installation / "AprendixSandbox" / "AprendixSandbox.exe",
+        "windows_installation_record": installation / "installation.json",
         "android_apk": ROOT / "dist" / "mobile" / f"Aprendix-{VERSION}-android-arm64-release.apk",
         "sbom": ROOT / f"SBOM-{VERSION}.json",
         "dependency_audit": ROOT / f"DEPENDENCY-AUDIT-{VERSION}.json",
@@ -90,6 +129,7 @@ def main() -> int:
         },
         "directories": {
             "windows_runtime": _directory_record(runtime_directory),
+            "build_inputs": _build_input_record(),
         },
     }
     output = ROOT / f"RELEASE-MANIFEST-{VERSION}.json"

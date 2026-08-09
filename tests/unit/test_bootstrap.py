@@ -12,9 +12,9 @@ def test_build_runtime_uses_requested_directory_and_wires_graph(
     runtime = build_runtime(tmp_path / "app-data")
 
     assert runtime.database.path == (tmp_path / "app-data" / "aprendix.db").resolve()
-    assert len(runtime.exercises.list_all()) == 50
+    assert len(runtime.exercises.list_all()) == 3063
     snapshot = runtime.graph_snapshot_service.get_snapshot(runtime.user.id)
-    assert len(snapshot.nodes) == 175
+    assert len(snapshot.nodes) == 3398
     assert len(snapshot.recommendations) == 3
     with runtime.database.read_connection() as connection:
         for recommendation in snapshot.recommendations:
@@ -33,7 +33,7 @@ def test_build_runtime_uses_requested_directory_and_wires_graph(
         submissions=runtime.submission_service,
         snapshot_provider=lambda: serialized,
     )
-    assert len(controller.dashboard().nodes) == 175
+    assert len(controller.dashboard().nodes) == 3398
     assert runtime.platform.feature_enabled("ide.debugger") is True
     assert runtime.platform.metrics("runtime.startup", limit=1)[0].value > 0
     assert runtime.platform.health().status.value == "healthy"

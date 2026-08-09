@@ -256,6 +256,19 @@ class KnowledgeRepository:
                     trust_score=1.0,reviewed_at=excluded.reviewed_at""",
                 (str(document_id), "aprendix://authored-facts/v1", now),
             )
+            existing_fact_chunks = {
+                row[0] for row in connection.execute(
+                    "SELECT id FROM document_chunks WHERE document_id=?",
+                    (str(document_id),),
+                ).fetchall()
+            }
+            # Catalogue growth can move a stable fact to a different ordinal.
+            # Free the unique (document, ordinal) range first, then upsert by
+            # stable chunk identity so card review foreign keys remain valid.
+            connection.execute(
+                "UPDATE document_chunks SET ordinal=ordinal+1000000 WHERE document_id=?",
+                (str(document_id),),
+            )
             known_areas = {row[0] for row in connection.execute("SELECT id FROM knowledge_areas")}
             for position, fact in enumerate(ALL_FACTS):
                 chunk_id = uuid5(NAMESPACE_URL, f"aprendix:fact-chunk:{fact.slug}")
@@ -277,9 +290,13 @@ class KnowledgeRepository:
                 if not any(vector): vector = (100,) + vector[1:]
                 vector_blob = self._cipher.encrypt(struct.pack("<384b", *vector), associated_data=f"chunk_embeddings.vector:{chunk_id}".encode())
                 connection.execute(
-                    """INSERT OR IGNORE INTO document_chunks(id,document_id,ordinal,page_number,
+                    """INSERT INTO document_chunks(id,document_id,ordinal,page_number,
                        section,chunk_type,text_encrypted,token_count,created_at)
-                       VALUES(?,?,?,NULL,?,'theory',?,?,?)""",
+                       VALUES(?,?,?,NULL,?,'theory',?,?,?)
+                       ON CONFLICT(id) DO UPDATE SET document_id=excluded.document_id,
+                       ordinal=excluded.ordinal,page_number=NULL,section=excluded.section,
+                       chunk_type='theory',text_encrypted=excluded.text_encrypted,
+                       token_count=excluded.token_count""",
                     (str(chunk_id), str(document_id), position, fact.slug, text_blob, len(body_text.split()), now),
                 )
                 connection.execute(
@@ -310,10 +327,22 @@ class KnowledgeRepository:
                 )
                 card_blob = self._cipher.encrypt(body_text.encode(), associated_data=f"theory_cards.body:{card_id}".encode())
                 connection.execute(
-                    """INSERT OR IGNORE INTO theory_cards(id,chunk_id,title,body_encrypted,
-                       complexity,created_at) VALUES(?,?,'Sabias que?',? ,?,?)""",
+                    """INSERT INTO theory_cards(id,chunk_id,title,body_encrypted,
+                       complexity,created_at) VALUES(?,?,'Sabias que?',? ,?,?)
+                       ON CONFLICT(id) DO UPDATE SET chunk_id=excluded.chunk_id,
+                       title=excluded.title,body_encrypted=excluded.body_encrypted,
+                       complexity=excluded.complexity""",
                     (str(card_id), str(chunk_id), card_blob, fact.complexity, now),
                 )
+            active_fact_chunks = {
+                str(uuid5(NAMESPACE_URL, f"aprendix:fact-chunk:{fact.slug}"))
+                for fact in ALL_FACTS
+            }
+            stale_fact_chunks = existing_fact_chunks - active_fact_chunks
+            connection.executemany(
+                "DELETE FROM document_chunks WHERE id=? AND document_id=?",
+                ((identity, str(document_id)) for identity in stale_fact_chunks),
+            )
         with self._cache_lock:
             self._candidate_cache_key = None
             self._candidate_cache = ()

@@ -11,7 +11,7 @@ from uuid import NAMESPACE_URL, uuid5
 from aprendix.application.contracts import SearchRequestDTO
 
 
-ALGORITHM_VERSION = "hybrid-bm25f-q8-rrf-joint-reranker-mmr-v3"
+ALGORITHM_VERSION = "hybrid-bm25f-q8-rrf-joint-reranker-mmr-v4"
 
 
 @dataclass(frozen=True, slots=True)

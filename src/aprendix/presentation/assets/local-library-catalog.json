@@ -1,0 +1,3855 @@
+{
+  "schema_version": 1,
+  "policy": {
+    "contains_absolute_paths": false,
+    "contains_book_body": false,
+    "content_may_be_copied": false,
+    "purpose": "source provenance and thematic coverage"
+  },
+  "root_keys": [
+    "estudo-ferias",
+    "ebooks-papers"
+  ],
+  "source_count": 166,
+  "topic_counts": {
+    "autonomous-agents": 7,
+    "classic-algorithms": 14,
+    "classical-ml": 18,
+    "computer-vision": 22,
+    "data-structures": 8,
+    "databases": 3,
+    "deep-learning": 25,
+    "mathematics": 1,
+    "object-oriented-python": 48,
+    "python-foundations": 59,
+    "reinforcement-learning": 5,
+    "software-engineering": 43,
+    "unsupervised-learning": 16,
+    "web": 5
+  },
+  "sources": [
+    {
+      "id": "local-ec5b3dce559728007a1b",
+      "title": "02 Union-Find-parte 1",
+      "authors": [],
+      "page_count": 21,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/teorica/02 Union-Find-parte 1.pdf",
+          "size_bytes": 1958255
+        }
+      ]
+    },
+    {
+      "id": "local-dd96df61672caff9e744",
+      "title": "02 Union-Find-parte 2",
+      "authors": [],
+      "page_count": 25,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/teorica/02 Union-Find-parte 2.pdf",
+          "size_bytes": 2131809
+        }
+      ]
+    },
+    {
+      "id": "local-777d77d9b6334237587c",
+      "title": "03 Análise de Algoritmos",
+      "authors": [],
+      "page_count": 38,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python",
+        "classic-algorithms"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/teorica/03 Análise de Algoritmos.pdf",
+          "size_bytes": 4469879
+        }
+      ]
+    },
+    {
+      "id": "local-547b6c9b5a5b77ce6d5b",
+      "title": "04 Stacks e Queues",
+      "authors": [],
+      "page_count": 36,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python",
+        "data-structures"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/teorica/04 Stacks e Queues.pdf",
+          "size_bytes": 1912591
+        }
+      ]
+    },
+    {
+      "id": "local-9e7d67787a75c03cbcaa",
+      "title": "07 Filas com Prioridade",
+      "authors": [],
+      "page_count": 31,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/teorica/07 Filas com Prioridade.pdf",
+          "size_bytes": 3291603
+        }
+      ]
+    },
+    {
+      "id": "local-19bd93621e9f6116c04c",
+      "title": "08 Binary Search Trees",
+      "authors": [],
+      "page_count": 31,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python",
+        "data-structures"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/teorica/08 Binary Search Trees.pdf",
+          "size_bytes": 3616751
+        }
+      ]
+    },
+    {
+      "id": "local-cc7050ba79ea9d3da375",
+      "title": "09 Árvores de Pesquisa Equilibradas",
+      "authors": [],
+      "page_count": 36,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/teorica/09 Árvores de Pesquisa Equilibradas.pdf",
+          "size_bytes": 4802416
+        }
+      ]
+    },
+    {
+      "id": "local-94e48fa54bfa194fc4fc",
+      "title": "10 Tabelas",
+      "authors": [],
+      "page_count": 16,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/teorica/10 Tabelas.pdf",
+          "size_bytes": 1830572
+        }
+      ]
+    },
+    {
+      "id": "local-fafa7cdb4c9c5e75a161",
+      "title": "2024_Python_Data_Analysis_3rdEdition",
+      "authors": [],
+      "page_count": 463,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "classical-ml",
+        "unsupervised-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/Supervised Machine Learning/2024_Python_Data_Analysis_3rdEdition.pdf",
+          "size_bytes": 14554883
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "ML supervised e unsupervised/supervised/2024_Python_Data_Analysis_3rdEdition.pdf",
+          "size_bytes": 14554883
+        }
+      ]
+    },
+    {
+      "id": "local-783c054854f325219fd3",
+      "title": "A Baseline for Detecting Misclassified and Out-of-Distribution Examples in Neural Networks",
+      "authors": [
+        "Dan Hendrycks",
+        "Kevin Gimpel"
+      ],
+      "page_count": 12,
+      "source_type": "book-or-paper",
+      "topics": [
+        "deep-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "xai/A BASELINE FOR DETECTING MISCLASSIFIED AND.pdf",
+          "size_bytes": 211205
+        }
+      ]
+    },
+    {
+      "id": "local-f45f44a9e2485bb8f619",
+      "title": "A CNN based architecture for forgery detection in administrative documents",
+      "authors": [],
+      "page_count": 6,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/A_CNN_based_architecture_for_forgery_detection_in_administrative_documents.pdf",
+          "size_bytes": 365896
+        }
+      ]
+    },
+    {
+      "id": "local-fdaf465b247d87bae69a",
+      "title": "A Container Based Edge Offloading Framework for Autonomous Driving",
+      "authors": [],
+      "page_count": 14,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/A_Container_Based_Edge_Offloading_Framework_for_Autonomous_Driving.pdf",
+          "size_bytes": 6904504
+        }
+      ]
+    },
+    {
+      "id": "local-8121d6bae3d719965054",
+      "title": "A Hybrid Model for Image Forgery Detection Using Deep Learning with Block and Keypoint Methods",
+      "authors": [
+        "Fatemeh Zare Mehrjardi",
+        "Mohsen Sardari Zarchi*"
+      ],
+      "page_count": 30,
+      "source_type": "book-or-paper",
+      "topics": [
+        "deep-learning",
+        "computer-vision"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/A hybrid model for image forgery detection using.pdf",
+          "size_bytes": 8905430
+        }
+      ]
+    },
+    {
+      "id": "local-cca503ed682f7d3d5d4c",
+      "title": "A Threshold Selection Method from Gray-Level Histograms",
+      "authors": [
+        "Nobuyuki Otsu"
+      ],
+      "page_count": 5,
+      "source_type": "book-or-paper",
+      "topics": [
+        "computer-vision"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "computer vision/A_Threshold_Selection_Method_from_Gray-Level_Histograms.pdf",
+          "size_bytes": 3149881
+        }
+      ]
+    },
+    {
+      "id": "local-1b298388ce5c47849201",
+      "title": "A TOUR THROUGH GRAPH THEORY",
+      "authors": [
+        "KARIN R. SAOUB"
+      ],
+      "page_count": 321,
+      "source_type": "book-or-paper",
+      "topics": [
+        "data-structures"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/A Tour through Graph Theory (Textbooks in Mathematics) -- Karin R_ Saoub -- Textbooks in mathematics (Boca Raton Fla_), 1, 2017 -- Chapman and -- 9780367239831 -- 698ef664ff735d29e734584d47dbecc8 -- Anna’s Archive.pdf",
+          "size_bytes": 7554324
+        }
+      ]
+    },
+    {
+      "id": "local-ea257f681e3fead55d48",
+      "title": "Adaptive Document Binarization - Document Analysis and Recognition, 1997., Proceedings of the Fourth International Conference on",
+      "authors": [
+        "IEEE"
+      ],
+      "page_count": 6,
+      "source_type": "book-or-paper",
+      "topics": [
+        "computer-vision"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "computer vision/Adaptive_Document_Binarization.pdf",
+          "size_bytes": 576252
+        }
+      ]
+    },
+    {
+      "id": "local-4da2686108c37e0da835",
+      "title": "ADVANCED ENGINEERING MATHEMATICS (10TH EDITION)",
+      "authors": [
+        "ERWIN KREYSZIG"
+      ],
+      "page_count": 1283,
+      "source_type": "book-or-paper",
+      "topics": [
+        "mathematics"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/Advanced Engineering Mathematics by ERWIN KREYSZIG (10th-Ed, 2011).pdf",
+          "size_bytes": 22529632
+        }
+      ]
+    },
+    {
+      "id": "local-57d33e3fe773956a671c",
+      "title": "AED_aula_duvidas",
+      "authors": [],
+      "page_count": 39,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python",
+        "classic-algorithms"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/teorica/AED_aula_revisão_IA.pdf",
+          "size_bytes": 4294553
+        }
+      ]
+    },
+    {
+      "id": "local-b98d57f34b673d186798",
+      "title": "Algorithms for Reinforcement Learning",
+      "authors": [],
+      "page_count": 98,
+      "source_type": "book-or-paper",
+      "topics": [
+        "classic-algorithms",
+        "reinforcement-learning",
+        "autonomous-agents"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Algorithms for Reinforcement Learning.pdf",
+          "size_bytes": 1966456
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Agentes autonomos/Algorithms for Reinforcement Learning.pdf",
+          "size_bytes": 1966456
+        }
+      ]
+    },
+    {
+      "id": "local-7f7b25c3ff9c032f0200",
+      "title": "An introduction to multiagent systems",
+      "authors": [
+        "Wooldridge, Michael J., 1966-"
+      ],
+      "page_count": 492,
+      "source_type": "book-or-paper",
+      "topics": [
+        "autonomous-agents"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/An introduction to multiagent systems.pdf",
+          "size_bytes": 28503899
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Agentes autonomos/An introduction to multiagent systems.pdf",
+          "size_bytes": 28503899
+        }
+      ]
+    },
+    {
+      "id": "local-fe7d6b23bc61ef84819c",
+      "title": "Analytics, Data Science, and Artificial Intelligence: Systems for Decision Support, Global Edition",
+      "authors": [
+        "Sharda, Ramesh",
+        "Delen, Dursun",
+        "Turban, Efraim"
+      ],
+      "page_count": 833,
+      "source_type": "book-or-paper",
+      "topics": [
+        "classical-ml",
+        "unsupervised-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Analytics, Data Science,  Artificial Intelligence, Systems.pdf",
+          "size_bytes": 43236620
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "ML supervised e unsupervised/extra/Analytics, Data Science,  Artificial Intelligence, Systems.pdf",
+          "size_bytes": 43236620
+        }
+      ]
+    },
+    {
+      "id": "local-25f856851e89aacc7389",
+      "title": "Applied Unsupervised Learning with Python",
+      "authors": [
+        "Benjamin Johnston",
+        "Aaron Jones",
+        "Christopher Kruger"
+      ],
+      "page_count": 483,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "classical-ml",
+        "unsupervised-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/unsupervised ML books/Applied Unsupervised Learning with Python.pdf",
+          "size_bytes": 11208507
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "ML supervised e unsupervised/unsupervised/Applied Unsupervised Learning with Python.pdf",
+          "size_bytes": 11208507
+        }
+      ]
+    },
+    {
+      "id": "local-09c43adf2c31f8d8f569",
+      "title": "Artificial Intelligence A Modern Approach",
+      "authors": [],
+      "page_count": 1126,
+      "source_type": "book-or-paper",
+      "topics": [
+        "autonomous-agents"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/Artificial Intelligence A Modern Approach.pdf",
+          "size_bytes": 34236365
+        },
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Artificial Intelligence A Modern Approach.pdf",
+          "size_bytes": 34236365
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Agentes autonomos/Artificial Intelligence A Modern Approach.pdf",
+          "size_bytes": 34236365
+        }
+      ]
+    },
+    {
+      "id": "local-7b684d0316db0f29c75e",
+      "title": "As universidades e o desafio da transformação digital",
+      "authors": [
+        "Joana Martinho Costa"
+      ],
+      "page_count": 10,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/teorica/01 Apresentação AED.pdf",
+          "size_bytes": 282155
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/teorica/05 Ordenação elementar.pdf",
+          "size_bytes": 1029763
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/teorica/06 Ordenação avançada.pdf",
+          "size_bytes": 1772584
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/base/Python 12 - Matrizes.pdf",
+          "size_bytes": 372231
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/base/Python 13 - Manipulação de Ficheiros.pdf",
+          "size_bytes": 312594
+        }
+      ]
+    },
+    {
+      "id": "local-d9bbc2cf2a27c303f44a",
+      "title": "AulaRevisõesTeste2",
+      "authors": [],
+      "page_count": 60,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/teorica/AulaRevisõesTeste2.pdf",
+          "size_bytes": 6759375
+        }
+      ]
+    },
+    {
+      "id": "local-ef76b8a7c8c5d4ea5f1d",
+      "title": "Automated bank cheque verification using image processing and deep learning methods",
+      "authors": [
+        "Prateek Agrawal"
+      ],
+      "page_count": 32,
+      "source_type": "book-or-paper",
+      "topics": [
+        "deep-learning",
+        "computer-vision"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Automated bank cheque verification using image.pdf",
+          "size_bytes": 5448413
+        }
+      ]
+    },
+    {
+      "id": "local-d7401710fad0469142c2",
+      "title": "Axiomatic Attribution for Deep Networks",
+      "authors": [
+        "Mukund Sundararajan, Ankur Taly, Qiqi Yan"
+      ],
+      "page_count": 11,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "xai/xiomatic Attribution for Deep Networks.pdf",
+          "size_bytes": 3383448
+        }
+      ]
+    },
+    {
+      "id": "local-c5ae5c65709dc9de6661",
+      "title": "Bilateral filtering for gray and color images",
+      "authors": [
+        "C. Tomasi",
+        "R. Manduchi"
+      ],
+      "page_count": 8,
+      "source_type": "book-or-paper",
+      "topics": [
+        "computer-vision"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "computer vision/Bilateral_filtering_for_gray_and_color_images.pdf",
+          "size_bytes": 1559778
+        }
+      ]
+    },
+    {
+      "id": "local-378cf589f62afca18e8d",
+      "title": "Building Web Apps with WordPress",
+      "authors": [],
+      "page_count": 459,
+      "source_type": "book-or-paper",
+      "topics": [
+        "web"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Building Web Apps with WordPress.pdf",
+          "size_bytes": 14803585
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Web e cloud/Building Web Apps with WordPress.pdf",
+          "size_bytes": 14803585
+        }
+      ]
+    },
+    {
+      "id": "local-e01f8d7e1728bcf5958d",
+      "title": "ChatGPT & Co__ A Workbook for Writing, Research, Creating",
+      "authors": [],
+      "page_count": 344,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "exercicios/SUP e UNSUP ML/ChatGPT & Co__ A Workbook for Writing, Research, Creating.pdf",
+          "size_bytes": 9351790
+        }
+      ]
+    },
+    {
+      "id": "local-4548b35575616ac5bcc6",
+      "title": "CheckGuard: Advancing Stolen Check Detection with a Cross-Modal Image-Text Benchmark Dataset",
+      "authors": [
+        "Fei Zhao"
+      ],
+      "page_count": 5,
+      "source_type": "book-or-paper",
+      "topics": [
+        "computer-vision"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/checkguard.pdf",
+          "size_bytes": 16430011
+        }
+      ]
+    },
+    {
+      "id": "local-3c4e88073b5b11e48a09",
+      "title": "Cloud computing concept, technology architetture",
+      "authors": [],
+      "page_count": 533,
+      "source_type": "book-or-paper",
+      "topics": [
+        "web"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Cloud computing concept, technology  architetture.pdf",
+          "size_bytes": 39840847
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Web e cloud/Cloud computing concept, technology  architetture.pdf",
+          "size_bytes": 39840847
+        }
+      ]
+    },
+    {
+      "id": "local-d7023878564a1b4cee6a",
+      "title": "CNN-Based Detection of Tampered Digital Images",
+      "authors": [],
+      "page_count": 6,
+      "source_type": "book-or-paper",
+      "topics": [
+        "computer-vision"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/CNN-Based_Detection_of_Tampered_Digital_Images.pdf",
+          "size_bytes": 1489683
+        }
+      ]
+    },
+    {
+      "id": "local-7fa16f4e94e9b25843e7",
+      "title": "Comparison of Different Image Data Augmentation Approaches",
+      "authors": [
+        "Loris Nanni, Michelangelo Paci, Sheryl Brahnam",
+        "Alessandra Lumini"
+      ],
+      "page_count": 13,
+      "source_type": "book-or-paper",
+      "topics": [
+        "computer-vision"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/artigo 3 proj IA.pdf",
+          "size_bytes": 2269416
+        },
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Comparison of Different Image Data Augmentation Approaches.pdf",
+          "size_bytes": 2269416
+        }
+      ]
+    },
+    {
+      "id": "local-6e4c0b5a981685350df2",
+      "title": "Computer Vision: Algorithms and Applications, 2nd Edition",
+      "authors": [
+        "Richard Szeliski"
+      ],
+      "page_count": 1232,
+      "source_type": "book-or-paper",
+      "topics": [
+        "classic-algorithms",
+        "computer-vision"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/Computer Vision_ Algorithms and Applications.pdf",
+          "size_bytes": 43190964
+        },
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Computer Vision_ Algorithms and Applications.pdf",
+          "size_bytes": 43190964
+        }
+      ]
+    },
+    {
+      "id": "local-3c70e8c25274d9ad07d9",
+      "title": "Consistent Individualized Feature Attribution for Tree Ensembles",
+      "authors": [
+        "Scott M. Lundberg, Gabriel G. Erion,",
+        "Su-In Lee"
+      ],
+      "page_count": 9,
+      "source_type": "book-or-paper",
+      "topics": [
+        "data-structures"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "xai/deepshap.pdf",
+          "size_bytes": 3858958
+        }
+      ]
+    },
+    {
+      "id": "local-8ce8d55c5a92e890c864",
+      "title": "Constrained Convolutional Neural Networks: A New Approach Towards General Purpose Image Manipulation Detection",
+      "authors": [],
+      "page_count": 16,
+      "source_type": "book-or-paper",
+      "topics": [
+        "deep-learning",
+        "computer-vision"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Constrained_Convolutional_Neural_Networks_A_New_Approach_Towards_General_Purpose_Image_Manipulation_Detection.pdf",
+          "size_bytes": 3499879
+        }
+      ]
+    },
+    {
+      "id": "local-8c6ad5d1217b73faff7b",
+      "title": "Convolutional Neural Network for Copy-Move",
+      "authors": [],
+      "page_count": 17,
+      "source_type": "book-or-paper",
+      "topics": [
+        "deep-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Convolutional Neural Network for Copy-Move.pdf",
+          "size_bytes": 2232042
+        }
+      ]
+    },
+    {
+      "id": "local-1b5d9677c79b04d9f22f",
+      "title": "DATA CLUSTERING: Algorithms and Applications",
+      "authors": [
+        "Aggarwal, Charu C."
+      ],
+      "page_count": 648,
+      "source_type": "book-or-paper",
+      "topics": [
+        "classic-algorithms",
+        "classical-ml",
+        "unsupervised-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Data Clustering_ Algorithms and Applications.pdf",
+          "size_bytes": 13131224
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "ML supervised e unsupervised/unsupervised/Data Clustering_ Algorithms and Applications.pdf",
+          "size_bytes": 13131224
+        }
+      ]
+    },
+    {
+      "id": "local-a28b64685a725327c96c",
+      "title": "Database System Concepts, Seventh Edition",
+      "authors": [
+        "Abraham Silberschatz, Henry F. Korth",
+        "S. Sudarshan"
+      ],
+      "page_count": 1373,
+      "source_type": "book-or-paper",
+      "topics": [
+        "databases"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Database System Concepts.pdf",
+          "size_bytes": 17341694
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "BD sql e nosql/Database System Concepts.pdf",
+          "size_bytes": 17341694
+        }
+      ]
+    },
+    {
+      "id": "local-d8b4f246dcd224204217",
+      "title": "Database Systems - The Complete Book (2nd Edition)",
+      "authors": [
+        "Anonymous"
+      ],
+      "page_count": 1240,
+      "source_type": "book-or-paper",
+      "topics": [
+        "databases"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Database Systems.pdf",
+          "size_bytes": 29416089
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "BD sql e nosql/Database Systems.pdf",
+          "size_bytes": 29416089
+        }
+      ]
+    },
+    {
+      "id": "local-451073e9e991b7ed3d98",
+      "title": "Decision support and business intelligence systems",
+      "authors": [],
+      "page_count": 808,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Decision support and business intelligence systems - Cópia (2).pdf",
+          "size_bytes": 51710816
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "SIA/Decision support and business intelligence systems - Cópia (2).pdf",
+          "size_bytes": 51710816
+        }
+      ]
+    },
+    {
+      "id": "local-f25ae1b6db64009a2c74",
+      "title": "deep feature attribution for ensembles",
+      "authors": [],
+      "page_count": 13,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "xai/deep feature attribution for ensembles.pdf",
+          "size_bytes": 936141
+        }
+      ]
+    },
+    {
+      "id": "local-35d900aa9b8982aed22e",
+      "title": "Deep Learning",
+      "authors": [],
+      "page_count": 798,
+      "source_type": "book-or-paper",
+      "topics": [
+        "deep-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/Deep Learning.pdf",
+          "size_bytes": 8349103
+        }
+      ]
+    },
+    {
+      "id": "local-9ca902b4eb8a936a7c2a",
+      "title": "Deep Learning for Computer Vision with Python. 2 - Practitioner Bundle",
+      "authors": [
+        "Adrian Rosebrock"
+      ],
+      "page_count": 210,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "deep-learning",
+        "computer-vision"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/Deep Learning for Computer Vision with Python.pdf",
+          "size_bytes": 10222192
+        },
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Deep Learning for Computer Vision with Python.pdf",
+          "size_bytes": 10222192
+        }
+      ]
+    },
+    {
+      "id": "local-19a51be7427dddf898c0",
+      "title": "Deep Learning Goodfellow",
+      "authors": [],
+      "page_count": 798,
+      "source_type": "book-or-paper",
+      "topics": [
+        "deep-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Deep Learning Goodfellow.pdf",
+          "size_bytes": 8349103
+        }
+      ]
+    },
+    {
+      "id": "local-bb6a5a266cfd35b83e1e",
+      "title": "Deep Learning in Computer Vision: Principles and Applications",
+      "authors": [
+        "Mahmoud Hassaballah",
+        "Ali Ismail Awad"
+      ],
+      "page_count": 339,
+      "source_type": "book-or-paper",
+      "topics": [
+        "deep-learning",
+        "computer-vision"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/Deep Learning in Computer Vision_ Principles.pdf",
+          "size_bytes": 70702999
+        },
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Deep Learning in Computer Vision_ Principles.pdf",
+          "size_bytes": 70702999
+        }
+      ]
+    },
+    {
+      "id": "local-8272e99dcd7322df3cb1",
+      "title": "Deep Learning with Python",
+      "authors": [],
+      "page_count": 214,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "deep-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/Deep Learning with Python.pdf",
+          "size_bytes": 17235341
+        },
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Deep Learning with Python.pdf",
+          "size_bytes": 17235341
+        }
+      ]
+    },
+    {
+      "id": "local-1ab8a8fa36af05ce2853",
+      "title": "DEEP LEARNING WITH PYTHON: Simple and Effective Tips and Tricks to Learn Deep Learning with Python",
+      "authors": [
+        "Smith, Benjamin"
+      ],
+      "page_count": 115,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "deep-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/DEEP-LEARNING-WITH-PYTHON_-Simple-and-Effective-Tips.pdf",
+          "size_bytes": 4447949
+        },
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/DEEP-LEARNING-WITH-PYTHON_-Simple-and-Effective-Tips.pdf",
+          "size_bytes": 4447949
+        }
+      ]
+    },
+    {
+      "id": "local-2e6f2c314b3e76806bfe",
+      "title": "Deep Learning with TensorFlow and Keras",
+      "authors": [
+        "Kapoor, Amita",
+        "Gulli, Antonio",
+        "Pal, Sujit",
+        "Chollet, Francois"
+      ],
+      "page_count": 699,
+      "source_type": "book-or-paper",
+      "topics": [
+        "deep-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/Deep Learning with TensorFlow and Keras_ Build and deploy.pdf",
+          "size_bytes": 25590612
+        },
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Deep Learning with TensorFlow and Keras_ Build and deploy.pdf",
+          "size_bytes": 25590612
+        }
+      ]
+    },
+    {
+      "id": "local-f506d71ea795007d488b",
+      "title": "Demystifying Deep Learning",
+      "authors": [
+        "Douglas J. Santry"
+      ],
+      "page_count": 259,
+      "source_type": "book-or-paper",
+      "topics": [
+        "deep-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/Demystifying Deep Learning_ An introduction.pdf",
+          "size_bytes": 5772981
+        },
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Demystifying Deep Learning_ An introduction.pdf",
+          "size_bytes": 5772981
+        }
+      ]
+    },
+    {
+      "id": "local-87847c27157223c0cc45",
+      "title": "Document forgery detection: a comprehensive review",
+      "authors": [
+        "Ranveer Sukhija"
+      ],
+      "page_count": 23,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Document forgery detection a comprehensive review.pdf",
+          "size_bytes": 863195
+        }
+      ]
+    },
+    {
+      "id": "local-6d0bff826aacaf1fc231",
+      "title": "EdgeDoc: Hybrid CNN-Transformer Model for Accurate Forgery Detection and Localization in ID Documents",
+      "authors": [
+        "Anjith George",
+        "Sebastien Marcel"
+      ],
+      "page_count": 5,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Hybrid CNN-Transformer Model for Accurate Forgery Detection.pdf",
+          "size_bytes": 1660548
+        }
+      ]
+    },
+    {
+      "id": "local-7f24af81e68490002858",
+      "title": "Efficient Prequential AUC-PR Computation",
+      "authors": [],
+      "page_count": 6,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "papers/Efficient_Prequential_AUC-PR_Computation.pdf",
+          "size_bytes": 194562
+        }
+      ]
+    },
+    {
+      "id": "local-cf01cfc9992f55532b0f",
+      "title": "EfficientNet: Rethinking Model Scaling for Convolutional Neural Networks",
+      "authors": [
+        "Mingxing Tan, Quoc V. Le"
+      ],
+      "page_count": 11,
+      "source_type": "book-or-paper",
+      "topics": [
+        "deep-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/efficientNet.pdf",
+          "size_bytes": 933600
+        },
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/efficientNet.pdf",
+          "size_bytes": 933600
+        }
+      ]
+    },
+    {
+      "id": "local-3ec3a8e05eceeb0b9bf4",
+      "title": "Enhanced Bank Check Security Introducing a",
+      "authors": [],
+      "page_count": 19,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Enhanced Bank Check Security Introducing a.pdf",
+          "size_bytes": 8902530
+        }
+      ]
+    },
+    {
+      "id": "local-f7243523bb6001038ec6",
+      "title": "Evaluating Explainable AI Which Algorithmic Explanations",
+      "authors": [],
+      "page_count": 13,
+      "source_type": "book-or-paper",
+      "topics": [
+        "classic-algorithms"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "xai/Evaluating Explainable AI Which Algorithmic Explanations.pdf",
+          "size_bytes": 840609
+        }
+      ]
+    },
+    {
+      "id": "local-f01fd1fc07c476b0db4a",
+      "title": "Excel 2019 bible",
+      "authors": [],
+      "page_count": 1089,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Excel 2019 bible.pdf",
+          "size_bytes": 54485285
+        }
+      ]
+    },
+    {
+      "id": "local-718a91881fd2e09fa699",
+      "title": "exercises_basis_python",
+      "authors": [],
+      "page_count": 3,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/POO/pratica/exercises_basis_python.pdf",
+          "size_bytes": 52002
+        }
+      ]
+    },
+    {
+      "id": "local-0099ad38b6f7b183dc6e",
+      "title": "Exploiting CNN’s visual explanations to drive anomaly detection",
+      "authors": [],
+      "page_count": 14,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Exploiting CNN’s visual explanations to drive anomaly detection.pdf",
+          "size_bytes": 4911252
+        }
+      ]
+    },
+    {
+      "id": "local-c58a09b2d9cea75ac449",
+      "title": "Fluent Python Clear, Concise, and Effective Programming",
+      "authors": [],
+      "page_count": 1263,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Fluent Python Clear, Concise, and Effective Programming.pdf",
+          "size_bytes": 8851516
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/Fluent Python Clear, Concise, and Effective Programming.pdf",
+          "size_bytes": 8851516
+        }
+      ]
+    },
+    {
+      "id": "local-325a041d550a1d5c8d9e",
+      "title": "Full-Stack Flask and React",
+      "authors": [
+        "Adedeji, Olatunde"
+      ],
+      "page_count": 408,
+      "source_type": "book-or-paper",
+      "topics": [
+        "data-structures",
+        "web"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "exercicios/web react flask/Full-Stack Flask and React_ Learn, code and deploy flask web.pdf",
+          "size_bytes": 4062674
+        }
+      ]
+    },
+    {
+      "id": "local-42eb14f7ff65386ec975",
+      "title": "Generalized Principal Component Analysis",
+      "authors": [],
+      "page_count": 590,
+      "source_type": "book-or-paper",
+      "topics": [
+        "classical-ml",
+        "unsupervised-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Generalized Principal Component Analysis.pdf",
+          "size_bytes": 8664995
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "ML supervised e unsupervised/unsupervised/Generalized Principal Component Analysis.pdf",
+          "size_bytes": 8664995
+        }
+      ]
+    },
+    {
+      "id": "local-2b20d48003eb564fc6bc",
+      "title": "Generative Agents, Interactive Simulacra of Human Behavior",
+      "authors": [],
+      "page_count": 22,
+      "source_type": "book-or-paper",
+      "topics": [
+        "autonomous-agents"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Generative Agents, Interactive Simulacra of Human Behavior.pdf",
+          "size_bytes": 11947867
+        }
+      ]
+    },
+    {
+      "id": "local-cfcbeff7807cbfc2f59d",
+      "title": "Grad-CAM: Visual Explanations from Deep Networks via Gradient-Based Localization",
+      "authors": [
+        "Ramprasaath R. Selvaraju, Michael Cogswell, Abhishek Das, Ramakrishna Vedantam, Devi Parikh, Dhruv Batra"
+      ],
+      "page_count": 9,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "xai/Grad-CAM_Visual_Explanations_from_Deep_Networks_via_Grad.pdf",
+          "size_bytes": 941694
+        }
+      ]
+    },
+    {
+      "id": "local-84aed35665cf7711c6f7",
+      "title": "Graph Theory",
+      "authors": [],
+      "page_count": 287,
+      "source_type": "book-or-paper",
+      "topics": [
+        "data-structures"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/Graph Theory.pdf",
+          "size_bytes": 6006885
+        }
+      ]
+    },
+    {
+      "id": "local-390a0d48a0e684dfaf50",
+      "title": "Grokking Algorithms",
+      "authors": [
+        "Aditya Y. Bhargava"
+      ],
+      "page_count": 258,
+      "source_type": "book-or-paper",
+      "topics": [
+        "classic-algorithms"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "exercicios/SUP e UNSUP ML/Grokking Algorithms _ An Illustrated Guide for Programmers.pdf",
+          "size_bytes": 6710655
+        }
+      ]
+    },
+    {
+      "id": "local-9524d765ecacf25d9049",
+      "title": "Handbook of Cluster Analysis",
+      "authors": [],
+      "page_count": 711,
+      "source_type": "book-or-paper",
+      "topics": [
+        "classical-ml",
+        "unsupervised-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Handbook of Cluster Analysis.pdf",
+          "size_bytes": 10664439
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "ML supervised e unsupervised/unsupervised/Handbook of Cluster Analysis.pdf",
+          "size_bytes": 10664439
+        }
+      ]
+    },
+    {
+      "id": "local-562a76c4caacd81f7c9b",
+      "title": "Hands-on Machine Learning with Scikit-Learn, Keras, and TensorFlow, 2nd Edition",
+      "authors": [
+        "Aurélien Géron"
+      ],
+      "page_count": 495,
+      "source_type": "book-or-paper",
+      "topics": [
+        "classical-ml",
+        "unsupervised-learning",
+        "deep-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Hands-on Machine Learning with Scikit-Learn, Keras, and -- Aurélien Géron -- 2nd, 2019 -- O'Reilly Media -- 9781492032649 -- 3f6b03ec9cd8a64649632077591835f6 -- Anna’s Archive.pdf",
+          "size_bytes": 49522983
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "ML supervised e unsupervised/supervised/Hands-on Machine Learning with Scikit-Learn, Keras, and -- Aurélien Géron -- 2nd, 2019 -- O'Reilly Media -- 9781492032649 -- 3f6b03ec9cd8a64649632077591835f6 -- Anna’s Archive.pdf",
+          "size_bytes": 49522983
+        }
+      ]
+    },
+    {
+      "id": "local-e0b56cc8fbcbcb449047",
+      "title": "Head first object-oriented analysis and design",
+      "authors": [
+        "McLaughlin, Brett"
+      ],
+      "page_count": 644,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python",
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Head first object oriented analysis and design.pdf",
+          "size_bytes": 36768928
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/Head first object oriented analysis and design.pdf",
+          "size_bytes": 36768928
+        }
+      ]
+    },
+    {
+      "id": "local-6125a56496b11b35ec10",
+      "title": "Hilbert Operator for Progressive Encoding (HOPE): A Mathematical Framework for Deconstructing Learned Representations in Deep Networks",
+      "authors": [
+        "Hossein Mobahi",
+        "Peter L. Bartlett"
+      ],
+      "page_count": 70,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "IA/Hilbert Operator for Progressive Encoding (HOPE).pdf",
+          "size_bytes": 1089944
+        }
+      ]
+    },
+    {
+      "id": "local-67c7e1e995126f2febc9",
+      "title": "icpr2k.dvi",
+      "authors": [],
+      "page_count": 5,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/diatom autofocusing in brightfield microscopy.pdf",
+          "size_bytes": 265910
+        },
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/diatom autofocusing in brightfield microscopy.pdf",
+          "size_bytes": 265910
+        }
+      ]
+    },
+    {
+      "id": "local-059697328801c87b0d30",
+      "title": "Innovative Image Fraud Detection with Cross-Sample Anomaly Analysis",
+      "authors": [],
+      "page_count": 21,
+      "source_type": "book-or-paper",
+      "topics": [
+        "computer-vision"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Innovative Image Fraud Detection with Cross-Sample Anomaly Analysis.pdf",
+          "size_bytes": 6063368
+        }
+      ]
+    },
+    {
+      "id": "local-86a4bf46b4d53f6de4e8",
+      "title": "IUR-POO-Class1-Exercises",
+      "authors": [
+        "Diogo Mendes"
+      ],
+      "page_count": 1,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/POO/pratica/2024_25-POO-Class1-Exercises.pdf",
+          "size_bytes": 53593
+        }
+      ]
+    },
+    {
+      "id": "local-e642417ff2eb4ab354af",
+      "title": "IUR-POO-Class1-Exercises",
+      "authors": [
+        "António Raimundo"
+      ],
+      "page_count": 1,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/POO/pratica/IUR-POO-Class1-Exercises.pdf",
+          "size_bytes": 138124
+        }
+      ]
+    },
+    {
+      "id": "local-a3d385f8a44c6f0814f1",
+      "title": "IUR-POO-Class2-Exercises",
+      "authors": [
+        "António Raimundo"
+      ],
+      "page_count": 2,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/POO/pratica/IUR-POO-Class2-Exercises.pdf",
+          "size_bytes": 156732
+        }
+      ]
+    },
+    {
+      "id": "local-56d473a618d31bc57445",
+      "title": "IUR-POO-Class3-Exercises",
+      "authors": [
+        "António Raimundo"
+      ],
+      "page_count": 2,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/POO/pratica/IUR-POO-Class3-Exercises.pdf",
+          "size_bytes": 161265
+        }
+      ]
+    },
+    {
+      "id": "local-f8679cea5c39b2b1d8ef",
+      "title": "IUR-POO-Class3-Exercises v2",
+      "authors": [],
+      "page_count": 2,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/POO/pratica/IUR-POO-Class3-Exercises v2.pdf",
+          "size_bytes": 61264
+        }
+      ]
+    },
+    {
+      "id": "local-f1184be672dea7d0d965",
+      "title": "IUR-POO-Class4-Exercises",
+      "authors": [
+        "António Raimundo"
+      ],
+      "page_count": 1,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/POO/pratica/IUR-POO-Class4-Exercises.pdf",
+          "size_bytes": 127624
+        }
+      ]
+    },
+    {
+      "id": "local-c904984ddacc9648c99a",
+      "title": "IUR-POO-Class5-Exercises",
+      "authors": [
+        "António Raimundo"
+      ],
+      "page_count": 1,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/POO/pratica/IUR-POO-Class5-Exercises.pdf",
+          "size_bytes": 116507
+        }
+      ]
+    },
+    {
+      "id": "local-96e8d11163ee844842fa",
+      "title": "IUR-POO-Exercicios_Duvidas_1oMiniteste",
+      "authors": [],
+      "page_count": 2,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/POO/pratica/IUR-POO-Exercicios_Duvidas_1oMiniteste.pdf",
+          "size_bytes": 72766
+        }
+      ]
+    },
+    {
+      "id": "local-6781c60d8214b42d0569",
+      "title": "Large Language Models as Generative Bayesian Policies",
+      "authors": [
+        "Bojana Ranković, Philippe Schwaller"
+      ],
+      "page_count": 15,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "xai/arge Language Models as Generative Bayesian Policies.pdf",
+          "size_bytes": 506412
+        }
+      ]
+    },
+    {
+      "id": "local-bdb8fa77b16319f5ae8f",
+      "title": "Lightweight Financial Fraud Detection Using a Symmetrical GAN-CNN Fusion Architecture",
+      "authors": [
+        "Yiwen Yang, Chengjun Xu",
+        "Guisheng Tian"
+      ],
+      "page_count": 20,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Lightweight Financial Fraud Detection Using a Symmetrical.pdf",
+          "size_bytes": 2292915
+        }
+      ]
+    },
+    {
+      "id": "local-168870b87b33ef58f3f9",
+      "title": "Machine Learning A Probabilistic aproach",
+      "authors": [],
+      "page_count": 1098,
+      "source_type": "book-or-paper",
+      "topics": [
+        "classical-ml",
+        "unsupervised-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Machine Learning A Probabilistic aproach.pdf",
+          "size_bytes": 26942669
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "ML supervised e unsupervised/extra/Machine Learning A Probabilistic aproach.pdf",
+          "size_bytes": 26942669
+        }
+      ]
+    },
+    {
+      "id": "local-ebd7c61787261e72c847",
+      "title": "Machine Learning: Hands-On for Developers and Technical Professionals",
+      "authors": [],
+      "page_count": 406,
+      "source_type": "book-or-paper",
+      "topics": [
+        "classical-ml"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "exercicios/SUP e UNSUP ML/Machine Learning _ Hands-On for Developers and Technical.pdf",
+          "size_bytes": 8374328
+        }
+      ]
+    },
+    {
+      "id": "local-99a43a9ab2e274ed739d",
+      "title": "Mahalanobis Distance Based Adversarial Network for Anomaly Detection",
+      "authors": [],
+      "page_count": 5,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Mahalanobis_Distance_Based_Adversarial_Network_for_Anomaly_Detection.pdf",
+          "size_bytes": 2179984
+        }
+      ]
+    },
+    {
+      "id": "local-cba0111d08e7a14a928d",
+      "title": "ManTra-Net: Manipulation Tracing Network for Detection and Localization of Image Forgeries With Anomalous Features",
+      "authors": [],
+      "page_count": 10,
+      "source_type": "book-or-paper",
+      "topics": [
+        "computer-vision"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/ManTra-Net_Manipulation_Tracing_Network_for_Detection_and_Localization_of_Image_Forgeries_With_Anomalous_Features.pdf",
+          "size_bytes": 1972429
+        }
+      ]
+    },
+    {
+      "id": "local-af6f9e5d1a2dc7e1b48e",
+      "title": "Microsoft Word - TheGameOfGameOfThrones.docx",
+      "authors": [],
+      "page_count": 39,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "papers/TheGameOfGameOfThrones.pdf",
+          "size_bytes": 732132
+        }
+      ]
+    },
+    {
+      "id": "local-387cd3e14ea7222ced4b",
+      "title": "MMBS_XAI_IA",
+      "authors": [],
+      "page_count": 26,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "xai/MMBS_XAI_IA.pdf",
+          "size_bytes": 9719832
+        }
+      ]
+    },
+    {
+      "id": "local-deb8a58f39add042b25a",
+      "title": "mobilenetV3 howard et al",
+      "authors": [],
+      "page_count": 11,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "IA/mobilenetV3 howard et al.pdf",
+          "size_bytes": 535534
+        },
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/mobilenetV3 howard et al.pdf",
+          "size_bytes": 535534
+        }
+      ]
+    },
+    {
+      "id": "local-358b1dd61fcd39d04458",
+      "title": "Model Cards for Model Reporting",
+      "authors": [
+        "Margaret Mitchell, Simone Wu, Andrew Zaldivar, Parker Barnes, Lucy Vasserman, Ben Hutchinson, Elena Spitzer, Inioluwa Deborah Raji, Timnit Gebru"
+      ],
+      "page_count": 10,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/model card by Mitchell et al.pdf",
+          "size_bytes": 995470
+        }
+      ]
+    },
+    {
+      "id": "local-0d650cf99b6a25ec505e",
+      "title": "Multiagent Systems: Algorithmic, Game-Theoretic, and Logical Foundations",
+      "authors": [
+        "Yoav Shoham"
+      ],
+      "page_count": 533,
+      "source_type": "book-or-paper",
+      "topics": [
+        "classic-algorithms",
+        "autonomous-agents"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Multiagent systems algorithmic game theoretic and logical.pdf",
+          "size_bytes": 3980702
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Agentes autonomos/Multiagent systems algorithmic game theoretic and logical.pdf",
+          "size_bytes": 3980702
+        }
+      ]
+    },
+    {
+      "id": "local-a16addda174ebd98a612",
+      "title": "NetworkofThrones",
+      "authors": [],
+      "page_count": 5,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "papers/NetworkofThrones.pdf",
+          "size_bytes": 933566
+        }
+      ]
+    },
+    {
+      "id": "local-1852b864196d4a1dd2e5",
+      "title": "neural additive models",
+      "authors": [],
+      "page_count": 13,
+      "source_type": "book-or-paper",
+      "topics": [
+        "deep-learning",
+        "computer-vision"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "computer vision/neural additive models.pdf",
+          "size_bytes": 3206240
+        }
+      ]
+    },
+    {
+      "id": "local-67f7953e3871cba65998",
+      "title": "Neural Networks with Python",
+      "authors": [
+        "Mei Wong"
+      ],
+      "page_count": 239,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "deep-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/Neural-Networks-with-Python_-Design-CNNs_-Transformers.pdf",
+          "size_bytes": 2844095
+        },
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Neural-Networks-with-Python_-Design-CNNs_-Transformers.pdf",
+          "size_bytes": 2844095
+        }
+      ]
+    },
+    {
+      "id": "local-15161da28ded295eb7e5",
+      "title": "Niblack’s binarization method and its modifications to real-time applications: a review",
+      "authors": [
+        "Lalit Prakash Saxena"
+      ],
+      "page_count": 33,
+      "source_type": "book-or-paper",
+      "topics": [
+        "computer-vision"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "computer vision/Niblack’s binarization method and its modifications.pdf",
+          "size_bytes": 2386870
+        }
+      ]
+    },
+    {
+      "id": "local-ccc451fb144be083dc53",
+      "title": "Noiseprint: A CNN-Based Camera Model Fingerprint",
+      "authors": [],
+      "page_count": 16,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Noiseprint_A_CNN-Based_Camera_Model_Fingerprint.pdf",
+          "size_bytes": 7344309
+        }
+      ]
+    },
+    {
+      "id": "local-1c813b17ad45b03443ec",
+      "title": "NVIDIA-labs OO Agents: Native Python Object-Oriented Agents",
+      "authors": [
+        "Paul Furgale",
+        "Severin Klingler",
+        "James Nolan",
+        "Matt Staats",
+        "Gaia Di Lorenzo",
+        "Elisa Martinez Abad",
+        "Christian Schüller",
+        "Razvan Dinu",
+        "Alessio Devoto",
+        "Pascal Berard",
+        "Gal Kaplun",
+        "Elad Sarafian"
+      ],
+      "page_count": 49,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python",
+        "autonomous-agents"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "IA/Object Oriented Agents Python Nvidia paper.pdf",
+          "size_bytes": 1108402
+        }
+      ]
+    },
+    {
+      "id": "local-d4338f501fdb02a1b303",
+      "title": "Object Oriented Software Construction",
+      "authors": [],
+      "page_count": 1406,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python",
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Object Oriented Software Construction.pdf",
+          "size_bytes": 11555473
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/Object Oriented Software Construction.pdf",
+          "size_bytes": 11555473
+        }
+      ]
+    },
+    {
+      "id": "local-51dee136c4143612c893",
+      "title": "Object-Oriented Python",
+      "authors": [
+        "Irv Kalb"
+      ],
+      "page_count": 418,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Object-Oriented Python Mastering OOP.pdf",
+          "size_bytes": 11832112
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/Object-Oriented Python Mastering OOP.pdf",
+          "size_bytes": 11832112
+        }
+      ]
+    },
+    {
+      "id": "local-3f1a570de02d9784b5db",
+      "title": "On Calibration of Modern Neural Networks",
+      "authors": [
+        "Chuan Guo, Geoff Pleiss, Yu Sun, Kilian Q. Weinberger"
+      ],
+      "page_count": 14,
+      "source_type": "book-or-paper",
+      "topics": [
+        "deep-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "xai/On Calibration of Modern Neural Networks.pdf",
+          "size_bytes": 1349691
+        }
+      ]
+    },
+    {
+      "id": "local-4916593141d8cb00a27f",
+      "title": "P. McFedries - Excel Data Analysis For Dummies (5th Edition)(2022)[EN]",
+      "authors": [
+        "McFedries, Paul"
+      ],
+      "page_count": 371,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Microsoft excel data analysis for dummies.pdf",
+          "size_bytes": 6823411
+        }
+      ]
+    },
+    {
+      "id": "local-cfd29a824a1bffbfcdb4",
+      "title": "Pandas Workout",
+      "authors": [
+        "welcome.html"
+      ],
+      "page_count": 648,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "exercicios/Pandas numpy/Pandas Workout (MEAP V15).pdf",
+          "size_bytes": 12390011
+        }
+      ]
+    },
+    {
+      "id": "local-eb7e3ea1159b795f8587",
+      "title": "paper 2 IA",
+      "authors": [
+        "HP"
+      ],
+      "page_count": 7,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/paper 2 IA.pdf",
+          "size_bytes": 484872
+        }
+      ]
+    },
+    {
+      "id": "local-2edc7345ad19bebc9856",
+      "title": "paper 5 verficado",
+      "authors": [
+        "Prabhakara Uyyala"
+      ],
+      "page_count": 8,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/paper 5 verficado.pdf",
+          "size_bytes": 415795
+        }
+      ]
+    },
+    {
+      "id": "local-c07e4d343c2b4fd487ac",
+      "title": "paper 6",
+      "authors": [],
+      "page_count": 19,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/paper 6.pdf",
+          "size_bytes": 8902530
+        }
+      ]
+    },
+    {
+      "id": "local-176747f43785a44bbe6f",
+      "title": "Pattern recognition and machine learning",
+      "authors": [
+        "Bishop, Christopher M"
+      ],
+      "page_count": 768,
+      "source_type": "book-or-paper",
+      "topics": [
+        "classical-ml",
+        "unsupervised-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Pattern recognition and machine learning.pdf",
+          "size_bytes": 46502480
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "ML supervised e unsupervised/extra/Pattern recognition and machine learning.pdf",
+          "size_bytes": 46502480
+        }
+      ]
+    },
+    {
+      "id": "local-64caa6164c29e8b00cc0",
+      "title": "PIMPC-GNN: Physics-Informed Multiphase Consensus Learning for Enhancing Imbalanced Node Classification in Graph Neural Networks",
+      "authors": [],
+      "page_count": 15,
+      "source_type": "book-or-paper",
+      "topics": [
+        "deep-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "papers/PIMPC-GNN_Physics-Informed_Multiphase_Consensus_Learning_for_Enhancing_Imbalanced_Node_Classification_in_Graph_Neural_Networks.pdf",
+          "size_bytes": 3459279
+        }
+      ]
+    },
+    {
+      "id": "local-c77f87295b9e7e5ae2e9",
+      "title": "POO-Class4.1-Exercises-variable-arguments",
+      "authors": [
+        "António Raimundo"
+      ],
+      "page_count": 6,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/POO/pratica/POO-Class4.1-Exercises-variable-arguments.pdf",
+          "size_bytes": 203217
+        }
+      ]
+    },
+    {
+      "id": "local-28e30a0cf9a303568444",
+      "title": "POO-Class4.2-Exercises-decorators",
+      "authors": [
+        "python-docx"
+      ],
+      "page_count": 4,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/POO/pratica/POO-Class4.2-Exercises-decorators.pdf",
+          "size_bytes": 160015
+        }
+      ]
+    },
+    {
+      "id": "local-1c70b5d799466ca33f22",
+      "title": "POO-Exercicios_Duvidas_2oMiniteste",
+      "authors": [],
+      "page_count": 3,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/POO/pratica/POO-Exercicios_Duvidas_2oMiniteste.pdf",
+          "size_bytes": 103171
+        }
+      ]
+    },
+    {
+      "id": "local-5cf8418bb92335fa28ae",
+      "title": "Position: LLMs can't jump",
+      "authors": [
+        "Tom Zahavy"
+      ],
+      "page_count": 10,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "papers/Position LLMs cant jump Tom Zahavy.pdf",
+          "size_bytes": 1076361
+        }
+      ]
+    },
+    {
+      "id": "local-b6808656ffd0f72c4ffc",
+      "title": "Practical Computer Vision_ Extract insightful information",
+      "authors": [
+        "kai kit wong"
+      ],
+      "page_count": 171,
+      "source_type": "book-or-paper",
+      "topics": [
+        "computer-vision"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/Practical Computer Vision_ Extract insightful information.pdf",
+          "size_bytes": 6995083
+        },
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Practical Computer Vision_ Extract insightful information.pdf",
+          "size_bytes": 6995083
+        }
+      ]
+    },
+    {
+      "id": "local-ae0f804dd786fb8663b2",
+      "title": "Practical Deep Learning",
+      "authors": [
+        "Ronald T. Kneusel"
+      ],
+      "page_count": 464,
+      "source_type": "book-or-paper",
+      "topics": [
+        "deep-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/Practical Deep Learning _ A Python-Based Introduction.pdf",
+          "size_bytes": 12454541
+        },
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Practical Deep Learning _ A Python-Based Introduction.pdf",
+          "size_bytes": 12454541
+        }
+      ]
+    },
+    {
+      "id": "local-83d2e74cbc6242469226",
+      "title": "Practical Guide to Cluster Analysis in R_ Unsupervised",
+      "authors": [],
+      "page_count": 187,
+      "source_type": "book-or-paper",
+      "topics": [
+        "classical-ml",
+        "unsupervised-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Practical Guide to Cluster Analysis in R_ Unsupervised.pdf",
+          "size_bytes": 5136280
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "ML supervised e unsupervised/extra/Practical Guide to Cluster Analysis in R_ Unsupervised.pdf",
+          "size_bytes": 5136280
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "ML supervised e unsupervised/unsupervised/Practical Guide to Cluster Analysis in R_ Unsupervised.pdf",
+          "size_bytes": 5136280
+        }
+      ]
+    },
+    {
+      "id": "local-d3e11ab782d92acd919e",
+      "title": "Práticas de Python Algoritmia e programação",
+      "authors": [],
+      "page_count": 348,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "exercicios/Algoritmia POO python/Práticas de Python Algoritmia e programação.pdf",
+          "size_bytes": 161313919
+        }
+      ]
+    },
+    {
+      "id": "local-408e79392b46ebcc6733",
+      "title": "Principles of Model Checking",
+      "authors": [
+        "Christel Baier, Joost-Pieter Katoen"
+      ],
+      "page_count": 994,
+      "source_type": "book-or-paper",
+      "topics": [
+        "classical-ml",
+        "unsupervised-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Principles of Model Checking.pdf",
+          "size_bytes": 5402269
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "ML supervised e unsupervised/extra/Principles of Model Checking.pdf",
+          "size_bytes": 5402269
+        }
+      ]
+    },
+    {
+      "id": "local-6b10e7fcf29a0115ee5e",
+      "title": "Python 09 Ambientes integrados",
+      "authors": [],
+      "page_count": 21,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/base/Python 09 Ambientes integrados.pdf",
+          "size_bytes": 1574233
+        }
+      ]
+    },
+    {
+      "id": "local-7f7b335e6dae5618fe91",
+      "title": "Python 10 - Ciclos e Classes",
+      "authors": [],
+      "page_count": 25,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/base/Python 10 - Ciclos e Classes.pdf",
+          "size_bytes": 1026292
+        }
+      ]
+    },
+    {
+      "id": "local-752864381813d91411b6",
+      "title": "Python 11 - Listas-2",
+      "authors": [],
+      "page_count": 11,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/base/Python 11 - Listas-2.pdf",
+          "size_bytes": 280400
+        }
+      ]
+    },
+    {
+      "id": "local-d2c50edb14a73c2fd48e",
+      "title": "Python Data Science Handbook",
+      "authors": [
+        "Jake VanderPlas"
+      ],
+      "page_count": 548,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "classical-ml",
+        "unsupervised-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/2016_Python_Data_Science.pdf",
+          "size_bytes": 20865282
+        },
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/Supervised Machine Learning/2016_Python_Data_Science_Handbook_Jake-VanderPlas.pdf",
+          "size_bytes": 20865282
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "ML supervised e unsupervised/supervised/2016_Python_Data_Science_Handbook_Jake-VanderPlas (1).pdf",
+          "size_bytes": 20865282
+        }
+      ]
+    },
+    {
+      "id": "local-476258b04903fa208b48",
+      "title": "Python Exercises with Data Structures and Algorithms",
+      "authors": [
+        "Haris Tsetsekas"
+      ],
+      "page_count": 104,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python",
+        "classic-algorithms",
+        "data-structures"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "exercicios/Algoritmia POO python/Python Exercises with Data Structures and Algoritms.pdf",
+          "size_bytes": 1882329
+        }
+      ]
+    },
+    {
+      "id": "local-10ac86aa0a54539f817f",
+      "title": "Python Machine Learning Workbook for Beginners: 10 Machine Learning Projects Explained from Scratch",
+      "authors": [
+        "Publishing, AI"
+      ],
+      "page_count": 284,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "classical-ml"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "exercicios/SUP e UNSUP ML/Python Machine Learning Workbook for Beginners_ 10 Machine -- Publishing, AI -- 2020 -- AI Publishing LLC -- 0d8177e63b4c2c3f73152060f18acc7a -- Anna’s Archive.pdf",
+          "size_bytes": 15372173
+        }
+      ]
+    },
+    {
+      "id": "local-cc32ab208a60ea1359cc",
+      "title": "Python Machine Learning, 3rd Edition",
+      "authors": [],
+      "page_count": 771,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "classical-ml",
+        "unsupervised-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Python Machine Learning, 3rd Edition -- Sebastian Reschka & Vahid Mirjalili -- 3, 3rd, 2019 -- Packt Publishing -- 9781789955750 -- b4910c4c1c56a94beb4a5843dadf64c2 -- Anna’s Archive.pdf",
+          "size_bytes": 30683484
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "ML supervised e unsupervised/supervised/Python Machine Learning, 3rd Edition -- Sebastian Reschka & Vahid Mirjalili -- 3, 3rd, 2019 -- Packt Publishing -- 9781789955750 -- b4910c4c1c56a94beb4a5843dadf64c2 -- Anna’s Archive.pdf",
+          "size_bytes": 30683484
+        }
+      ]
+    },
+    {
+      "id": "local-024363a77257d664c75e",
+      "title": "Python Object Oriented Programming Exercises Become a Pro Developer: Python OOPS Concepts with 73 Exercises With Solution - Prepare for Coding Interviews",
+      "authors": [
+        "Edcorner Learning"
+      ],
+      "page_count": 245,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "exercicios/Algoritmia POO python/Python Object Oriented Programming Exercises Become a Pro.pdf",
+          "size_bytes": 13294052
+        }
+      ]
+    },
+    {
+      "id": "local-43fd8801f5c6dd400aa4",
+      "title": "Python Programming: An Introduction to Computer Science, 3rd Edition",
+      "authors": [
+        "John M. Zelle"
+      ],
+      "page_count": 554,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Python Programming _ an introduction to computer science- 3rd Edition.pdf",
+          "size_bytes": 5977609
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/Python Programming _ an introduction to computer science- 3rd Edition.pdf",
+          "size_bytes": 5977609
+        }
+      ]
+    },
+    {
+      "id": "local-9e66b0deee52be1fb2d4",
+      "title": "Python Reinforcement Learning Projects",
+      "authors": [
+        "Sean Saito"
+      ],
+      "page_count": 352,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "reinforcement-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "exercicios/AA/Python-Reinforcement-Learning-Projects.pdf",
+          "size_bytes": 14817599
+        }
+      ]
+    },
+    {
+      "id": "local-861842e71cb080a6e0cc",
+      "title": "Python Workout",
+      "authors": [
+        "Reuven Lerner"
+      ],
+      "page_count": 249,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "exercicios/Algoritmia POO python/Python Workout_ 50 Essential Exercises.pdf",
+          "size_bytes": 8704596
+        }
+      ]
+    },
+    {
+      "id": "local-0801bf8f4094003eb487",
+      "title": "React Projects _ Build 12 Real-world projects",
+      "authors": [],
+      "page_count": 465,
+      "source_type": "book-or-paper",
+      "topics": [
+        "web"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "exercicios/web react flask/React Projects _ Build 12 Real-world projects.pdf",
+          "size_bytes": 23919023
+        }
+      ]
+    },
+    {
+      "id": "local-f9c39c818f82092bcb2f",
+      "title": "Reinforcement Learning An Introduction 2nd ed",
+      "authors": [
+        "Richard S. Sutton"
+      ],
+      "page_count": 548,
+      "source_type": "book-or-paper",
+      "topics": [
+        "reinforcement-learning",
+        "autonomous-agents"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Reinforcement Learning_ An Introduction.pdf",
+          "size_bytes": 10846119
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Agentes autonomos/Reinforcement Learning_ An Introduction.pdf",
+          "size_bytes": 10846119
+        }
+      ]
+    },
+    {
+      "id": "local-d30cc79d5b53ed5d677e",
+      "title": "Reinforcement Learning: With Open AI, TensorFlow and Keras Using Python",
+      "authors": [],
+      "page_count": 174,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "deep-learning",
+        "reinforcement-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/Reinforcement Learning _ With Open AI, TensorFlow and Keras.pdf",
+          "size_bytes": 11540015
+        },
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Reinforcement Learning _ With Open AI, TensorFlow and Keras.pdf",
+          "size_bytes": 11540015
+        }
+      ]
+    },
+    {
+      "id": "local-f527a482889eacd323b7",
+      "title": "Review of Image Classification Algorithms Based on Convolutional Neural Networks",
+      "authors": [
+        "Leiyu Chen, Shaobo Li, Qiang Bai, Jing Yang, Sanlong Jiang",
+        "Yanming Miao"
+      ],
+      "page_count": 51,
+      "source_type": "book-or-paper",
+      "topics": [
+        "classic-algorithms",
+        "deep-learning",
+        "computer-vision"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/artigo 4 proj IA.pdf",
+          "size_bytes": 52837140
+        },
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Review of Image Classification Algorithms Based on.pdf",
+          "size_bytes": 52837140
+        }
+      ]
+    },
+    {
+      "id": "local-a29326ef313f2bea4cc7",
+      "title": "Revolutionizing Automated Cheque Processing",
+      "authors": [
+        "HP"
+      ],
+      "page_count": 7,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Revolutionizing Automated Cheque Processing.pdf",
+          "size_bytes": 484872
+        }
+      ]
+    },
+    {
+      "id": "local-0a4c625c6af4790b9b83",
+      "title": "Rich Models for Steganalysis of Digital Images",
+      "authors": [],
+      "page_count": 15,
+      "source_type": "book-or-paper",
+      "topics": [
+        "computer-vision"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Rich_Models_for_Steganalysis_of_Digital_Images.pdf",
+          "size_bytes": 2474194
+        }
+      ]
+    },
+    {
+      "id": "local-9fc529cc1178d4d7391f",
+      "title": "RISE Randomized Input Sampling for black box models",
+      "authors": [],
+      "page_count": 17,
+      "source_type": "book-or-paper",
+      "topics": [
+        "computer-vision"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "computer vision/RISE Randomized Input Sampling for black box models.pdf",
+          "size_bytes": 9082828
+        }
+      ]
+    },
+    {
+      "id": "local-212a27f386962b81aff8",
+      "title": "Sanity Checks for Saliency Maps",
+      "authors": [],
+      "page_count": 30,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "xai/Sanity Checks for Saliency Maps.pdf",
+          "size_bytes": 11047575
+        }
+      ]
+    },
+    {
+      "id": "local-81234f80eb513ad9b985",
+      "title": "Score-Weighted Visual Explanations for Convolutional Neural Networks",
+      "authors": [],
+      "page_count": 11,
+      "source_type": "book-or-paper",
+      "topics": [
+        "deep-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "xai/Score-Weighted Visual Explanations for Convolutional Neural Networks.pdf",
+          "size_bytes": 8518038
+        }
+      ]
+    },
+    {
+      "id": "local-c517f5e4a80679e75358",
+      "title": "SHAP A Unified Approach to Interpreting Model Predictions",
+      "authors": [],
+      "page_count": 10,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "xai/SHAP A Unified Approach to Interpreting Model Predictions.pdf",
+          "size_bytes": 1014198
+        }
+      ]
+    },
+    {
+      "id": "local-f34649ee8e405e0fe78c",
+      "title": "Sparks of Artificial General Intelligence",
+      "authors": [],
+      "page_count": 155,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Sparks of Artificial General Intelligence.pdf",
+          "size_bytes": 7370286
+        }
+      ]
+    },
+    {
+      "id": "local-ce03d9a05f8fd5114792",
+      "title": "Spatial Transformer Networks",
+      "authors": [],
+      "page_count": 15,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/Spatial Transformer Networks.pdf",
+          "size_bytes": 8275272
+        },
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/Spatial Transformer Networks.pdf",
+          "size_bytes": 8275272
+        }
+      ]
+    },
+    {
+      "id": "local-908e1918a8cb46210a9b",
+      "title": "SQL Practice Problems: 57 beginning, intermediate, and advanced challenges for you to solve using a \"learn-by-doing\" approach",
+      "authors": [
+        "Sylvia Moestl Vasilik"
+      ],
+      "page_count": 359,
+      "source_type": "book-or-paper",
+      "topics": [
+        "databases"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "exercicios/SQL NOSQL/SQL Practice Problems_ 57 Beginning, Intermediate, advanced.pdf",
+          "size_bytes": 850726
+        }
+      ]
+    },
+    {
+      "id": "local-828db922a08f9507c54f",
+      "title": "Stable Deep Reinforcement Learning via Isotropic Gaussian Representations",
+      "authors": [
+        "Ali Saheb Pasand",
+        "Johan Obando-Ceron",
+        "Aaron Courville",
+        "Pouya Bashivan",
+        "Pablo Samuel Castro"
+      ],
+      "page_count": 53,
+      "source_type": "book-or-paper",
+      "topics": [
+        "reinforcement-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "IA/Stable Deep Reinforcement Learning via Isotropic Gaussian Representations.pdf",
+          "size_bytes": 7905545
+        }
+      ]
+    },
+    {
+      "id": "local-ccbb1c954d048572d3ce",
+      "title": "Supervised and Unsupervised Learning for Data Science",
+      "authors": [
+        "Unknown"
+      ],
+      "page_count": 211,
+      "source_type": "book-or-paper",
+      "topics": [
+        "classical-ml",
+        "unsupervised-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Supervised-and-Unsupervised-Learning-for-data.pdf",
+          "size_bytes": 8744138
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "ML supervised e unsupervised/unsupervised/Supervised-and-Unsupervised-Learning-for-data.pdf",
+          "size_bytes": 8744138
+        }
+      ]
+    },
+    {
+      "id": "local-9183914e3aa748072d09",
+      "title": "Tarefa - Stack Fixa",
+      "authors": [],
+      "page_count": 3,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python",
+        "data-structures"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/pratica/Tarefa - Stack Fixa.pdf",
+          "size_bytes": 215361
+        }
+      ]
+    },
+    {
+      "id": "local-e39d2e1669effa9e8268",
+      "title": "Tarefa Semanal 1 AED",
+      "authors": [
+        "Joana Martinho Costa"
+      ],
+      "page_count": 4,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python",
+        "classic-algorithms"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/pratica/Tarefa Semanal 1 AED.pdf",
+          "size_bytes": 218196
+        }
+      ]
+    },
+    {
+      "id": "local-7200091d27bbb59cf6e7",
+      "title": "Tarefa Semanal 2 AED",
+      "authors": [],
+      "page_count": 5,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python",
+        "classic-algorithms"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/pratica/Tarefa Semanal 2 AED.pdf",
+          "size_bytes": 255596
+        }
+      ]
+    },
+    {
+      "id": "local-9aa22e741719075a60c5",
+      "title": "Tarefa Semanal 3",
+      "authors": [],
+      "page_count": 2,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/pratica/Tarefa Semanal 3.pdf",
+          "size_bytes": 223999
+        }
+      ]
+    },
+    {
+      "id": "local-76d893d123d5eda34aee",
+      "title": "Tarefa Semanal 4",
+      "authors": [],
+      "page_count": 2,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/pratica/Tarefa Semanal 4.pdf",
+          "size_bytes": 204981
+        }
+      ]
+    },
+    {
+      "id": "local-e4f5f2fbb8cb91a2ffe8",
+      "title": "Tarefa Semanal 5",
+      "authors": [
+        "Joana Martinho Costa"
+      ],
+      "page_count": 3,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/pratica/Tarefa Semanal 5.pdf",
+          "size_bytes": 225541
+        }
+      ]
+    },
+    {
+      "id": "local-93676b492a54065fbc12",
+      "title": "Tarefa Semanal 6",
+      "authors": [
+        "Joana Martinho Costa"
+      ],
+      "page_count": 4,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/pratica/Tarefa Semanal 6.pdf",
+          "size_bytes": 225057
+        }
+      ]
+    },
+    {
+      "id": "local-4ced7dae764b568ad3d4",
+      "title": "Tarefa semanal 7 - parte 2",
+      "authors": [],
+      "page_count": 3,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/pratica/Tarefa semanal 7 - parte 2.pdf",
+          "size_bytes": 220150
+        }
+      ]
+    },
+    {
+      "id": "local-33ef9a82610262447915",
+      "title": "Tarefa semanal 7 AED",
+      "authors": [],
+      "page_count": 2,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python",
+        "classic-algorithms"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/pratica/Tarefa semanal 7 AED.pdf",
+          "size_bytes": 200390
+        }
+      ]
+    },
+    {
+      "id": "local-068e11511b417b94ca0f",
+      "title": "Tarefa semanal 8",
+      "authors": [],
+      "page_count": 4,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/pratica/Tarefa semanal 8.pdf",
+          "size_bytes": 217155
+        }
+      ]
+    },
+    {
+      "id": "local-5a56b06f423e95da7fb9",
+      "title": "Tarefa semanal 9",
+      "authors": [],
+      "page_count": 4,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/algoritmia/pratica/Tarefa semanal 9.pdf",
+          "size_bytes": 242577
+        }
+      ]
+    },
+    {
+      "id": "local-d2fff1075c2b7bbd1baa",
+      "title": "Test Case Prioritization for DNNs via Neural Collapse Instability",
+      "authors": [
+        "Chunyu Liu",
+        "Mingyuan Li",
+        "Yang Li",
+        "Wenmin Li",
+        "Fei Gao",
+        "Tengfei Tu",
+        "Su-Juan Qin"
+      ],
+      "page_count": 24,
+      "source_type": "book-or-paper",
+      "topics": [
+        "deep-learning",
+        "computer-vision"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "computer vision/Test Case Prioritization for DNNs via Neural Collapse.pdf",
+          "size_bytes": 1492193
+        }
+      ]
+    },
+    {
+      "id": "local-e868c745a84417fe6ece",
+      "title": "The advanced proprietary AIML solution as Anti-fraud",
+      "authors": [
+        "Prabhakara Uyyala"
+      ],
+      "page_count": 8,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/The advanced proprietary AIML solution as Anti-fraud.pdf",
+          "size_bytes": 415795
+        }
+      ]
+    },
+    {
+      "id": "local-889705c2ab7f8d48d04e",
+      "title": "The many Shapley values for model explanation",
+      "authors": [
+        "Mukund Sundararajan (Google), Amir Najmi (Google)"
+      ],
+      "page_count": 9,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "xai/many shapley values.pdf",
+          "size_bytes": 809386
+        }
+      ]
+    },
+    {
+      "id": "local-3ed077b5a861478015e1",
+      "title": "The YOLO Framework: A Comprehensive Review of Evolution, Applications, and Benchmarks in Object Detection",
+      "authors": [
+        "Momina Liaqat Ali",
+        "Zhou Zhang"
+      ],
+      "page_count": 37,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/yolo_framework.pdf",
+          "size_bytes": 4718393
+        },
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/yolo_framework.pdf",
+          "size_bytes": 4718393
+        }
+      ]
+    },
+    {
+      "id": "local-f13890f12f05d4ce8fb7",
+      "title": "U-Net: Convolutional Networks for Biomedical Image Segmentation",
+      "authors": [
+        "Olaf Ronneberger (ronneber@informatik.uni-freiburg.de), Philipp Fischer, Thomas Brox"
+      ],
+      "page_count": 8,
+      "source_type": "book-or-paper",
+      "topics": [
+        "computer-vision"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/U-Net Convolutional Networks.pdf",
+          "size_bytes": 1648684
+        },
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/U-Net Convolutional Networks.pdf",
+          "size_bytes": 1648684
+        }
+      ]
+    },
+    {
+      "id": "local-ea325ea4961ac03fc0d5",
+      "title": "Understanding deep learning requires rethinking generalization",
+      "authors": [
+        "Chiyuan Zhang, Samy Bengio, Moritz Hardt, Benjamin Recht, Oriol Vinyals"
+      ],
+      "page_count": 15,
+      "source_type": "book-or-paper",
+      "topics": [
+        "deep-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/paper proj IA 1.pdf",
+          "size_bytes": 403563
+        },
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/UNDERSTANDING DEEP LEARNING REQUIRES RE.pdf",
+          "size_bytes": 403563
+        }
+      ]
+    },
+    {
+      "id": "local-be598f6bbc0d216e0e08",
+      "title": "Unsupervised Learning Algorithms",
+      "authors": [],
+      "page_count": 564,
+      "source_type": "book-or-paper",
+      "topics": [
+        "classic-algorithms",
+        "classical-ml",
+        "unsupervised-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/unsupervised ML books/Unsupervised Learning Algorithms.pdf",
+          "size_bytes": 14640549
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "ML supervised e unsupervised/unsupervised/Unsupervised Learning Algorithms.pdf",
+          "size_bytes": 14640549
+        }
+      ]
+    },
+    {
+      "id": "local-faf974d9061dcaaf847d",
+      "title": "Unsupervised Learning with Generative AI MEAP V07_livebook",
+      "authors": [
+        "welcome.html"
+      ],
+      "page_count": 374,
+      "source_type": "book-or-paper",
+      "topics": [
+        "classical-ml",
+        "unsupervised-learning"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Unsupervised Learning with Generative AI (MEAP V07).pdf",
+          "size_bytes": 9363054
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "ML supervised e unsupervised/extra/Unsupervised Learning with Generative AI (MEAP V07).pdf",
+          "size_bytes": 9363054
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "ML supervised e unsupervised/unsupervised/Unsupervised Learning with Generative AI (MEAP V07).pdf",
+          "size_bytes": 9363054
+        }
+      ]
+    },
+    {
+      "id": "local-2d9ad763c6e31ee8e00f",
+      "title": "Web development and design foundations with HTML5",
+      "authors": [
+        "Felke-Morris, Terry Ann, author"
+      ],
+      "page_count": 720,
+      "source_type": "book-or-paper",
+      "topics": [
+        "web",
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "booksUni/ebooks uteis/Web development and design foundations with HTML5.pdf",
+          "size_bytes": 49394562
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Web e cloud/Web development and design foundations with HTML5.pdf",
+          "size_bytes": 49394562
+        }
+      ]
+    },
+    {
+      "id": "local-85d4887f77067390eafb",
+      "title": "Why Should I Trust You explaining the predictions of any classifier",
+      "authors": [],
+      "page_count": 10,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "xai/Why Should I Trust You explaining the predictions of any classifier.pdf",
+          "size_bytes": 4299136
+        }
+      ]
+    },
+    {
+      "id": "local-ce9d45619d9850b1dfe5",
+      "title": "Winter School - Raimundo - Class #1",
+      "authors": [
+        "Lima_Raimundo@iscte-iul.pt"
+      ],
+      "page_count": 51,
+      "source_type": "book-or-paper",
+      "topics": [
+        "python-foundations",
+        "object-oriented-python"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/POO/teorica/2024_25-POO-Class1.pdf",
+          "size_bytes": 1303213
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/POO/teorica/IUR-POO-Class1.pdf",
+          "size_bytes": 7235563
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/POO/teorica/IUR-POO-Class2 v2.pdf",
+          "size_bytes": 977999
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/POO/teorica/IUR-POO-Class2.pdf",
+          "size_bytes": 4108750
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/POO/teorica/IUR-POO-Class3 v2.pdf",
+          "size_bytes": 851590
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/POO/teorica/IUR-POO-Class3.pdf",
+          "size_bytes": 4000620
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/POO/teorica/IUR-POO-Class4.pdf",
+          "size_bytes": 2652374
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/POO/teorica/IUR-POO-Class5.pdf",
+          "size_bytes": 2577147
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/POO/teorica/POO-Class4.1_variable-arguments.pdf",
+          "size_bytes": 310217
+        },
+        {
+          "root": "estudo-ferias",
+          "relative_path": "Algoritmia e POO/teorica/POO/teorica/POO-Class4.2-Decorators.pdf",
+          "size_bytes": 319530
+        }
+      ]
+    },
+    {
+      "id": "local-a1f967ba61f122d8d31e",
+      "title": "yolov10",
+      "authors": [],
+      "page_count": 21,
+      "source_type": "book-or-paper",
+      "topics": [
+        "software-engineering"
+      ],
+      "provenance": "user-approved-local-library",
+      "usage": "bibliographic-orientation-only",
+      "locators": [
+        {
+          "root": "ebooks-papers",
+          "relative_path": "ebooks proj IA/yolov10.pdf",
+          "size_bytes": 1345990
+        },
+        {
+          "root": "ebooks-papers",
+          "relative_path": "paers cnn aplicada fraudes/yolov10.pdf",
+          "size_bytes": 1345990
+        }
+      ]
+    }
+  ],
+  "quarantined": []
+}

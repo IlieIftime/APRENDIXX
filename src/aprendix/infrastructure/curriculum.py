@@ -11,8 +11,14 @@ from difflib import SequenceMatcher
 from datetime import UTC, datetime
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
-from aprendix.application.academy_catalog import ACADEMY_MODULES, ACADEMY_TRACKS
+from aprendix.application.academy_catalog import (
+    ACADEMY_MODULES,
+    ACADEMY_TRACKS,
+    VERTICAL_CORE_MODULES,
+)
 from aprendix.application.learning_catalog import EXTRA_GLOSSARY, GLOSSARY_ALIASES
+from aprendix.application.stdlib_glossary import STDLIB_GLOSSARY
+from aprendix.application.vertical_practice import CORE_PRACTICE_VARIANTS, TRACK_SOURCE_IDS
 
 
 def _id(kind: str, slug: str) -> str:
@@ -171,6 +177,49 @@ GLOSSARY = (
 )
 
 
+_CORE_RELATED = {
+    "python-foundations": ("python", "função", "teste"),
+    "python-oop": ("class", "object", "invariant"),
+    "python-algorithms": ("algorithm", "complexidade temporal", "invariant"),
+    "python-data-structures": ("data structure", "algorithm", "complexidade espacial"),
+}
+
+CORE_GLOSSARY = tuple(
+    (
+        title, "python", f"{objective} {explanation}",
+        starter.strip().splitlines()[0], starter.strip(), _CORE_RELATED[track],
+    )
+    for _slug, track, title, objective, explanation, starter, _test
+    in VERTICAL_CORE_MODULES
+)
+
+STDLIB_GLOSSARY_ENTRIES = tuple(
+    (
+        str(item["term"]), str(item["technology"]), str(item["definition"]),
+        str(item["signature"]), str(item["example"]), tuple(item["related"]),
+    )
+    for item in STDLIB_GLOSSARY
+)
+
+GENERATED_GLOSSARY_ALIASES = tuple(
+    (str(item["term"]), tuple(str(alias) for alias in item["aliases"]))
+    for item in STDLIB_GLOSSARY
+) + tuple(
+    (title, (slug, title.casefold(), title.replace(" e ", " & ")))
+    for slug, _track, title, _objective, _explanation, _starter, _test
+    in VERTICAL_CORE_MODULES
+)
+
+GLOSSARY_SOURCE_IDS = {
+    **{str(item["term"]): tuple(item["source_ids"]) for item in STDLIB_GLOSSARY},
+    **{
+        title: TRACK_SOURCE_IDS[track]
+        for _slug, track, title, _objective, _explanation, _starter, _test
+        in VERTICAL_CORE_MODULES
+    },
+}
+
+
 def _normalize(value: str) -> str:
     folded = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode().casefold()
     return re.sub(r"\s+", " ", folded).strip()
@@ -221,6 +270,32 @@ class CurriculumRepository:
                      f"{objective}\n\nCompleta o contrato iniciado. A solução deve passar todos os casos normais e limites sem rede nem ficheiros externos.",
                      starter, json.dumps((test,), ensure_ascii=False), difficulty, now, now),
                 )
+            for variant in CORE_PRACTICE_VARIANTS:
+                node_id = _id("graph-node", variant.module_slug)
+                exercise_id = _id("exercise", variant.slug)
+                connection.execute(
+                    """INSERT INTO exercises(
+                       id,graph_node_id,slug,title,prompt,starter_code,tests_json,
+                       difficulty,version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,1,?,?)
+                       ON CONFLICT(id) DO UPDATE SET graph_node_id=excluded.graph_node_id,
+                       title=excluded.title,prompt=excluded.prompt,
+                       starter_code=excluded.starter_code,tests_json=excluded.tests_json,
+                       difficulty=excluded.difficulty,updated_at=excluded.updated_at""",
+                    (exercise_id, node_id, variant.slug, variant.title, variant.prompt,
+                     variant.starter_code,
+                     json.dumps((variant.test_code,), ensure_ascii=False),
+                     variant.difficulty, now, now),
+                )
+                for source_id in variant.source_ids:
+                    connection.execute(
+                        """INSERT INTO exercise_source_links(exercise_id,source_id,rationale)
+                           SELECT ?,id,? FROM curated_sources WHERE id=?
+                           ON CONFLICT(exercise_id,source_id) DO UPDATE SET
+                           rationale=excluded.rationale""",
+                        (exercise_id,
+                         "Referência de orientação temática; enunciado e testes são originais Aprendix.",
+                         source_id),
+                    )
             last_hybrid: dict[str, str] = {}
             for chapter_position, data in enumerate(chapters):
                 (slug, track_slug, node_slug, title, objective, exercise_slug,
@@ -376,7 +451,9 @@ class CurriculumRepository:
             )
             glossary_nodes: dict[str, str] = {}
             glossary_relations: list[tuple[str, tuple[str, ...]]] = []
-            for term, technology, definition, signature, example, related in (*GLOSSARY, *EXTRA_GLOSSARY):
+            for term, technology, definition, signature, example, related in (
+                *GLOSSARY, *EXTRA_GLOSSARY, *CORE_GLOSSARY, *STDLIB_GLOSSARY_ENTRIES
+            ):
                 identity = _id("glossary", _normalize(term))
                 normalized_term = _normalize(term)
                 connection.execute(
@@ -401,7 +478,7 @@ class CurriculumRepository:
                 )
                 glossary_nodes[normalized_term] = node_id
                 glossary_relations.append((normalized_term, related))
-            for canonical, aliases in GLOSSARY_ALIASES:
+            for canonical, aliases in (*GLOSSARY_ALIASES, *GENERATED_GLOSSARY_ALIASES):
                 entry = connection.execute(
                     "SELECT id FROM glossary_entries WHERE normalized_term=?",
                     (_normalize(canonical),),
@@ -415,6 +492,23 @@ class CurriculumRepository:
                     connection.execute(
                         "INSERT OR IGNORE INTO glossary_aliases VALUES(?,?,?,'und')",
                         (entry["id"], alias, normalized_alias),
+                    )
+            for term, source_ids in GLOSSARY_SOURCE_IDS.items():
+                entry = connection.execute(
+                    "SELECT id FROM glossary_entries WHERE normalized_term=?",
+                    (_normalize(term),),
+                ).fetchone()
+                if entry is None:
+                    continue
+                for position, source_id in enumerate(source_ids):
+                    connection.execute(
+                        """INSERT INTO glossary_source_links(entry_id,source_id,position,rationale)
+                           SELECT ?,id,?,? FROM curated_sources WHERE id=?
+                           ON CONFLICT(entry_id,source_id) DO UPDATE SET
+                           position=excluded.position,rationale=excluded.rationale""",
+                        (entry["id"], position,
+                         "Referência para aprofundar; definição e exemplo são originais Aprendix.",
+                         source_id),
                     )
             for source_term, related_terms in glossary_relations:
                 source_node = glossary_nodes[source_term]
@@ -687,14 +781,64 @@ class CurriculumRepository:
     def glossary(self, term: str, *, limit: int = 8) -> tuple[dict[str, object], ...]:
         normalized = _normalize(term)
         with self._database.read_connection() as connection:
-            rows = connection.execute("SELECT * FROM glossary_entries ORDER BY normalized_term").fetchall()
+            if normalized:
+                escaped = normalized.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                candidate_rows = connection.execute(
+                    """SELECT DISTINCT e.id FROM glossary_entries e
+                       LEFT JOIN glossary_aliases a ON a.entry_id=e.id
+                       WHERE e.normalized_term=? OR a.normalized_alias=?
+                          OR e.normalized_term LIKE ? ESCAPE '\\'
+                          OR a.normalized_alias LIKE ? ESCAPE '\\'
+                          OR e.normalized_term LIKE ? ESCAPE '\\'
+                          OR a.normalized_alias LIKE ? ESCAPE '\\'
+                       LIMIT 320""",
+                    (normalized, normalized, escaped + "%", escaped + "%",
+                     "%" + escaped + "%", "%" + escaped + "%"),
+                ).fetchall()
+                if not candidate_rows and len(normalized) >= 2:
+                    prefix = normalized[:2].replace("%", "\\%").replace("_", "\\_") + "%"
+                    candidate_rows = connection.execute(
+                        """SELECT DISTINCT e.id FROM glossary_entries e
+                           LEFT JOIN glossary_aliases a ON a.entry_id=e.id
+                           WHERE e.normalized_term LIKE ? ESCAPE '\\'
+                              OR a.normalized_alias LIKE ? ESCAPE '\\' LIMIT 320""",
+                        (prefix, prefix),
+                    ).fetchall()
+            else:
+                candidate_rows = connection.execute(
+                    "SELECT id FROM glossary_entries ORDER BY normalized_term LIMIT 30"
+                ).fetchall()
+            candidate_ids = tuple(row["id"] for row in candidate_rows)
+            if not candidate_ids:
+                candidate_ids = tuple(row["id"] for row in connection.execute(
+                    "SELECT id FROM glossary_entries ORDER BY normalized_term"
+                ).fetchall())
+            placeholders = ",".join("?" for _ in candidate_ids)
+            rows = connection.execute(
+                f"SELECT * FROM glossary_entries WHERE id IN ({placeholders}) ORDER BY normalized_term",
+                candidate_ids,
+            ).fetchall()
             alias_rows = connection.execute(
-                "SELECT entry_id,alias,normalized_alias FROM glossary_aliases ORDER BY normalized_alias"
+                f"""SELECT entry_id,alias,normalized_alias FROM glossary_aliases
+                    WHERE entry_id IN ({placeholders}) ORDER BY normalized_alias""",
+                candidate_ids,
+            ).fetchall()
+            source_rows = connection.execute(
+                f"""SELECT l.entry_id,s.title,s.canonical_url FROM glossary_source_links l
+                   JOIN curated_sources s ON s.id=l.source_id
+                   WHERE l.entry_id IN ({placeholders})
+                   ORDER BY l.entry_id,l.position,s.title""",
+                candidate_ids,
             ).fetchall()
         aliases_by_entry: dict[str, list[tuple[str, str]]] = {}
         for alias in alias_rows:
             aliases_by_entry.setdefault(alias["entry_id"], []).append(
                 (alias["alias"], alias["normalized_alias"])
+            )
+        sources_by_entry: dict[str, list[tuple[str, str]]] = {}
+        for source in source_rows:
+            sources_by_entry.setdefault(source["entry_id"], []).append(
+                (source["title"], source["canonical_url"])
             )
         query_tokens = set(normalized.split())
         def rank(row):
@@ -734,10 +878,12 @@ class CurriculumRepository:
                 "pandas": (("pandas Documentation", "https://pandas.pydata.org/docs/"),),
                 "pytorch": (("PyTorch Documentation", "https://pytorch.org/docs/stable/"),),
             }
-            item["references"] = reference_map.get(item["technology"], (
-                ("Python Glossary", "https://docs.python.org/3/glossary.html"),
-                ("Aprendix · conhecimento local", "aprendix://dictionary"),
-            ))
+            item["references"] = tuple(sources_by_entry.get(identity, ())) or reference_map.get(
+                item["technology"], (
+                    ("Python Glossary", "https://docs.python.org/3/glossary.html"),
+                    ("Aprendix · conhecimento local", "aprendix://dictionary"),
+                )
+            )
             result.append(item)
         return tuple(result)
 
