@@ -25,6 +25,10 @@ def test_mobile_runtime_uses_lite_content_and_persists_encrypted_attempt(tmp_pat
     raw = runtime.paths.user_database.read_bytes()
     assert b"print('ok')" not in raw
     assert runtime.state.passed_attempts() == 1
+    report = runtime.progress_report()
+    assert report["attempts"] == 1
+    assert report["passed"] == 1
+    assert report["completion_ratio"] == 0
 
 
 def test_mobile_runtime_requires_a_learning_oracle_and_grades_quiz(tmp_path: Path) -> None:
@@ -106,3 +110,54 @@ def test_mobile_break_games_resume_without_affecting_course_progress(tmp_path: P
     resumed = runtime.games.new("sudoku", "Fácil", daily=True)
     assert resumed.id == session.id and resumed.elapsed_seconds == 19
     assert runtime.state.completed_units() == ()
+
+
+def test_mobile_course_ide_session_diagnosis_and_transfer_are_persisted(tmp_path: Path) -> None:
+    runtime = build_mobile_runtime(_paths(tmp_path), allow_host_development=True)
+    unit = runtime.prepare_course_unit("resources-and-files")
+    assert unit["session"]["theory_viewed"] is True
+    runtime.update_learning_note(
+        "resources-and-files", prediction="PREVISAO_PRIVADA_MOBILE_19"
+    )
+    raw = runtime.paths.user_database.read_bytes()
+    assert b"PREVISAO_PRIVADA_MOBILE_19" not in raw
+
+    failed = runtime.execute_course_unit(
+        "resources-and-files", "def classificar_recurso(descricao):\n    return 'x'"
+    )
+    assert failed["passed"] is False
+    assert failed["assistance_stage"] == "localização"
+    assert "caso protegido" in failed["diagnosis"]
+
+    solution = """def classificar_recurso(descricao):
+    if descricao == 'cálculo imediato':
+        return 'cpu'
+    if descricao == 'estado temporário':
+        return 'memoria'
+    return 'armazenamento'
+"""
+    passed = runtime.execute_course_unit(
+        "resources-and-files", solution, active_seconds=35
+    )
+    assert passed["passed"] is True
+    assert passed["session"]["independent_passed"] is True
+    transfer = runtime.execute_course_unit(
+        "resources-and-files", solution, transfer_context=True
+    )
+    assert transfer["passed"] is True
+    summary = runtime.state.learning_session_summary()
+    assert summary["independent_passes"] == 1
+    assert summary["transfer_passes"] == 1
+    assert "resources-and-files" in runtime.state.completed_units()
+
+
+def test_mobile_evaluation_mode_does_not_reveal_protected_checks(tmp_path: Path) -> None:
+    runtime = build_mobile_runtime(_paths(tmp_path), allow_host_development=True)
+    receipt = runtime.execute_course_unit(
+        "resources-and-files", "def classificar_recurso(descricao):\n    return None",
+        mode="evaluation",
+    )
+    assert receipt["passed"] is False
+    assert receipt["assistance_stage"] == "protegido"
+    assert "sem revelar" in receipt["diagnosis"]
+    assert "classificar_recurso('" not in receipt["diagnosis"]

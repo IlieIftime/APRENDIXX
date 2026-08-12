@@ -1,0 +1,30 @@
+[INFO   ] Logger: Record log in C:\Users\iliei\OneDrive\Ambiente de Trabalho\APRENDIXX\.artifacts\gui-installed-final-a120b0bddc714fc4a23d2690e40255c7\Kivy\logs\kivy_26-08-12_0.txt
+[DEBUG  ] Config: Upgrading from 0 to 1
+[WARNING] Config: Upgrading configuration in progress.
+[WARNING] Config: Older configuration version detected (0 instead of 27)
+[INFO   ] Kivy: v2.3.1
+[INFO   ] Kivy: Installed at "C:\Users\iliei\AppData\Local\Programs\Aprendix\1.0.0\_internal\kivy\__init__.py"
+[INFO   ] Python: v3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]
+[INFO   ] Python: Interpreter at "C:\Users\iliei\AppData\Local\Programs\Aprendix\1.0.0\Aprendix.exe"
+[INFO   ] Logger: Purge log fired. Processing...
+[INFO   ] Logger: Purge finished!
+[INFO   ] Factory: 195 symbols loaded
+[INFO   ] Image: Providers: img_tex, img_dds, img_sdl2, img_pil (img_ffpyplayer ignored)
+[INFO   ] Window: Provider: sdl2
+[INFO   ] GL: Using the "OpenGL" graphics system
+[INFO   ] GL: GLEW initialization succeeded
+[INFO   ] GL: Backend used <glew>
+[INFO   ] GL: OpenGL version <b'4.6.0 - Build 31.0.101.4032'>
+[INFO   ] GL: OpenGL vendor <b'Intel'>
+[INFO   ] GL: OpenGL renderer <b'Intel(R) Iris(R) Xe Graphics'>
+[INFO   ] GL: OpenGL parsed version: 4, 6
+[INFO   ] GL: Shading version <b'4.60 - Build 31.0.101.4032'>
+[INFO   ] GL: Texture max size <16384>
+[INFO   ] GL: Texture max units <32>
+[INFO   ] Window: auto add sdl2 input provider
+[INFO   ] Window: virtual keyboard not allowed, single mode, not docked
+[INFO   ] Clipboard: Provider: winctypes
+[INFO   ] Text: Provider: sdl2
+[INFO   ] Base: Start application main loop
+[INFO   ] GL: NPOT texture support is available
+[INFO   ] Base: Leaving application in progress...

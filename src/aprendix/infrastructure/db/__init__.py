@@ -25,6 +25,11 @@ from aprendix.infrastructure.db.portfolio_repository import PortfolioRepository
 from aprendix.infrastructure.db.snippet_repository import SnippetRepository
 from aprendix.infrastructure.db.game_repository import GameRepository
 from aprendix.infrastructure.db.profile_repository import DesktopProfileRepository
+from aprendix.infrastructure.db.quality_repository import PedagogicalQualityRepository
+from aprendix.infrastructure.db.pedagogical_repository import (
+    CatalogSearchHit,
+    PedagogicalRepository,
+)
 
 __all__ = [
     "AttemptRepository",
@@ -49,4 +54,7 @@ __all__ = [
     "SnippetRepository",
     "GameRepository",
     "DesktopProfileRepository",
+    "PedagogicalQualityRepository",
+    "CatalogSearchHit",
+    "PedagogicalRepository",
 ]

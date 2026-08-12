@@ -35,6 +35,7 @@ class LearningGuiController:
         exercises: ExerciseCatalog,
         submissions: AttemptSubmissionService,
         snapshot_provider: Callable[[], Mapping[str, Any]],
+        graph_service: Any | None = None,
         search_service: Any | None = None,
         card_provider: Callable[[], tuple[Any, ...]] | None = None,
         corrector: Any | None = None,
@@ -49,11 +50,16 @@ class LearningGuiController:
         games: Any | None = None,
         content_updates: Any | None = None,
         profile_transfer: Any | None = None,
+        quality: Any | None = None,
+        governance: Any | None = None,
+        pedagogy: Any | None = None,
+        asset_store: Any | None = None,
     ) -> None:
         self.user = user
         self._exercises = exercises
         self._submissions = submissions
         self._snapshot_provider = snapshot_provider
+        self._graph_service = graph_service
         self._search_service = search_service
         self._card_provider = card_provider or (lambda: ())
         self._corrector = corrector
@@ -68,6 +74,10 @@ class LearningGuiController:
         self._games = games
         self._content_updates = content_updates
         self._profile_transfer = profile_transfer
+        self._quality = quality
+        self._governance = governance
+        self._pedagogy = pedagogy
+        self._asset_store = asset_store
 
     def exercises(self):
         return self._exercises.list_all()
@@ -87,14 +97,59 @@ class LearningGuiController:
         # A multiprocessing child from a one-file PyInstaller GUI can execute
         # the application entry point again and create an endless window chain.
         # The graph is self-contained HTML, so open it directly in the browser.
-        open_graph_view(dict(self._snapshot_provider()))
+        snapshot = self.visible_graph() if self._graph_service is not None else self.snapshot()
+        open_graph_view(snapshot)
 
     def snapshot(self) -> Mapping[str, Any]:
         return self._snapshot_provider()
 
     def dashboard(self):
-        return DashboardService.from_snapshot(
-            GraphSnapshotDTO.model_validate(self._snapshot_provider())
+        snapshot = GraphSnapshotDTO.model_validate(self._snapshot_provider())
+        if self._progress is not None and hasattr(self._progress, "curriculum_node_ids"):
+            curriculum_ids = set(self._progress.curriculum_node_ids())
+            snapshot = snapshot.model_copy(update={
+                "nodes": tuple(
+                    node for node in snapshot.nodes if node.id in curriculum_ids
+                ),
+                "recommendations": tuple(
+                    item for item in snapshot.recommendations
+                    if item.node_id in curriculum_ids
+                ),
+            })
+        return DashboardService.from_snapshot(snapshot)
+
+    def dashboard_analytics(
+        self, *, period_days: int = 30, start=None, end=None,
+        track_slug: str | None = None, node_id: UUID | None = None,
+    ):
+        if self._progress is None or not hasattr(self._progress, "analytics"):
+            raise RuntimeError("Analytics de progresso indisponíveis.")
+        return self._progress.analytics(
+            self.user.id, period_days=period_days, start=start, end=end,
+            track_slug=track_slug, node_id=node_id,
+        )
+
+    def visible_graph(
+        self, *, period_days: int = 30, start=None, end=None,
+        include_eligible: bool = False, node_limit: int = 150,
+        edge_limit: int = 300,
+    ):
+        if self._graph_service is None:
+            return self.snapshot()
+        return self._graph_service.get_visible_snapshot(
+            self.user.id, period_days=period_days, start=start, end=end,
+            include_eligible=include_eligible,
+            node_limit=node_limit, edge_limit=edge_limit,
+        )
+
+    def node_analytics(
+        self, node_id: UUID, *, period_days: int = 30, start=None, end=None,
+    ):
+        if self._graph_service is None:
+            raise RuntimeError("Analytics do grafo indisponíveis.")
+        return self._graph_service.node_analytics(
+            self.user.id, node_id, period_days=period_days,
+            start=start, end=end,
         )
 
     def personal_progress(self):
@@ -114,11 +169,38 @@ class LearningGuiController:
             return ()
         return self._progress.build_weekly_plan(self.user.id)
 
+    def progress_forecast(self):
+        if self._progress is None:
+            return None
+        return self._progress.forecast(self.user.id)
+
+    def weekly_progress_report(self):
+        if self._progress is None:
+            return None
+        return self._progress.weekly_report(self.user.id)
+
+    def complete_weekly_item(self, item_id, completed: bool = True):
+        if self._progress is None:
+            return False
+        return self._progress.complete_plan_item(self.user.id, item_id, completed)
+
     def theory_cards(self, **filters):
         # The curiosity deck must never turn arbitrary imported PDF chunks into
         # pedagogical claims. Imported material remains available in Search/Reader.
         filters.setdefault("authored_only", True)
         return self._card_provider(**filters)
+
+    def pedagogical_document(self, owner_type: str, owner_id: str):
+        return self._pedagogy.get(owner_type, str(owner_id)) if self._pedagogy else None
+
+    def pedagogical_asset_path(self, asset_id: str):
+        if self._pedagogy is None or self._asset_store is None:
+            return None
+        getter = getattr(self._pedagogy, "get_asset", None)
+        if getter is None:
+            return None
+        asset = getter(asset_id)
+        return self._asset_store.materialize(asset) if asset is not None else None
 
     def clusters(self):
         return self._cluster_provider()
@@ -132,11 +214,71 @@ class LearningGuiController:
     def curriculum_audit(self):
         return self._curriculum.audit() if self._curriculum else {"valid": False}
 
+    def progress_integrity_audit(self):
+        return (
+            self._curriculum.progress_integrity_audit()
+            if self._curriculum else {"valid": 0, "suspicious": 0}
+        )
+
+    def pedagogical_quality(self):
+        return self._quality.summary() if self._quality else None
+
+    def bibliography_coverage(self):
+        return self._governance.bibliography_coverage() if self._governance else None
+
     def diagnostic_exercises(self, *, limit: int = 5):
         return self._curriculum.diagnostic(limit=limit) if self._curriculum else ()
 
     def units(self, track_slug: str):
         return self._curriculum.units(track_slug) if self._curriculum else ()
+
+    def course_practice(self, track_slug: str):
+        """Return the ordered IDE journey for one curriculum track."""
+
+        if self._curriculum is None:
+            return ()
+        exercises = {str(item.id): item for item in self._exercises.list_all()}
+        units = tuple(self._curriculum.units(track_slug))
+        theory_by_chapter = {}
+        assessments_by_chapter = {}
+        for unit in units:
+            if unit.get("kind") == "theory":
+                theory_by_chapter.setdefault(unit.get("chapter_title", ""), unit)
+            if unit.get("kind") in {"quiz", "hybrid"} and unit.get("assessment_id"):
+                assessments_by_chapter.setdefault(unit.get("chapter_title", ""), []).append({
+                    "unit_id": unit["id"],
+                    "assessment_id": unit["assessment_id"],
+                    "kind": unit["kind"],
+                    "title": unit.get("title", "Teste de etapa"),
+                    "completed": bool(unit["completed"]),
+                    "unlocked": bool(unit["unlocked"]),
+                })
+        journey = []
+        current_theory = None
+        for unit in units:
+            if unit.get("kind") == "theory":
+                current_theory = unit
+                continue
+            exercise_id = unit.get("exercise_id")
+            exercise = exercises.get(str(exercise_id)) if exercise_id else None
+            if unit.get("kind") != "practice" or exercise is None:
+                continue
+            theory = theory_by_chapter.get(unit.get("chapter_title", "")) or current_theory or {}
+            journey.append({
+                "exercise": exercise,
+                "unit_id": unit["id"],
+                "chapter_title": unit["chapter_title"],
+                "completed": bool(unit["completed"]),
+                "unlocked": bool(unit["unlocked"]),
+                "theory_unit_id": theory.get("id", ""),
+                "theory_title": theory.get("title") or unit["chapter_title"],
+                "theory_body": theory.get("body", ""),
+                "theory_example": theory.get("example", ""),
+                "assessments": tuple(
+                    assessments_by_chapter.get(unit.get("chapter_title", ""), ())
+                ),
+            })
+        return tuple(journey)
 
     def glossary(self, term: str, *, limit: int = 8):
         return self._curriculum.glossary(term, limit=limit) if self._curriculum else ()
@@ -157,6 +299,10 @@ class LearningGuiController:
 
     def portfolio_entries(self):
         return self._portfolio.entries() if self._portfolio else ()
+
+    def project_context(self, project_id):
+        if self._portfolio is None: raise RuntimeError("Portefólio indisponível.")
+        return self._portfolio.context(project_id)
 
     def start_guided_project(self, template_id: str, *, mode: str = "guided"):
         if self._portfolio is None: raise RuntimeError("Portefólio indisponível.")
@@ -266,6 +412,15 @@ class LearningGuiController:
             raise ValueError("Consulta primeiro o registo e escolhe pack-id@versão.") from exc
         return self._content_updates.install_remote(offer, registry_url)
 
+    def preview_remote_content_pack(self, identity: str, registry_url: str):
+        if self._content_updates is None:
+            raise RuntimeError("Gestor de conteúdo indisponível.")
+        try:
+            offer = self._remote_content_offers[identity.strip()]
+        except (AttributeError, KeyError) as exc:
+            raise ValueError("Consulta primeiro o registo e escolhe pack-id@versão.") from exc
+        return self._content_updates.preview_remote(offer, registry_url)
+
     def assessment(self, item_id: str):
         if self._curriculum is None: raise RuntimeError("Currículo indisponível.")
         return self._curriculum.assessment(item_id)
@@ -355,6 +510,15 @@ class LearningGuiController:
             exercise, source_code, duration_ms, **kwargs
         )
 
+    def learning_session(self, exercise_id):
+        return self._desktop_service().learning_session(exercise_id)
+
+    def update_learning_session(self, exercise_id, **changes):
+        return self._desktop_service().update_learning_session(exercise_id, **changes)
+
+    def learning_session_summary(self):
+        return self._desktop_service().learning_session_summary()
+
     def variation(self, exercise, *, proficiency: float = 0.0):
         return self._desktop_service().variation(exercise, proficiency=proficiency)
 
@@ -396,6 +560,12 @@ class LearningGuiController:
 
     def load_debug_recovery(self, exercise_id):
         return self._desktop_service().load_debug_recovery(exercise_id)
+
+    def debug_history(self, *, limit: int = 30):
+        return self._desktop_service().debug_history(limit=limit)
+
+    def test_history(self, *, limit: int = 30):
+        return self._desktop_service().test_history(limit=limit)
 
     def save_project(
         self, name: str, source_code: str, project_id=None, *, relative_path="main.py",

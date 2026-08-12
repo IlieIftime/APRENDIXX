@@ -10,7 +10,7 @@ auditable, and network synchronization is optional and metadata-only.
 
 ## Delivered scope
 
-All twelve planned sprints are represented:
+The original twelve planned sprints and desktop Iterations 13–17, 19 and 20 are represented:
 
 1. DDD package layout, strict Pydantic contracts, SQLite migrations, AES-256-GCM
    field encryption, and transactional repositories.
@@ -36,6 +36,33 @@ All twelve planned sprints are represented:
     extractive synthesis, and optional loopback-only Ollama synthesis.
 12. A POO-capable AST policy, isolated dynamic tests, deterministic scoring,
     and extracted exercises linked into the adaptive graph.
+13. Responsive desktop/mobile layout policy, automatic pedagogical quality
+    compilation and quarantine, personal forecasts and weekly reports,
+    actionable runtime-error guidance and encrypted debug/test history,
+    objective-level bibliography coverage, explicit update previews, and
+    mobile progress parity.
+14. A continuous IDE journey with microtheory, simple/guided/technical briefs,
+    persistent attempt-aware help and protected assessment feedback.
+15. Resumable objective sessions, deterministic diagnosis/remediation, validated
+    encrypted reference solutions, step assessments and transfer evidence.
+16. A governed catalogue of more than 1,000 unique references, combining
+    primary sources, approved local-PDF metadata and official Python API docs.
+17. Opt-in weekly signed content updates with HTTPS allowlists, explicit preview,
+    bounded downloads, quarantine, atomic activation and rollback.
+19. Protected mobile unit-to-IDE learning, governed offline content and
+    independent/transfer evidence, distributed in the sideloadable Android APK.
+20. A desktop learning workspace with consultation-versus-credit policy,
+    explainable analytics, a bounded semantic graph, structured lessons and
+    briefs, exact-sourced visual cards, inline IDE tools and whole-catalog search.
+
+Iteration 13 is exercised by `python scripts/audit_iteration13.py`. Its report
+contains only aggregate pass/fail evidence and is written to
+`ITERATION-13-AUDIT-1.0.0.json`.
+
+Iterations 14–17 have dedicated aggregate-only gates in
+`scripts/audit_iteration14.py` through `scripts/audit_iteration17.py`.
+Desktop Iteration 20 is exercised by `python scripts/audit_iteration20.py`; its
+aggregate-only report is `ITERATION-20-AUDIT-1.0.0.json`.
 
 Desktop integration 12.1–12.4 is wired end-to-end:
 
@@ -47,17 +74,20 @@ Desktop integration 12.1–12.4 is wired end-to-end:
 - CopyKate, structural autocomplete, 25/50/90/120 focus timers, anti-copy
   justification, encrypted draft cache and metadata-only offline sync queue.
 
-The desktop curriculum now exposes 12 guided tracks, 156 practice-first units,
-108 theoretical/practical/hybrid assessments, 12 local project templates,
+The desktop curriculum now exposes 12 guided tracks, 248 viewable units,
+177 theoretical/practical/hybrid assessments, 20 local project templates,
 fixed milestone gates, and an encrypted glossary whose 142 canonical concepts
 are linked into the 175-node skill graph. The UI
 offers persistent dark/light themes and dictionary lookup from both its own
 screen and the embedded IDE.
 
-The independent `mobile/` subtree ships a deliberately smaller offline seed:
-1,131 hierarchical cards, 200 curated sources, 92 search shortcuts, 3,343 glossary
-entries plus 180 explicit aliases, six executable practical challenges and six
-theory checks. Android
+The independent `mobile/` subtree ships a bounded offline seed:
+1,137 hierarchical cards, 1,121 governed sources (primary, approved local
+metadata and granular official Python API documentation), 92 search shortcuts,
+3,315 glossary entries and 50 course units, plus six executable practical
+challenges and six theory checks. Course units open directly in the mobile IDE;
+completion requires protected local correction and records encrypted prediction,
+reflection, autonomous-pass and transfer evidence. Android
 uses an AST interpreter that never calls
 `exec`, `eval`, `compile`, subprocesses, files or the network; attempts and quiz
 feedback are encrypted with a DEK protected by Android Keystore. The iOS shell
@@ -75,6 +105,13 @@ The searchable taxonomy includes Python and its main frameworks/data ecosystem,
 SQL, Java, NoSQL, HTML, CSS, JavaScript, React, Bootstrap and Go. In this desktop
 MVP only Python code is executable; the other technologies are documentation and
 navigation tracks until dedicated sandboxes are implemented.
+
+Iteration 20 keeps mobile frozen while the Windows product is closed. The
+desktop catalogue now has 1,827 exact-sourced authored cards, 100 original local
+visual assets and 3,343 glossary entries. Lessons, spine exercises and project
+briefs use typed blocks; the unified local index covers the complete governed
+catalogue. See [`ITERATION-20.md`](ITERATION-20.md) for the delivered behavior,
+reproducible gate and declared physical-review limits.
 
 ## Architecture
 

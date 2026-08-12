@@ -1,0 +1,29 @@
+{
+  "iteration": 14,
+  "passed": true,
+  "checks": {
+    "practice_journey_present": true,
+    "all_practices_have_theory": true,
+    "all_practices_have_guided_example": true,
+    "three_brief_modes_render": true,
+    "help_ladder_is_ordered": true
+  },
+  "metrics": {
+    "tracks": 12,
+    "practice_steps": 59,
+    "theory_linked": 59,
+    "examples_linked": 59,
+    "brief_modes": {
+      "simple": true,
+      "guided": true,
+      "technical": true
+    },
+    "help_stages": [
+      "location",
+      "concept",
+      "strategy",
+      "analogous_example"
+    ]
+  },
+  "privacy": "temporary anonymous profile; no learner text or identifiers emitted"
+}

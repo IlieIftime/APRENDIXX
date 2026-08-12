@@ -184,6 +184,24 @@ class RestrictedPython:
             error_type=error_type, error_message=error_message,
         )
 
+    def grade(self, source: str, hidden_tests: str) -> tuple[ExecutionResult, bool]:
+        """Run learner code and declarative assertions in the same safe interpreter.
+
+        The assertion source is never returned to the caller.  Unsupported
+        advanced Python remains a desktop-only exercise instead of falling back
+        to ``exec`` on the device.
+        """
+
+        combined = source.rstrip() + "\n\n" + hidden_tests.strip() + "\n"
+        result = self.run(combined)
+        if result.error_type == "AssertionError":
+            result = ExecutionResult(
+                status="failed", stdout=result.stdout, steps=result.steps,
+                duration_ms=result.duration_ms, error_type="AssertionError",
+                error_message="one or more protected checks failed",
+            )
+        return result, result.status == "ok"
+
     @staticmethod
     def _reject_forbidden(tree: ast.AST) -> None:
         forbidden = (
@@ -317,6 +335,9 @@ class RestrictedPython:
             raise _Continue()
         elif isinstance(node, ast.Pass):
             return
+        elif isinstance(node, ast.Assert):
+            if not self._eval(node.test, env, depth):
+                raise AssertionError("one or more protected checks failed")
         else:
             raise UnsupportedSyntaxError(f"statement {type(node).__name__} is not supported")
 

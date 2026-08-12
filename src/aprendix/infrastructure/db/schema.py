@@ -1,6 +1,6 @@
 """Versioned SQLite schema for the local-first learning platform."""
 
-SCHEMA_VERSION = 33
+SCHEMA_VERSION = 37
 
 MIGRATIONS: dict[int, tuple[str, ...]] = {
     1: (
@@ -1419,5 +1419,241 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         ) WITHOUT ROWID, STRICT
         """,
         "CREATE INDEX glossary_source_links_source ON glossary_source_links(source_id,entry_id)",
+    ),
+    34: (
+        """
+        CREATE TABLE pedagogical_quality (
+            item_type TEXT NOT NULL CHECK(item_type IN ('exercise','project','card','unit')),
+            item_id TEXT NOT NULL,
+            quality_score REAL NOT NULL CHECK(quality_score BETWEEN 0.0 AND 1.0),
+            estimated_difficulty REAL NOT NULL CHECK(estimated_difficulty BETWEEN -3.0 AND 3.0),
+            status TEXT NOT NULL CHECK(status IN ('accepted','quarantined')),
+            generator_version TEXT NOT NULL,
+            fingerprint TEXT NOT NULL CHECK(length(fingerprint)=64),
+            checks_json TEXT NOT NULL CHECK(json_valid(checks_json)),
+            audited_at TEXT NOT NULL,
+            PRIMARY KEY(item_type,item_id)
+        ) WITHOUT ROWID, STRICT
+        """,
+        """
+        CREATE TABLE pedagogical_quality_runs (
+            fingerprint TEXT PRIMARY KEY NOT NULL CHECK(length(fingerprint)=64),
+            total INTEGER NOT NULL CHECK(total >= 0),
+            accepted INTEGER NOT NULL CHECK(accepted >= 0),
+            quarantined INTEGER NOT NULL CHECK(quarantined >= 0),
+            average_score REAL NOT NULL CHECK(average_score BETWEEN 0.0 AND 1.0),
+            by_type_json TEXT NOT NULL CHECK(json_valid(by_type_json)),
+            generated_at TEXT NOT NULL,
+            CHECK(accepted + quarantined = total)
+        ) STRICT
+        """,
+        "CREATE INDEX pedagogical_quality_status ON pedagogical_quality(status,item_type,quality_score)",
+    ),
+    35: (
+        """
+        CREATE TABLE learning_sessions (
+            user_id TEXT NOT NULL,
+            exercise_id TEXT NOT NULL,
+            unit_id TEXT,
+            objective_id TEXT,
+            phase TEXT NOT NULL CHECK(phase IN (
+                'microtheory','prediction','guided_practice','independent_practice',
+                'reflection','review','completed'
+            )),
+            mode TEXT NOT NULL DEFAULT 'training'
+                CHECK(mode IN ('training','evaluation')),
+            theory_viewed INTEGER NOT NULL DEFAULT 0 CHECK(theory_viewed IN (0,1)),
+            independent_passed INTEGER NOT NULL DEFAULT 0 CHECK(independent_passed IN (0,1)),
+            transfer_passed INTEGER NOT NULL DEFAULT 0 CHECK(transfer_passed IN (0,1)),
+            hint_count INTEGER NOT NULL DEFAULT 0 CHECK(hint_count BETWEEN 0 AND 100),
+            active_seconds INTEGER NOT NULL DEFAULT 0 CHECK(active_seconds BETWEEN 0 AND 86400),
+            prediction_encrypted BLOB,
+            reflection_encrypted BLOB,
+            started_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(user_id,exercise_id),
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(exercise_id) REFERENCES exercises(id) ON DELETE CASCADE,
+            FOREIGN KEY(unit_id) REFERENCES learning_units(id) ON DELETE SET NULL,
+            FOREIGN KEY(objective_id) REFERENCES curriculum_objectives(id) ON DELETE SET NULL
+        ) WITHOUT ROWID, STRICT
+        """,
+        "CREATE INDEX learning_sessions_phase ON learning_sessions(user_id,phase,updated_at DESC)",
+        "CREATE INDEX learning_sessions_objective ON learning_sessions(user_id,objective_id,updated_at DESC)",
+    ),
+    36: (
+        """
+        CREATE TABLE exercise_reference_solutions (
+            exercise_id TEXT PRIMARY KEY NOT NULL,
+            solution_encrypted BLOB NOT NULL,
+            explanation_encrypted BLOB NOT NULL,
+            validation_hash TEXT NOT NULL CHECK(length(validation_hash)=64),
+            validator_version TEXT NOT NULL,
+            validated_at TEXT NOT NULL,
+            FOREIGN KEY(exercise_id) REFERENCES exercises(id) ON DELETE CASCADE
+        ) STRICT
+        """,
+        "CREATE INDEX exercise_reference_validation ON exercise_reference_solutions(validation_hash)",
+    ),
+    37: (
+        """
+        CREATE TABLE IF NOT EXISTS pedagogical_assets (
+            id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 64),
+            mime_type TEXT NOT NULL CHECK(mime_type IN (
+                'image/svg+xml','image/png','image/jpeg','image/webp'
+            )),
+            content BLOB NOT NULL,
+            storage_uri TEXT NOT NULL UNIQUE
+                CHECK(storage_uri = 'aprendix-asset://' || id),
+            byte_size INTEGER NOT NULL CHECK(byte_size > 0),
+            width INTEGER CHECK(width IS NULL OR width > 0),
+            height INTEGER CHECK(height IS NULL OR height > 0),
+            alt_text TEXT NOT NULL CHECK(length(trim(alt_text)) BETWEEN 3 AND 1000),
+            provenance TEXT NOT NULL CHECK(length(trim(provenance)) BETWEEN 3 AND 1000),
+            license TEXT NOT NULL CHECK(length(trim(license)) BETWEEN 2 AND 300),
+            created_at TEXT NOT NULL
+        ) STRICT
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS pedagogical_documents (
+            id TEXT PRIMARY KEY NOT NULL,
+            owner_type TEXT NOT NULL CHECK(owner_type IN (
+                'lesson','exercise','project','reading','card','glossary','source'
+            )),
+            owner_id TEXT NOT NULL,
+            title TEXT NOT NULL CHECK(length(trim(title)) BETWEEN 1 AND 500),
+            summary TEXT NOT NULL DEFAULT '',
+            locale TEXT NOT NULL DEFAULT 'pt-PT'
+                CHECK(length(trim(locale)) BETWEEN 2 AND 20),
+            version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
+            provenance TEXT NOT NULL CHECK(length(trim(provenance)) BETWEEN 3 AND 1000),
+            license TEXT NOT NULL CHECK(length(trim(license)) BETWEEN 2 AND 300),
+            fingerprint TEXT NOT NULL CHECK(length(fingerprint) = 64),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL CHECK(updated_at >= created_at),
+            UNIQUE(owner_type,owner_id,version)
+        ) STRICT
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS pedagogical_blocks (
+            id TEXT PRIMARY KEY NOT NULL,
+            document_id TEXT NOT NULL,
+            ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+            kind TEXT NOT NULL CHECK(kind IN (
+                'title','paragraph','list','code','signature','formula','table',
+                'image','diagram','callout','references'
+            )),
+            payload_json TEXT NOT NULL CHECK(json_valid(payload_json)),
+            plain_text TEXT NOT NULL DEFAULT '',
+            fingerprint TEXT NOT NULL CHECK(length(fingerprint) = 64),
+            asset_id TEXT,
+            provenance TEXT NOT NULL CHECK(length(trim(provenance)) BETWEEN 3 AND 1000),
+            license TEXT NOT NULL CHECK(length(trim(license)) BETWEEN 2 AND 300),
+            FOREIGN KEY(document_id) REFERENCES pedagogical_documents(id)
+                ON UPDATE CASCADE ON DELETE CASCADE,
+            FOREIGN KEY(asset_id) REFERENCES pedagogical_assets(id)
+                ON UPDATE CASCADE ON DELETE RESTRICT,
+            UNIQUE(document_id,ordinal)
+        ) STRICT
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS pedagogical_document_sources (
+            document_id TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            position INTEGER NOT NULL CHECK(position >= 0),
+            locator TEXT NOT NULL DEFAULT '',
+            rationale TEXT NOT NULL CHECK(length(trim(rationale)) BETWEEN 3 AND 500),
+            source_version TEXT NOT NULL DEFAULT 'stable',
+            PRIMARY KEY(document_id,source_id),
+            UNIQUE(document_id,position),
+            FOREIGN KEY(document_id) REFERENCES pedagogical_documents(id)
+                ON UPDATE CASCADE ON DELETE CASCADE,
+            FOREIGN KEY(source_id) REFERENCES curated_sources(id)
+                ON UPDATE CASCADE ON DELETE RESTRICT
+        ) WITHOUT ROWID, STRICT
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS card_source_links (
+            card_id TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            position INTEGER NOT NULL CHECK(position >= 0),
+            locator TEXT NOT NULL DEFAULT '',
+            rationale TEXT NOT NULL CHECK(length(trim(rationale)) BETWEEN 3 AND 500),
+            source_version TEXT NOT NULL DEFAULT 'stable',
+            PRIMARY KEY(card_id,source_id),
+            UNIQUE(card_id,position),
+            FOREIGN KEY(card_id) REFERENCES theory_cards(id)
+                ON UPDATE CASCADE ON DELETE CASCADE,
+            FOREIGN KEY(source_id) REFERENCES curated_sources(id)
+                ON UPDATE CASCADE ON DELETE RESTRICT
+        ) WITHOUT ROWID, STRICT
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS card_presentation (
+            card_id TEXT PRIMARY KEY NOT NULL,
+            format TEXT NOT NULL CHECK(format IN (
+                'concept','formula','comparison','pitfall','microexample',
+                'application','visual'
+            )),
+            asset_id TEXT,
+            FOREIGN KEY(card_id) REFERENCES theory_cards(id)
+                ON UPDATE CASCADE ON DELETE CASCADE,
+            FOREIGN KEY(asset_id) REFERENCES pedagogical_assets(id)
+                ON UPDATE CASCADE ON DELETE RESTRICT
+        ) WITHOUT ROWID, STRICT
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS glossary_examples (
+            id TEXT PRIMARY KEY NOT NULL,
+            entry_id TEXT NOT NULL,
+            ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+            example_encrypted BLOB NOT NULL,
+            explanation_encrypted BLOB NOT NULL,
+            difficulty TEXT NOT NULL CHECK(difficulty IN (
+                'beginner','intermediate','advanced'
+            )),
+            context TEXT NOT NULL CHECK(length(trim(context)) BETWEEN 1 AND 160),
+            source_id TEXT,
+            FOREIGN KEY(entry_id) REFERENCES glossary_entries(id)
+                ON UPDATE CASCADE ON DELETE CASCADE,
+            FOREIGN KEY(source_id) REFERENCES curated_sources(id)
+                ON UPDATE CASCADE ON DELETE SET NULL,
+            UNIQUE(entry_id,ordinal)
+        ) STRICT
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS catalog_search_entries (
+            id TEXT PRIMARY KEY NOT NULL,
+            entity_type TEXT NOT NULL CHECK(entity_type IN (
+                'lesson','exercise','project','card','glossary','source','reading'
+            )),
+            entity_id TEXT NOT NULL,
+            title TEXT NOT NULL CHECK(length(trim(title)) > 0),
+            body TEXT NOT NULL DEFAULT '',
+            keywords TEXT NOT NULL DEFAULT '',
+            area_ids_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(area_ids_json)),
+            source_ids_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(source_ids_json)),
+            fingerprint TEXT NOT NULL CHECK(length(fingerprint) = 64),
+            updated_at TEXT NOT NULL,
+            UNIQUE(entity_type,entity_id)
+        ) STRICT
+        """,
+        """
+        CREATE VIRTUAL TABLE IF NOT EXISTS catalog_search_fts USING fts5(
+            entry_id UNINDEXED,
+            title,
+            body,
+            keywords,
+            tokenize='unicode61 remove_diacritics 2 tokenchars ''_+#.-'''
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS pedagogical_documents_owner ON pedagogical_documents(owner_type,owner_id,version DESC)",
+        "CREATE INDEX IF NOT EXISTS pedagogical_blocks_document ON pedagogical_blocks(document_id,ordinal)",
+        "CREATE INDEX IF NOT EXISTS pedagogical_blocks_asset ON pedagogical_blocks(asset_id)",
+        "CREATE INDEX IF NOT EXISTS pedagogical_document_sources_source ON pedagogical_document_sources(source_id,document_id)",
+        "CREATE INDEX IF NOT EXISTS card_source_links_source ON card_source_links(source_id,card_id)",
+        "CREATE INDEX IF NOT EXISTS card_presentation_format ON card_presentation(format,card_id)",
+        "CREATE INDEX IF NOT EXISTS glossary_examples_entry ON glossary_examples(entry_id,ordinal)",
+        "CREATE INDEX IF NOT EXISTS catalog_search_entries_entity ON catalog_search_entries(entity_type,entity_id)",
     ),
 }

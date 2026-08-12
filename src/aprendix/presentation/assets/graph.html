@@ -12,10 +12,14 @@
       padding:14px; border:1px solid #44577c; border-radius:14px; background:#121d33ee;
       box-shadow:0 12px 38px #0008; display:none; }
     aside strong { display:block; font-size:17px; margin-bottom:7px; }
+    #legend { position:fixed; z-index:2; left:18px; bottom:18px; padding:10px 12px;
+      border:1px solid #44577c; border-radius:10px; background:#121d33ee;
+      color:#c9d5eb; font-size:11px; line-height:1.8; }
+    #legend i { display:inline-block; width:22px; height:3px; margin:0 7px 3px 0; }
     h1 { margin: 0 0 4px; font-size: 18px; }
     p { margin: 0; color: #a8b4cc; font-size: 12px; }
     svg { width: 100vw; height: 100vh; }
-    line { stroke: #4b5d7a; }
+    line { stroke: #4b5d7a; cursor: pointer; }
     circle { stroke: #dce7ff; stroke-width: 1.5px; }
     text { fill: #f4f7ff; font-size: 11px; paint-order: stroke; stroke: #0d1321;
            stroke-width: 3px; stroke-linejoin: round; }
@@ -26,6 +30,12 @@
     <h1>Grafo de Conhecimento</h1>
     <p>Tamanho = domínio · cor = dificuldade · arrasta, amplia e clica para explorar</p>
   </header>
+  <div id="legend">
+    <div><i style="background:#f2b84b"></i>pré-requisito</div>
+    <div><i style="background:#50b7e8"></i>progressão</div>
+    <div><i style="background:#8e7ce6"></i>relacionado</div>
+    <div><i style="background:#65758f"></i>coocorrência</div>
+  </div>
   <aside id="detail"></aside>
   <svg role="img" aria-label="Grafo adaptativo de conhecimento"></svg>
   <script>__D3_SOURCE__</script>
@@ -37,12 +47,46 @@
     const mastery = d => Math.max(0, Math.min(1, Number(d.mastery || 0)));
     const difficulty = d => Math.max(-3, Math.min(3, Number(d.difficulty || 0)));
     const color = d3.scaleSequential([-3, 3], d3.interpolateTurbo);
+    const edgeColor = {
+      prerequisite: "#f2b84b", progression: "#50b7e8",
+      related: "#8e7ce6", co_occurrence: "#65758f"
+    };
+    const showDetail = (title, lines) => {
+      const panel = document.getElementById("detail");
+      panel.replaceChildren();
+      const heading = document.createElement("strong");
+      heading.textContent = String(title || "Detalhe");
+      panel.appendChild(heading);
+      lines.filter(Boolean).forEach(line => {
+        const paragraph = document.createElement("p");
+        paragraph.textContent = String(line);
+        panel.appendChild(paragraph);
+      });
+      panel.style.display = "block";
+    };
 
+    const defs = svg.append("defs");
+    Object.entries(edgeColor).forEach(([kind, fill]) => {
+      defs.append("marker").attr("id", `arrow-${kind}`)
+        .attr("viewBox", "0 -5 10 10").attr("refX", 22).attr("refY", 0)
+        .attr("markerWidth", 5).attr("markerHeight", 5).attr("orient", "auto")
+        .append("path").attr("d", "M0,-5L10,0L0,5").attr("fill", fill);
+    });
     const viewport = svg.append("g");
     svg.call(d3.zoom().scaleExtent([0.25, 5]).on("zoom", event => viewport.attr("transform", event.transform)));
     const links = viewport.append("g").selectAll("line")
       .data(graph.edges || []).join("line")
-      .attr("stroke-width", d => 1 + Math.sqrt(Math.max(0, Number(d.weight || 0))) * 3);
+      .attr("stroke", d => edgeColor[d.relation_type] || edgeColor.co_occurrence)
+      .attr("stroke-dasharray", d => d.relation_type === "related" ? "6 4" : null)
+      .attr("marker-end", d => d.directed ? `url(#arrow-${d.relation_type || "progression"})` : null)
+      .attr("stroke-width", d => 1 + Math.sqrt(Math.max(0, Number(d.weight || 0))) * 3)
+      .on("click", (event, d) => {
+        event.stopPropagation();
+        showDetail(d.relation_type || "relação", [
+          d.reason || "Relação sem descrição.",
+          `Origem: ${d.origin || "local"} · peso: ${Number(d.weight || 0).toFixed(2)}`
+        ]);
+      });
 
     const nodes = viewport.append("g").selectAll("circle")
       .data(graph.nodes || []).join("circle")
@@ -51,11 +95,11 @@
       .style("cursor", "pointer")
       .on("click", (event, d) => {
         event.stopPropagation();
-        const panel = document.getElementById("detail");
-        panel.style.display = "block";
-        panel.innerHTML = `<strong>${d.title || d.slug || d.id}</strong>` +
-          `<p>Domínio: ${Math.round(mastery(d) * 100)}% · dificuldade: ${difficulty(d).toFixed(1)}</p>` +
-          `<p>Tentativas: ${Number(d.attempts || 0)}${d.recommended ? " · recomendado pelo A1" : ""}</p>`;
+        showDetail(d.title || d.slug || d.id, [
+          `Domínio: ${Math.round(mastery(d) * 100)}% · retenção: ${Math.round(Number(d.retention || 0) * 100)}% · autonomia: ${Math.round(Number(d.autonomy || 0) * 100)}%`,
+          `Tentativas: ${Number(d.attempts || 0)} · sucessos/falhas: ${Number(d.successes || 0)}/${Number(d.failures || 0)} · tempo ativo: ${Math.round(Number(d.active_seconds || 0) / 60)} min`,
+          `${d.recommended_action || ""}${d.recommended ? " · recomendado pelo A1" : ""}`
+        ]);
       })
       .call(d3.drag()
         .on("start", (event, d) => {

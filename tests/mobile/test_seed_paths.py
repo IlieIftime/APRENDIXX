@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,12 @@ def test_seed_build_install_readonly_and_idempotent(tmp_path: Path) -> None:
     glossary = LiteContentStore(destination).glossary("pri")
     assert glossary[0]["term"] == "print"
     assert LiteContentStore(destination).glossary("virtualenv")[0]["term"] == "virtual environment"
+    with sqlite3.connect(destination) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert connection.execute("SELECT count(*) FROM sources").fetchone()[0] >= 1_000
+        assert connection.execute(
+            "SELECT count(DISTINCT canonical_url) FROM sources"
+        ).fetchone()[0] == connection.execute("SELECT count(*) FROM sources").fetchone()[0]
 
 
 def test_seed_tampering_fails_closed_without_replacing_destination(tmp_path: Path) -> None:

@@ -270,7 +270,7 @@ class HybridSearchService:
                     title=source.title, excerpt=(
                         f"{source.overview}\n\nPorque importa: {source.why_it_matters}"
                     )[:4_000], source=source.canonical_url, relevance=score,
-                    author=", ".join(source.authors) or None,
+                    author=(", ".join(source.authors)[:160] or None),
                     content_type=ContentKind.PAPER,
                     complexity=Complexity.INTERMEDIATE,
                     why_shown=("Referência curada compatível com a pergunta",),

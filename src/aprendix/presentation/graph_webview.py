@@ -22,9 +22,9 @@ class GraphDocumentRenderer:
         else:
             raise TypeError("snapshot must be a mapping or Pydantic model")
         if not isinstance(payload.get("nodes", []), (list, tuple)):
-            raise ValueError("snapshot nodes must be a collection")
+            raise TypeError("snapshot nodes must be a collection")
         if not isinstance(payload.get("edges", []), (list, tuple)):
-            raise ValueError("snapshot edges must be a collection")
+            raise TypeError("snapshot edges must be a collection")
         payload["nodes"] = [
             self._normalize_node(node) for node in payload.get("nodes", [])
         ]
@@ -56,6 +56,24 @@ class GraphDocumentRenderer:
                 attempts = int(statistics.get("attempt_count", 0))
                 successes = int(statistics.get("success_count", 0))
                 normalized["mastery"] = successes / attempts if attempts else 0.0
+            normalized.setdefault("attempts", int(statistics.get("attempt_count", 0)))
+            normalized.setdefault("successes", int(statistics.get("success_count", 0)))
+            normalized.setdefault("failures", int(statistics.get("failure_count", 0)))
+            normalized.setdefault("last_practiced_at", statistics.get("last_seen_at"))
+        analytics = normalized.pop("analytics", None)
+        if isinstance(analytics, Mapping):
+            # Period analytics is authoritative for the filtered graph. Keep
+            # concise top-level names for both the vendored D3 fallback and Kivy.
+            for key in (
+                "distinct_exercises", "attempts", "successes", "failures",
+                "active_seconds", "hint_count", "retention", "autonomy",
+                "success_rate", "trend", "last_practiced_at",
+                "recommended_action",
+            ):
+                if key in analytics:
+                    normalized[key] = analytics[key]
+            if "mastery" in analytics:
+                normalized["mastery"] = analytics["mastery"]
         normalized.setdefault("mastery", 0.0)
         return normalized
 
@@ -66,6 +84,12 @@ class GraphDocumentRenderer:
             normalized["source"] = normalized.pop("source_node_id")
         if "target_node_id" in normalized:
             normalized["target"] = normalized.pop("target_node_id")
+        normalized.setdefault("relation_type", "co_occurrence")
+        normalized.setdefault("directed", False)
+        normalized.setdefault(
+            "reason", "Atividade observada em proximidade temporal."
+        )
+        normalized.setdefault("origin", "behavioral")
         return normalized
 
 

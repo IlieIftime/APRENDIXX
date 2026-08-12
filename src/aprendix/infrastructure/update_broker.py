@@ -320,10 +320,7 @@ class ContentUpdateBroker:
         return tuple(_parse_offer(value, allowed_hosts=hosts) for value in values)
 
     def install(self, offer: RemotePackOffer, policy: UpdatePolicy) -> dict[str, object]:
-        hosts = frozenset(host.casefold().strip(".") for host in policy.allowed_hosts)
-        _validate_https_url(offer.url, hosts)
-        if offer.channel != policy.channel:
-            raise UpdateBrokerError("O pack não pertence ao canal selecionado.")
+        self.preview(offer, policy)
         client = self._client_factory(policy.allowed_hosts)
         temporary_dir = Path(tempfile.mkdtemp(prefix=".download-", dir=self._state_dir))
         downloaded = temporary_dir / f"{offer.pack_id}-{offer.version}.apxpack"
@@ -346,6 +343,24 @@ class ContentUpdateBroker:
             raise
         finally:
             shutil.rmtree(temporary_dir, ignore_errors=True)
+
+    def preview(self, offer: RemotePackOffer, policy: UpdatePolicy) -> dict[str, object]:
+        """Validate and describe an update without downloading or changing state."""
+        hosts = frozenset(host.casefold().strip(".") for host in policy.allowed_hosts)
+        _validate_https_url(offer.url, hosts)
+        if offer.channel != policy.channel:
+            raise UpdateBrokerError("O pack não pertence ao canal selecionado.")
+        installed = {row["pack_id"]: row["active"] for row in self._manager.installed()}
+        previous = installed.get(offer.pack_id)
+        return {
+            "pack_id": offer.pack_id, "version": offer.version,
+            "title": offer.title, "summary": offer.summary,
+            "published_at": offer.published_at, "total_bytes": offer.size,
+            "sources": offer.sources, "affected_tracks": offer.affected_tracks,
+            "replaces": previous or "", "rollback_available": bool(previous),
+            "requires_confirmation": True, "uploads_user_data": False,
+            "channel": offer.channel,
+        }
 
     def _trim_quarantine(self) -> None:
         files = sorted(

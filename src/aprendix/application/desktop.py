@@ -2,22 +2,29 @@
 
 from __future__ import annotations
 
+import ast
 import re
 from datetime import UTC, datetime
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from aprendix.application.clustering import TaxonomyClassifier
 from aprendix.application.contracts import (
-    CodeEditDTO, CopyKateRequest, ErrorCategory, EvaluationReceiptDTO, EventDTO, ExerciseDTO,
+    CodeEditDTO, CopyKateRequest, EvaluationReceiptDTO, EventDTO, ExerciseDTO,
     ExerciseTemplateDTO, FadedHintDTO, FallbackReason, GenerateExerciseRequest,
-    GradingTestCaseDTO, HintStage, HintTemplateDTO, ProjectDTO, SandboxRequest,
+    GradingTestCaseDTO, HintStage, HintTemplateDTO, LearningPhase, ProjectDTO, SandboxRequest,
     SmartCorrectionRequestDTO, SmartCorrectionResponseDTO, SubmitAttemptCommand,
     TemplateParameterDTO,
 )
 from aprendix.application.content_orchestrator import ContentOrchestrator
 from aprendix.application.copykate import CopyKateService
 from aprendix.application.mobile import CodeProvenanceGuard, EditTelemetry, StructuralCompletionEngine
+from aprendix.application.learning_session import assistance_for_attempt, classify_error
+from aprendix.application.remediation import diagnose_correction
 from aprendix.application.services import AttemptSubmissionService, EventIngestionService
+from aprendix.application.worked_solutions import (
+    explain_reference_solution,
+    solution_fingerprint,
+)
 from aprendix.domain import AttemptStatus, EventType
 
 
@@ -60,6 +67,9 @@ class DesktopLearningService:
         telemetry: EditTelemetry | None = None, justification: str = "",
         proficiency: float = 0.0, active_seconds: int | None = None,
         response_confidence: float = 0.5,
+        hint_count: int = 0, theory_title: str = "", theory_example: str = "",
+        evaluation_locked: bool = False,
+        transfer_context: bool = False,
     ) -> EvaluationReceiptDTO:
         telemetry = telemetry or EditTelemetry(typed_characters=len(source_code), pasted_characters=0)
         decision = self.provenance.assess(
@@ -68,6 +78,12 @@ class DesktopLearningService:
         )
         if decision.requires_justification and not self.provenance.validate_justification(justification):
             raise ValueError("Esta edição contém uma colagem extensa; explica primeiro a tua abordagem em pelo menos 8 palavras.")
+        previous_attempts = tuple(
+            item for item in self._attempts.list_for_user(self.user.id, limit=100_000)
+            if item.exercise_id == exercise.id
+            and item.status in {AttemptStatus.PASSED, AttemptStatus.FAILED, AttemptStatus.ERROR}
+        )
+        previous_failures = sum(item.status is not AttemptStatus.PASSED for item in previous_attempts)
         command = SubmitAttemptCommand(
             user_id=self.user.id, exercise_id=exercise.id,
             source_code=source_code, duration_ms=max(0, duration_ms),
@@ -112,34 +128,134 @@ class DesktopLearningService:
             deleted=telemetry.deleted_characters,
             justification=justification,
         )
-        self._workspace.record_learning_activity(self.user.id, passed=passed)
-        _technologies, themes = TaxonomyClassifier.classify(f"{exercise.title} {exercise.prompt}")
-        milestone = self._workspace.record_distinct_pass(
-            self.user.id, exercise.id, theme=themes[0]
-        ) if passed else None
-        if passed:
-            self._workspace.complete_practice_unit(self.user.id, exercise.id)
+        _technologies, themes = TaxonomyClassifier.classify(
+            f"{exercise.title} {exercise.prompt} {exercise.starter_code}"
+        )
+        access, credit_awarded, milestone = self._workspace.record_practice_attempt_credit(
+            self.user.id, exercise.id, submission.attempt_id,
+            passed=passed, theme=themes[0],
+        )
         if self._progress is not None:
             total_edits = telemetry.typed_characters + telemetry.pasted_characters
-            error_category = (
-                ErrorCategory.NONE if passed else
-                ErrorCategory.SYNTAX if not correction.syntax_valid else
-                ErrorCategory.RUNTIME if correction.status == "error" else
-                ErrorCategory.CONCEPTUAL
-            )
+            error_category = classify_error(correction)
             self._progress.record_attempt(
                 user_id=self.user.id, node_id=exercise.graph_node_id,
                 attempt_id=submission.attempt_id, score=correction.score,
                 duration_seconds=max(0, duration_ms // 1000),
                 active_seconds=active_seconds,
+                hint_count=max(0, hint_count),
                 paste_ratio=(telemetry.pasted_characters / total_edits if total_edits else 0.0),
                 error_category=error_category, item_difficulty=exercise.difficulty,
                 response_confidence=response_confidence,
+                transfer_score=correction.score if transfer_context else None,
             )
+        else:
+            error_category = classify_error(correction)
+        failed_attempts = 0 if passed else previous_failures + 1
+        previous = previous_attempts[-1] if previous_attempts else None
+        remediation = None if passed else diagnose_correction(
+            correction,
+            current_source=source_code,
+            previous_source=previous.source_code if previous else "",
+            previous_score=previous.score if previous else None,
+        )
+        assistance = None if passed else assistance_for_attempt(
+            correction,
+            failed_attempts=failed_attempts,
+            concepts=(
+                remediation.prerequisite_terms
+                if remediation is not None else tuple(theme.value for theme in themes)
+            ),
+            theory_title=theory_title,
+            worked_example=theory_example,
+            evaluation_locked=evaluation_locked,
+        )
+        reference = (
+            self._validated_reference_solution(exercise)
+            if not passed and failed_attempts >= 4 and not evaluation_locked
+            else None
+        )
+        current_session = self._workspace.learning_session(self.user.id, exercise.id)
+        session_phase = (
+            LearningPhase.REFLECTION if passed else
+            LearningPhase.GUIDED_PRACTICE if hint_count else
+            LearningPhase.INDEPENDENT_PRACTICE
+        )
+        self._workspace.save_learning_session(current_session.model_copy(update={
+            "phase": session_phase,
+            "mode": "evaluation" if evaluation_locked else "training",
+            "independent_passed": (
+                current_session.independent_passed
+                or (passed and hint_count == 0 and not evaluation_locked)
+            ),
+            "transfer_passed": current_session.transfer_passed or (
+                passed and transfer_context and not evaluation_locked
+            ),
+            "hint_count": max(current_session.hint_count, max(0, hint_count)),
+            "active_seconds": max(
+                current_session.active_seconds,
+                max(0, active_seconds if active_seconds is not None else duration_ms // 1000),
+            ),
+            "updated_at": datetime.now(UTC),
+        }))
         return EvaluationReceiptDTO(
             attempt_id=submission.attempt_id, passed=passed, score=correction.score,
             feedback=correction.feedback, milestone=milestone,
+            attempt_number=len(previous_attempts) + 1,
+            failed_attempts=failed_attempts,
+            error_category=error_category,
+            assistance_stage=assistance.stage.value if assistance else "",
+            assistance_title=assistance.title if assistance else "",
+            assistance=assistance.guidance if assistance else (),
+            next_action=assistance.next_action if assistance else "",
+            worked_example=assistance.worked_example if assistance else "",
+            diagnostic_code=remediation.code.value if remediation else "",
+            diagnosis_title=remediation.title if remediation else "",
+            diagnosis=remediation.diagnosis if remediation else "",
+            prerequisite_terms=remediation.prerequisite_terms if remediation else (),
+            remediation_actions=remediation.actions if remediation else (),
+            mini_exercise=remediation.mini_exercise if remediation else "",
+            improvement=remediation.improvement if remediation else "",
+            reference_available=reference is not None,
+            reference_solution=str(reference["solution"]) if reference else "",
+            reference_explanation=str(reference["explanation"]) if reference else "",
+            reference_validation_hash=str(reference["validation_hash"]) if reference else "",
+            access=access,
+            credit_awarded=credit_awarded,
         )
+
+    def learning_session(self, exercise_id: UUID):
+        return self._workspace.learning_session(self.user.id, exercise_id)
+
+    def learning_session_summary(self):
+        return self._workspace.learning_session_summary(self.user.id)
+
+    def update_learning_session(
+        self, exercise_id: UUID, *, phase: LearningPhase | str | None = None,
+        theory_viewed: bool | None = None, prediction: str | None = None,
+        reflection: str | None = None, hint_count: int | None = None,
+        active_seconds: int | None = None, mode: str | None = None,
+        transfer_passed: bool | None = None,
+    ):
+        current = self.learning_session(exercise_id)
+        updates = {"updated_at": datetime.now(UTC)}
+        if phase is not None:
+            updates["phase"] = LearningPhase(phase)
+        if theory_viewed is not None:
+            updates["theory_viewed"] = theory_viewed
+        if prediction is not None:
+            updates["prediction"] = prediction.strip()
+        if reflection is not None:
+            updates["reflection"] = reflection.strip()
+        if hint_count is not None:
+            updates["hint_count"] = max(current.hint_count, hint_count)
+        if active_seconds is not None:
+            updates["active_seconds"] = max(current.active_seconds, active_seconds)
+        if mode is not None:
+            updates["mode"] = mode
+        if transfer_passed is not None:
+            updates["transfer_passed"] = transfer_passed
+        return self._workspace.save_learning_session(current.model_copy(update=updates))
 
     def _correct(self, exercise: ExerciseDTO, source_code: str) -> tuple[SmartCorrectionResponseDTO, str]:
         expected = []
@@ -169,7 +285,14 @@ class DesktopLearningService:
                 current, test = test[1:].split("]", 1)
                 marker += " " + current.lower()
                 test = test.lstrip()
-            if test.startswith("assert "):
+            try:
+                trusted_tree = ast.parse(test, mode="exec")
+                has_assertion = any(
+                    isinstance(node, ast.Assert) for node in ast.walk(trusted_tree)
+                )
+            except SyntaxError:
+                has_assertion = False
+            if has_assertion:
                 visibility = "hidden" if "hidden" in marker else "public"
                 kind = "property" if "property" in marker else "example"
                 executable_tests.append(GradingTestCaseDTO(
@@ -177,15 +300,45 @@ class DesktopLearningService:
                     code=test, visibility=visibility, kind=kind,
                 ))
         _technologies, themes = TaxonomyClassifier.classify(
-            f"{exercise.title} {exercise.prompt}"
+            f"{exercise.title} {exercise.prompt} {exercise.starter_code}"
         )
-        required = ("ClassDef",) if any(theme.value == "oop" for theme in themes) else ()
+        try:
+            objective_tree = re.sub(
+                r"\s+", " ", f"{exercise.title} {exercise.prompt} {exercise.starter_code}",
+            )
+            objective_requires_class = bool(
+                re.search(r"\bclass\s+[A-Za-z_]", objective_tree)
+            )
+        except (TypeError, re.error):
+            objective_requires_class = False
+        required = ("ClassDef",) if objective_requires_class else ()
         correction = self._corrector.correct(SmartCorrectionRequestDTO(
             source_code=source_code,
             tests=tuple(executable_tests),
             required_constructs=required,
         ))
         return correction, "\n".join(correction.feedback)
+
+    def _validated_reference_solution(self, exercise: ExerciseDTO):
+        """Lazily validate trusted catalogue code before it can be disclosed."""
+
+        candidate = exercise.starter_code.strip()
+        if not candidate:
+            return None
+        fingerprint = solution_fingerprint(candidate, tuple(exercise.tests))
+        stored = self._workspace.reference_solution(exercise.id)
+        if stored is not None and stored["validation_hash"] == fingerprint:
+            return stored
+        validation, _output = self._correct(exercise, candidate)
+        if validation.status != "passed" or validation.score < 1.0:
+            return None
+        return self._workspace.save_reference_solution(
+            exercise.id,
+            solution=candidate,
+            explanation=explain_reference_solution(candidate),
+            validation_hash=fingerprint,
+            validator_version="smart-corrector-v1",
+        )
 
     def variation(self, exercise: ExerciseDTO, *, proficiency: float = 0.0):
         template_id = ("variation-" + exercise.slug)[:80]
@@ -268,6 +421,12 @@ class DesktopLearningService:
 
     def load_debug_recovery(self, exercise_id: UUID):
         return self._workspace.load_debug_recovery(self.user.id, exercise_id)
+
+    def debug_history(self, *, limit: int = 30):
+        return self._workspace.debug_history(self.user.id, limit=limit)
+
+    def test_history(self, *, limit: int = 30):
+        return self._workspace.test_history(self.user.id, limit=limit)
 
     def record_focus(self, minutes: int, elapsed_seconds: int, status: str) -> None:
         self._workspace.record_focus(

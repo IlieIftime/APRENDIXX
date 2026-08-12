@@ -15,6 +15,8 @@ from datetime import UTC, date, datetime
 from uuid import UUID, uuid5, NAMESPACE_URL
 
 from aprendix.application.contracts import (
+    CardFormat,
+    CardSourceLinkDTO,
     Complexity,
     ContentKind,
     IngestionSummaryDTO,
@@ -28,6 +30,7 @@ from aprendix.application.clustering import ClusterAssignment, ClusterInput, Tax
 from aprendix.application.knowledge import SearchCandidate
 from aprendix.application.knowledge_structure import classify_areas, descendants
 from aprendix.application.learning_catalog import ALL_FACTS
+from aprendix.application.pedagogical_documents import deterministic_card_svg
 from aprendix.infrastructure.db.database import Database
 from aprendix.infrastructure.security import AesGcmFieldCipher
 
@@ -229,10 +232,37 @@ class KnowledgeRepository:
 
         document_id = uuid5(NAMESPACE_URL, "aprendix:authored-facts:v1")
         now = datetime.now(UTC).isoformat()
+        catalog_hash = hashlib.sha256(
+            "\n".join(repr(fact) for fact in ALL_FACTS).encode("utf-8")
+        ).hexdigest()
         with self._database.transaction() as connection:
-            catalog_hash = hashlib.sha256(
-                "\n".join(fact.slug for fact in ALL_FACTS).encode("utf-8")
-            ).hexdigest()
+            current = connection.execute(
+                "SELECT content_hash FROM documents WHERE id=?", (str(document_id),)
+            ).fetchone()
+            if current is not None and current["content_hash"] == catalog_hash:
+                complete = connection.execute(
+                    """SELECT
+                         (SELECT count(*) FROM document_chunks WHERE document_id=?) chunks,
+                         (SELECT count(*) FROM theory_cards tc JOIN document_chunks dc
+                            ON dc.id=tc.chunk_id WHERE dc.document_id=?) cards,
+                         (SELECT count(DISTINCT csl.card_id) FROM card_source_links csl
+                            JOIN theory_cards tc ON tc.id=csl.card_id
+                            JOIN document_chunks dc ON dc.id=tc.chunk_id
+                            WHERE dc.document_id=?) sourced_cards,
+                         (SELECT count(*) FROM card_presentation cp
+                            JOIN theory_cards tc ON tc.id=cp.card_id
+                            JOIN document_chunks dc ON dc.id=tc.chunk_id
+                            WHERE dc.document_id=?) presentations,
+                         (SELECT count(*) FROM theory_cards tc JOIN document_chunks dc
+                            ON dc.id=tc.chunk_id WHERE dc.document_id=?
+                              AND tc.graph_node_id IS NOT NULL) linked_cards""",
+                    (str(document_id),) * 5,
+                ).fetchone()
+                expected = len(ALL_FACTS)
+                if all(int(complete[name]) == expected for name in (
+                    "chunks", "cards", "sourced_cards", "presentations", "linked_cards"
+                )):
+                    return expected
             connection.execute(
                 """INSERT INTO documents(id,source_path,content_hash,title,author,
                    content_type,complexity,page_count,file_size,modified_at,ingested_at)
@@ -269,7 +299,35 @@ class KnowledgeRepository:
                 "UPDATE document_chunks SET ordinal=ordinal+1000000 WHERE document_id=?",
                 (str(document_id),),
             )
-            known_areas = {row[0] for row in connection.execute("SELECT id FROM knowledge_areas")}
+            area_titles = {
+                row["id"]: row["title"]
+                for row in connection.execute("SELECT id,title FROM knowledge_areas")
+            }
+            known_areas = set(area_titles)
+            graph_nodes = {
+                row["slug"]: row["id"] for row in connection.execute(
+                    "SELECT id,slug FROM graph_nodes ORDER BY slug"
+                )
+            }
+            area_node_slug = {
+                "prog-foundations": "values-and-names", "python": "lazy-iteration",
+                "oop": "objects-and-state", "data-structures": "maps-and-frequency",
+                "classic-algorithms": "iteration-and-search",
+                "software-engineering": "debug-first-divergence",
+                "databases": "relational-keys", "web": "http-semantics",
+                "systems": "bounded-scheduling", "linear-algebra": "vectors-and-dot-product",
+                "calculus": "vectors-and-dot-product", "probability": "probability-summary",
+                "optimization": "classical-ml", "data-practice": "data-pipelines",
+                "classical-ml": "classical-ml", "probabilistic-ml": "classical-ml",
+                "ensemble-learning": "classical-ml", "neural-networks": "neural-agents",
+                "deep-learning": "neural-agents", "convolutional-networks": "neural-agents",
+                "sequence-models": "neural-agents", "transformers": "neural-agents",
+                "generative-ai": "neural-agents", "computer-vision": "neural-agents",
+                "natural-language": "neural-agents", "reinforcement-learning": "neural-agents",
+                "autonomous-agents": "neural-agents", "agent-architectures": "neural-agents",
+                "agent-memory": "neural-agents", "multi-agent": "neural-agents",
+                "agent-evaluation": "neural-agents", "responsible-ai": "neural-agents",
+            }
             for position, fact in enumerate(ALL_FACTS):
                 chunk_id = uuid5(NAMESPACE_URL, f"aprendix:fact-chunk:{fact.slug}")
                 card_id = uuid5(NAMESPACE_URL, f"aprendix:fact-card:{fact.slug}")
@@ -316,6 +374,15 @@ class KnowledgeRepository:
                     (str(chunk_id), json.dumps([x.value for x in technologies]), json.dumps([x.value for x in themes]), now),
                 )
                 area_id = fact.area_id if fact.area_id in known_areas else "prog-foundations"
+                semantic_slug = ""
+                if fact.slug.startswith("curriculum-"):
+                    semantic_slug = fact.slug.removeprefix("curriculum-").removesuffix("-project")
+                else:
+                    match = re.fullmatch(r"core-card-(.+)-\d{2}-\d{2}", fact.slug)
+                    semantic_slug = match.group(1) if match else ""
+                graph_node_id = graph_nodes.get(
+                    semantic_slug, graph_nodes.get(area_node_slug.get(area_id, "neural-agents"))
+                )
                 connection.execute(
                     """INSERT INTO knowledge_area_chunks(area_id,chunk_id,relevance,reason)
                        VALUES(?,?,1.0,'facto original curado') ON CONFLICT(area_id,chunk_id)
@@ -327,12 +394,54 @@ class KnowledgeRepository:
                 )
                 card_blob = self._cipher.encrypt(body_text.encode(), associated_data=f"theory_cards.body:{card_id}".encode())
                 connection.execute(
-                    """INSERT INTO theory_cards(id,chunk_id,title,body_encrypted,
-                       complexity,created_at) VALUES(?,?,'Sabias que?',? ,?,?)
+                    """INSERT INTO theory_cards(id,chunk_id,graph_node_id,title,body_encrypted,
+                       complexity,created_at) VALUES(?,?,?,'Sabias que?',? ,?,?)
                        ON CONFLICT(id) DO UPDATE SET chunk_id=excluded.chunk_id,
+                       graph_node_id=excluded.graph_node_id,
                        title=excluded.title,body_encrypted=excluded.body_encrypted,
                        complexity=excluded.complexity""",
-                    (str(card_id), str(chunk_id), card_blob, fact.complexity, now),
+                    (str(card_id), str(chunk_id), graph_node_id, card_blob, fact.complexity, now),
+                )
+                connection.execute("DELETE FROM card_source_links WHERE card_id=?", (str(card_id),))
+                for source_position, source_id in enumerate(fact.source_ids):
+                    inserted = connection.execute(
+                        """INSERT INTO card_source_links(
+                            card_id,source_id,position,locator,rationale,source_version
+                           ) SELECT ?,id,?,'',?,? FROM curated_sources WHERE id=?""",
+                        (
+                            str(card_id), source_position,
+                            "Referência técnica aprovada; o texto do card é original Aprendix.",
+                            "stable", source_id,
+                        ),
+                    ).rowcount
+                    if inserted != 1:
+                        raise ValueError(f"unknown curated source for card {fact.slug}: {source_id}")
+                asset_id = None
+                if fact.card_format == "visual":
+                    asset = deterministic_card_svg(
+                        area_title=area_titles.get(area_id, area_id),
+                        fact=fact.visual_hint or fact.fact,
+                        format_name=fact.card_format,
+                    )
+                    connection.execute(
+                        """INSERT INTO pedagogical_assets(
+                            id,mime_type,content,storage_uri,byte_size,width,height,
+                            alt_text,provenance,license,created_at
+                           ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                           ON CONFLICT(id) DO UPDATE SET alt_text=excluded.alt_text,
+                           provenance=excluded.provenance,license=excluded.license""",
+                        (
+                            asset.id, asset.mime_type, asset.content, asset.storage_uri,
+                            asset.byte_size, asset.width, asset.height, asset.alt_text,
+                            asset.provenance, asset.license, asset.created_at.isoformat(),
+                        ),
+                    )
+                    asset_id = asset.id
+                connection.execute(
+                    """INSERT INTO card_presentation(card_id,format,asset_id)
+                       VALUES(?,?,?) ON CONFLICT(card_id) DO UPDATE SET
+                       format=excluded.format,asset_id=excluded.asset_id""",
+                    (str(card_id), fact.card_format, asset_id),
                 )
             active_fact_chunks = {
                 str(uuid5(NAMESPACE_URL, f"aprendix:fact-chunk:{fact.slug}"))
@@ -1032,6 +1141,7 @@ class KnowledgeRepository:
         self, *, limit: int = 30, technology: Technology | None = None,
         theme: LearningTheme | None = None, cluster_id: str | None = None,
         area_id: str | None = None, authored_only: bool = False,
+        include_quarantined: bool = False,
     ) -> tuple[TheoryCardDTO, ...]:
         clauses: list[str] = [
             "d.lifecycle = 'active'", "COALESCE(q.status, 'accepted') = 'accepted'"
@@ -1039,6 +1149,8 @@ class KnowledgeRepository:
         parameters: list[object] = []
         if authored_only:
             clauses.append("d.source_path = 'aprendix://authored-facts/v1'")
+        if not include_quarantined:
+            clauses.append("COALESCE(pq.status, 'accepted') = 'accepted'")
         if technology is not None:
             clauses.append("EXISTS (SELECT 1 FROM json_each(COALESCE(kt.technologies_json, '[]')) WHERE value = ?)")
             parameters.append(technology.value)
@@ -1057,26 +1169,56 @@ class KnowledgeRepository:
             )
             parameters.extend(area_ids)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        parameters.append(max(1, min(limit, 200)))
+        parameters.append(max(1, min(limit, 5_000)))
         with self._database.read_connection() as connection:
             rows = connection.execute(
                 f"""
-                SELECT tc.*, d.title AS source_title, dc.page_number,
+                SELECT tc.*, COALESCE(cs.title,d.title) AS source_title, dc.page_number,
                        kt.technologies_json, kt.themes_json, cm.cluster_id,
+                       COALESCE(cp.format,'concept') AS card_format,
+                       pa.id AS asset_id,pa.storage_uri AS asset_uri,
+                       pa.alt_text AS asset_alt_text,
                        (SELECT group_concat(area_id) FROM knowledge_area_chunks
                         WHERE chunk_id=dc.id) AS area_ids
                 FROM theory_cards tc
                 JOIN document_chunks dc ON dc.id = tc.chunk_id
                 JOIN documents d ON d.id = dc.document_id
+                LEFT JOIN card_source_links csl0
+                  ON csl0.card_id=tc.id AND csl0.position=0
+                LEFT JOIN curated_sources cs ON cs.id=csl0.source_id
+                LEFT JOIN card_presentation cp ON cp.card_id=tc.id
+                LEFT JOIN pedagogical_assets pa ON pa.id=cp.asset_id
                 LEFT JOIN knowledge_taxonomy kt ON kt.chunk_id = dc.id
                 LEFT JOIN knowledge_cluster_members cm ON cm.chunk_id = dc.id
                 LEFT JOIN chunk_quality q ON q.chunk_id = dc.id
+                LEFT JOIN pedagogical_quality pq
+                  ON pq.item_type='card' AND pq.item_id=tc.id
                 {where}
                 ORDER BY tc.created_at DESC, tc.id
                 LIMIT ?
                 """,
                 parameters,
             ).fetchall()
+            card_ids = tuple(row["id"] for row in rows)
+            source_rows = ()
+            if card_ids:
+                placeholders = ",".join("?" for _ in card_ids)
+                source_rows = connection.execute(
+                    f"""SELECT l.card_id,l.source_id,l.position,l.locator,l.rationale,
+                               l.source_version,s.title,s.canonical_url,s.license_note
+                        FROM card_source_links l JOIN curated_sources s ON s.id=l.source_id
+                        WHERE l.card_id IN ({placeholders})
+                        ORDER BY l.card_id,l.position""",
+                    card_ids,
+                ).fetchall()
+        sources_by_card: dict[str, list[CardSourceLinkDTO]] = {}
+        for source in source_rows:
+            sources_by_card.setdefault(source["card_id"], []).append(CardSourceLinkDTO(
+                source_id=source["source_id"], position=source["position"],
+                locator=source["locator"], rationale=source["rationale"],
+                source_version=source["source_version"], title=source["title"],
+                canonical_url=source["canonical_url"], license_note=source["license_note"],
+            ))
         cards: list[TheoryCardDTO] = []
         for row in rows:
             card_id = UUID(row["id"])
@@ -1102,6 +1244,10 @@ class KnowledgeRepository:
                     themes=tuple(LearningTheme(item) for item in json.loads(row["themes_json"] or "[]")),
                     cluster_id=row["cluster_id"],
                     area_ids=tuple((row["area_ids"] or "").split(",")) if row["area_ids"] else (),
+                    format=CardFormat(row["card_format"]), asset_id=row["asset_id"],
+                    asset_alt_text=row["asset_alt_text"] or "",
+                    asset_uri=row["asset_uri"] or "",
+                    sources=tuple(sources_by_card.get(row["id"], ())),
                 )
             )
         return tuple(cards)

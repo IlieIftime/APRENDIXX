@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import math
 import random
-from datetime import datetime
-from typing import Protocol
+from datetime import UTC, datetime, timedelta
+from typing import ClassVar, Protocol
 from uuid import UUID
 
 from aprendix.application.contracts import EventDTO
@@ -13,6 +13,9 @@ from aprendix.application.contracts.graph import (
     GraphEdgeSnapshotDTO,
     GraphNodeSnapshotDTO,
     GraphSnapshotDTO,
+    GraphViewFilterDTO,
+    GraphVisibilityDTO,
+    NodeAnalyticsDTO,
     NodeStatisticsDTO,
     RecommendationDTO,
 )
@@ -41,17 +44,33 @@ class GraphStore(Protocol):
         update_co_occurrence: bool,
     ) -> NodeStatisticsDTO: ...
 
-    def list_nodes(self, user_id: UUID) -> tuple[GraphNodeSnapshotDTO, ...]: ...
+    def list_nodes(
+        self, user_id: UUID, node_ids: tuple[UUID, ...] | None = None,
+    ) -> tuple[GraphNodeSnapshotDTO, ...]: ...
 
     def list_edges(self) -> tuple[GraphEdgeSnapshotDTO, ...]: ...
 
     def theta_for_user(self, user_id: UUID) -> float: ...
 
+    def visible_node_ids(
+        self, user_id: UUID, *, start: datetime, end: datetime,
+        include_eligible: bool, limit: int,
+    ) -> dict[str, object]: ...
+
+    def semantic_edges(
+        self, node_ids: tuple[UUID, ...], *, limit: int, generated_at: datetime,
+    ) -> tuple[tuple[GraphEdgeSnapshotDTO, ...], int]: ...
+
+    def node_analytics(
+        self, user_id: UUID, node_ids: tuple[UUID, ...], *,
+        start: datetime, end: datetime,
+    ) -> dict[UUID, NodeAnalyticsDTO]: ...
+
 
 class GraphWorker:
     """Map immutable events onto knowledge nodes and update graph state."""
 
-    _CO_OCCURRENCE_EVENTS = {
+    _CO_OCCURRENCE_EVENTS: ClassVar[set[EventType]] = {
         EventType.EXERCISE_OPENED,
         EventType.ATTEMPT_SUBMITTED,
         EventType.ATTEMPT_EVALUATED,
@@ -200,11 +219,23 @@ class GraphRecommender:
         user_id: UUID,
         *,
         top_k: int = 3,
+        node_ids: tuple[UUID, ...] | None = None,
     ) -> tuple[RecommendationDTO, ...]:
         if top_k != 3:
             raise ValueError("Sprint 3 recommender requires top_k=3")
 
-        nodes = self._store.list_nodes(user_id)
+        if node_ids is None:
+            nodes = self._store.list_nodes(user_id)
+        else:
+            try:
+                nodes = self._store.list_nodes(user_id, node_ids)
+            except TypeError:
+                # Backwards-compatible support for small in-memory test adapters.
+                allowed = set(node_ids)
+                nodes = tuple(
+                    node for node in self._store.list_nodes(user_id)
+                    if node.id in allowed
+                )
         eligibility_provider = getattr(self._store, "eligible_node_ids", None)
         if eligibility_provider is not None:
             eligible = set(eligibility_provider(user_id))
@@ -279,3 +310,136 @@ class GraphSnapshotService:
         if generated_at is not None:
             values["generated_at"] = generated_at
         return GraphSnapshotDTO.model_validate(values)
+
+    def get_visible_snapshot(
+        self,
+        user_id: UUID,
+        *,
+        period_days: int = 30,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        include_eligible: bool = False,
+        node_limit: int = 150,
+        edge_limit: int = 300,
+        generated_at: datetime | None = None,
+    ) -> GraphSnapshotDTO:
+        """Build a bounded curriculum graph without untouched hidden nodes."""
+
+        reference = (generated_at or datetime.now(UTC)).astimezone(UTC)
+        view_filter = self._view_filter(
+            period_days=period_days, start=start, end=end,
+            include_eligible=include_eligible,
+            node_limit=node_limit, edge_limit=edge_limit,
+            reference=reference,
+        )
+        selector = getattr(self._store, "visible_node_ids", None)
+        semantic_provider = getattr(self._store, "semantic_edges", None)
+        analytics_provider = getattr(self._store, "node_analytics", None)
+        if selector is None or semantic_provider is None or analytics_provider is None:
+            # Compatibility for lightweight adapters; production SQLite always
+            # implements the server-side selection and budgets.
+            legacy = self.get_snapshot(user_id, generated_at=reference)
+            return legacy.model_copy(update={
+                "nodes": legacy.nodes[:node_limit],
+                "edges": legacy.edges[:edge_limit],
+            })
+        selection = selector(
+            user_id, start=view_filter.start, end=view_filter.end,
+            include_eligible=view_filter.include_eligible,
+            limit=view_filter.node_limit,
+        )
+        node_ids = tuple(selection["node_ids"])
+        analytics = analytics_provider(
+            user_id, node_ids, start=view_filter.start, end=view_filter.end,
+        )
+        nodes = tuple(
+            node.model_copy(update={"analytics": analytics.get(node.id)})
+            for node in self._store.list_nodes(user_id, node_ids)
+        )
+        edges, total_edges = semantic_provider(
+            node_ids, limit=view_filter.edge_limit, generated_at=reference,
+        )
+        visible_ids = set(node_ids)
+        recommendations = tuple(
+            item for item in self._recommender.recommend(
+                user_id, node_ids=node_ids,
+            )
+            if item.node_id in visible_ids
+        )
+        recommendations = tuple(
+            item.model_copy(update={"rank": rank})
+            for rank, item in enumerate(recommendations[:3], start=1)
+        )
+        visibility = GraphVisibilityDTO(
+            filter=view_filter,
+            practiced_nodes=len(selection["practiced"]),
+            mastered_nodes=len(selection["mastered"]),
+            frontier_nodes=len(selection["frontier"]),
+            omitted_nodes=int(selection["omitted"]),
+            omitted_edges=max(0, total_edges - len(edges)),
+        )
+        return GraphSnapshotDTO(
+            user_id=user_id,
+            generated_at=reference,
+            theta=self._store.theta_for_user(user_id),
+            nodes=nodes,
+            edges=edges,
+            recommendations=recommendations,
+            visibility=visibility,
+        )
+
+    def node_analytics(
+        self,
+        user_id: UUID,
+        node_id: UUID,
+        *,
+        period_days: int = 30,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        generated_at: datetime | None = None,
+    ) -> NodeAnalyticsDTO:
+        """Return the same period metrics shown by node selection in the UI."""
+
+        if not self._store.has_node(node_id):
+            raise ValueError(f"unknown graph node {node_id}")
+        reference = (generated_at or datetime.now(UTC)).astimezone(UTC)
+        view_filter = self._view_filter(
+            period_days=period_days, start=start, end=end,
+            include_eligible=False, node_limit=1, edge_limit=0,
+            reference=reference,
+        )
+        provider = getattr(self._store, "node_analytics", None)
+        if provider is None:
+            raise RuntimeError("graph store does not expose node analytics")
+        result = provider(
+            user_id, (node_id,), start=view_filter.start, end=view_filter.end,
+        )
+        try:
+            return result[node_id]
+        except KeyError as exc:
+            raise ValueError(f"graph node {node_id} has no analytics metadata") from exc
+
+    @staticmethod
+    def _view_filter(
+        *,
+        period_days: int,
+        start: datetime | None,
+        end: datetime | None,
+        include_eligible: bool,
+        node_limit: int,
+        edge_limit: int,
+        reference: datetime,
+    ) -> GraphViewFilterDTO:
+        if (start is None) != (end is None):
+            raise ValueError("custom graph period requires both start and end")
+        if start is None:
+            if period_days not in {7, 30, 90}:
+                raise ValueError("period_days must be 7, 30, or 90")
+            first = reference.date() - timedelta(days=period_days - 1)
+            start = datetime.combine(first, datetime.min.time(), tzinfo=UTC)
+            end = reference
+        return GraphViewFilterDTO(
+            start=start, end=end,
+            include_eligible=include_eligible,
+            node_limit=node_limit, edge_limit=edge_limit,
+        )

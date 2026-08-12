@@ -4,6 +4,7 @@ from aprendix.application.editor_support import (
     apply_safe_quick_fixes,
     compare_solutions,
     diagnose_python,
+    explain_runtime_error,
     find_replace,
     format_python,
     matching_delimiter,
@@ -65,3 +66,10 @@ def test_quick_fixes_apply_only_bounded_unambiguous_changes():
     unchanged, applied = apply_quick_fix("def f(items=[]):\n    return items\n", mutable)
     assert applied is False
     assert unchanged.startswith("def f(items=[])")
+
+
+def test_runtime_errors_are_explained_without_revealing_a_solution():
+    explanation = explain_runtime_error("IndexError", "list index out of range")
+    assert "limites" in explanation
+    assert "Como investigar" in explanation
+    assert "list index out of range" in explanation

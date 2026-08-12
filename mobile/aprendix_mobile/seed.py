@@ -12,12 +12,13 @@ from difflib import SequenceMatcher
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from aprendix.application.knowledge_structure import AREAS, PRIMARY_SOURCES, area_depths, fold
+from aprendix.application.knowledge_structure import AREAS, SOURCES, area_depths, fold
 from aprendix.application.learning_catalog import ALL_FACTS, EXTRA_GLOSSARY, GLOSSARY_ALIASES
 from aprendix.application.academy_catalog import ACADEMY_MODULES, ACADEMY_TRACKS
+from aprendix.application.stdlib_glossary import STDLIB_GLOSSARY
 
 APPLICATION_ID = 0x41505258  # APRX
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 MAX_SEED_BYTES = 200 * 1024 * 1024
 
 
@@ -126,7 +127,12 @@ def _embedding(text: str, dimensions: int = 64) -> bytes:
     return struct.pack(f"{dimensions}b", *values)
 
 
-def build_seed(database_path: Path, manifest_path: Path, *, content_version: str = "2026.08") -> SeedManifest:
+def build_seed(
+    database_path: Path,
+    manifest_path: Path,
+    *,
+    content_version: str = "2026.08-iteration19",
+) -> SeedManifest:
     database_path.parent.mkdir(parents=True, exist_ok=True)
     if database_path.exists():
         database_path.unlink()
@@ -171,9 +177,11 @@ def build_seed(database_path: Path, manifest_path: Path, *, content_version: str
             CREATE TABLE sources(
                 id TEXT PRIMARY KEY, area_ids_json TEXT NOT NULL CHECK(json_valid(area_ids_json)),
                 title TEXT NOT NULL, authors_json TEXT NOT NULL CHECK(json_valid(authors_json)),
-                publication_year INTEGER NOT NULL, source_type TEXT NOT NULL,
+                publication_year INTEGER, source_type TEXT NOT NULL,
                 canonical_url TEXT NOT NULL, overview TEXT NOT NULL,
-                why_it_matters TEXT NOT NULL, access_note TEXT NOT NULL
+                why_it_matters TEXT NOT NULL, access_note TEXT NOT NULL,
+                license_note TEXT NOT NULL, provenance TEXT NOT NULL,
+                UNIQUE(canonical_url)
             ) STRICT;
             CREATE TABLE learning_tracks(
                 slug TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL,
@@ -234,13 +242,13 @@ def build_seed(database_path: Path, manifest_path: Path, *, content_version: str
                  body, code, f"cluster-{area.parent_id or area.id}", area.id, order,
                  _embedding(f"{area.title} {body} {code}")),
             )
-        for source in PRIMARY_SOURCES:
+        for source in SOURCES:
             connection.execute(
-                "INSERT INTO sources VALUES(?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO sources VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 (source.id, json.dumps(source.area_ids), source.title,
                  json.dumps(source.authors, ensure_ascii=False), source.year,
                  source.source_type, source.url, source.overview, source.why,
-                source.access_note),
+                 source.access_note, source.license_note, source.provenance),
             )
         for slug, title, description, technology, position in ACADEMY_TRACKS:
             connection.execute(
@@ -266,6 +274,12 @@ def build_seed(database_path: Path, manifest_path: Path, *, content_version: str
             ((term, definition, signature,
               json.dumps(aliases.get(term.casefold(), ()), ensure_ascii=False))
              for term, _technology, definition, signature, _example, _related in EXTRA_GLOSSARY),
+        )
+        connection.executemany(
+            "INSERT OR IGNORE INTO glossary(term,definition,signature,aliases_json) VALUES(?,?,?,?)",
+            ((str(item["term"]), str(item["definition"]), str(item["signature"]),
+              json.dumps(tuple(item.get("aliases", ())), ensure_ascii=False))
+             for item in STDLIB_GLOSSARY),
         )
         connection.commit()
         connection.execute("VACUUM")
@@ -392,6 +406,22 @@ class LiteContentStore:
         finally:
             connection.close()
 
+    def course_unit(self, unit_slug: str) -> dict[str, object]:
+        connection = sqlite3.connect(self._uri, uri=True)
+        connection.row_factory = sqlite3.Row
+        try:
+            row = connection.execute(
+                """SELECT u.*,t.title track_title,t.technology
+                   FROM learning_units u JOIN learning_tracks t ON t.slug=u.track_slug
+                   WHERE u.slug=?""",
+                (unit_slug,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(unit_slug)
+            return dict(row)
+        finally:
+            connection.close()
+
     def shortcuts(self, area_id: str | None = None, *, limit: int = 30) -> tuple[dict[str, object], ...]:
         connection = sqlite3.connect(self._uri, uri=True); connection.row_factory = sqlite3.Row
         try:
@@ -430,7 +460,14 @@ class LiteContentStore:
                     for area_row in area_rows:
                         if area_row["parent_id"] in allowed_areas and area_row["id"] not in allowed_areas:
                             allowed_areas.add(str(area_row["id"])); changed = True
-            rows = connection.execute("SELECT * FROM sources ORDER BY publication_year DESC,title").fetchall()
+            rows = connection.execute(
+                """SELECT * FROM sources ORDER BY
+                   CASE provenance
+                     WHEN 'curated-primary-source-2026-08' THEN 0
+                     WHEN 'user-approved-local-library-metadata-2026-08' THEN 1
+                     ELSE 2
+                   END, publication_year DESC,title"""
+            ).fetchall()
             for row in rows:
                 item = dict(row); source_areas = tuple(json.loads(item["area_ids_json"]))
                 if allowed_areas is not None and not allowed_areas.intersection(source_areas):
@@ -466,7 +503,14 @@ class LiteContentStore:
     def sources(self, area_id: str, *, limit: int = 5) -> tuple[dict[str, object], ...]:
         connection = sqlite3.connect(self._uri, uri=True); connection.row_factory = sqlite3.Row
         try:
-            rows = connection.execute("SELECT * FROM sources ORDER BY publication_year DESC,title").fetchall()
+            rows = connection.execute(
+                """SELECT * FROM sources ORDER BY
+                   CASE provenance
+                     WHEN 'curated-primary-source-2026-08' THEN 0
+                     WHEN 'user-approved-local-library-metadata-2026-08' THEN 1
+                     ELSE 2
+                   END, publication_year DESC,title"""
+            ).fetchall()
             return tuple(dict(row) for row in rows if area_id in json.loads(row["area_ids_json"]))[:limit]
         finally:
             connection.close()

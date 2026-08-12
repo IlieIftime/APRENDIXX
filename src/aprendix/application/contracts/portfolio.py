@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import Field
 
 from aprendix.application.contracts.models import ContractModel, NonBlankText, utc_now
+from aprendix.application.contracts.access import LearningAccessDTO
 
 
 class ProjectTemplateDTO(ContractModel):
@@ -30,6 +31,12 @@ class ProjectEvaluationDTO(ContractModel):
     rubric_scores: dict[str, float] = Field(default_factory=dict)
     findings: tuple[str, ...] = Field(default=(), max_length=50)
     demonstrated_skills: tuple[str, ...] = Field(default=(), max_length=50)
+    template_id: str = Field(default="", max_length=160)
+    track_slug: str = Field(default="", max_length=120)
+    work_mode: str = Field(default="guided", pattern=r"^(guided|autonomous)$")
+    domain_contracts: tuple[str, ...] = Field(default=(), max_length=20)
+    access: LearningAccessDTO = Field(default_factory=LearningAccessDTO)
+    credit_awarded: bool = False
     evaluated_at: datetime = Field(default_factory=utc_now)
 
 

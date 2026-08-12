@@ -3,22 +3,78 @@
 from __future__ import annotations
 
 import math
+from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from aprendix.application.contracts import (
+    AnalyticsPeriodDTO,
+    AnalyticsScope,
+    DashboardAnalyticsDTO,
+    DashboardIndicatorDTO,
     ErrorCategory,
     EvidenceType,
     LearningAction,
     LearningEvidenceDTO,
+    MasteryDistributionDTO,
     MasteryStateDTO,
+    MetricDefinitionDTO,
     NextLearningActionDTO,
     PersonalProgressDTO,
+    ProgressForecastDTO,
+    ProgressSeriesPointDTO,
+    TrackAnalyticsDTO,
     WeeklyPlanItemDTO,
+    WeeklyProgressReportDTO,
 )
 
-
 FOCUS_MODES = (10, 25, 50, 90)
+
+
+_ANALYTICS_DEFINITIONS = (
+    MetricDefinitionDTO(
+        key="mastery", label="Domínio", unit="%",
+        definition=(
+            "Média do modelo bayesiano de conhecimento no fim do período; "
+            "conceitos curriculares ainda sem evidência contribuem com zero."
+        ),
+        denominator="Todos os nós curriculares no filtro selecionado.",
+    ),
+    MetricDefinitionDTO(
+        key="retention", label="Retenção", unit="%",
+        definition=(
+            "Probabilidade média de retenção, com decaimento temporal e "
+            "meia-vida ampliada por revisões bem-sucedidas."
+        ),
+        denominator="Todos os nós curriculares no filtro selecionado.",
+    ),
+    MetricDefinitionDTO(
+        key="autonomy", label="Autonomia", unit="%",
+        definition=(
+            "Independência observada nas respostas, penalizando pistas e "
+            "colagem; conceitos sem evidência contribuem com zero."
+        ),
+        denominator="Todos os nós curriculares no filtro selecionado.",
+    ),
+    MetricDefinitionDTO(
+        key="active_time", label="Tempo ativo", unit="min",
+        definition=(
+            "Soma do tempo ativo registado; quando indisponível usa a duração "
+            "da evidência, comparada com o plano local."
+        ),
+        denominator="Minutos planeados no mesmo intervalo.",
+    ),
+    MetricDefinitionDTO(
+        key="consistency", label="Consistência", unit="%",
+        definition="Proporção de dias do intervalo com pelo menos uma evidência ativa.",
+        denominator="Dias decorridos no período selecionado.",
+    ),
+    MetricDefinitionDTO(
+        key="next_milestone", label="Próximo marco", unit="%",
+        definition="Exercícios distintos já validados para o próximo marco local.",
+        denominator="Quantidade fixa exigida pela definição desse marco.",
+    ),
+)
 
 
 def _bounded(value: float) -> float:
@@ -155,6 +211,21 @@ class LearningProgressService:
             self._repository.state(evidence.user_id, evidence.node_id) or state
         )
 
+    def curriculum_node_ids(
+        self, *, track_slug: str | None = None,
+    ) -> tuple[UUID, ...]:
+        """Return the stable denominator used by global dashboard metrics."""
+
+        provider = getattr(self._repository, "analytics_scope_nodes", None)
+        if provider is None:
+            return tuple(
+                node_id for node_id, _title, _difficulty
+                in self._repository.node_catalog()
+            )
+        return tuple(
+            item["node_id"] for item in provider(track_slug=track_slug)
+        )
+
     def backfill_legacy_history(self, user_id: UUID) -> int:
         """Idempotently include numeric history created before schema v16."""
         before = sum(state.evidence_count for state in self._repository.states(user_id))
@@ -266,7 +337,7 @@ class LearningProgressService:
     def build_weekly_plan(
         self, user_id: UUID, *, today: date | None = None,
     ) -> tuple[WeeklyPlanItemDTO, ...]:
-        today = today or date.today()
+        today = today or datetime.now(UTC).date()
         plan = self._repository.study_plan(user_id)
         weekly_minutes = round(float(plan["weekly_hours"]) * 60) if plan else 180
         assessment_percent = int(plan["assessment_percent"]) if plan else 20
@@ -300,7 +371,11 @@ class LearningProgressService:
         return self._repository.weekly_plan(user_id, today, today + timedelta(days=6))
 
     def progress(self, user_id: UUID, *, today: date | None = None) -> PersonalProgressDTO:
-        states = self.states(user_id)
+        reference_time = (
+            datetime.combine(today, datetime.min.time(), tzinfo=UTC)
+            if today is not None else None
+        )
+        states = self.states(user_id, now=reference_time)
         plan = self.build_weekly_plan(user_id, today=today)
         denominator = len(states) or 1
         average = lambda name: sum(getattr(state, name) for state in states) / denominator
@@ -322,3 +397,384 @@ class LearningProgressService:
             at_risk_nodes=sum(state.evidence_count > 0 and state.retention < 0.58 for state in states),
             next_action=self.best_next_action(user_id), weekly_plan=plan,
         )
+
+    def analytics(
+        self,
+        user_id: UUID,
+        *,
+        period_days: int = 30,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        track_slug: str | None = None,
+        node_id: UUID | None = None,
+        now: datetime | None = None,
+    ) -> DashboardAnalyticsDTO:
+        """Build daily global/track/node analytics from local numeric evidence.
+
+        State curves are reconstructed with the same BKT/IRT update used when an
+        attempt is recorded. This avoids presenting a raw score average as
+        knowledge. Global denominators come exclusively from learning chapters.
+        """
+
+        if track_slug is not None and node_id is not None:
+            raise ValueError("select either a track or a node analytics scope")
+        period = self._analytics_period(
+            period_days=period_days, start=start, end=end, now=now,
+        )
+        catalog = self._repository.analytics_scope_nodes(
+            track_slug=track_slug, node_id=node_id,
+        )
+        if not catalog:
+            target = track_slug or str(node_id or "global")
+            raise ValueError(f"unknown curriculum analytics scope: {target}")
+        node_ids = tuple(item["node_id"] for item in catalog)
+        evidence = self._repository.analytics_evidence(
+            user_id, node_ids, before=period.end,
+        )
+        planned = self._repository.analytics_planned_minutes(
+            user_id, period.start.date(), self._exclusive_end_date(period.end),
+        )
+
+        states: dict[UUID, MasteryStateDTO] = {}
+        index = 0
+        while index < len(evidence) and evidence[index].occurred_at < period.start:
+            item = evidence[index]
+            states[item.node_id] = update_mastery_state(states.get(item.node_id), item)
+            index += 1
+
+        series: list[ProgressSeriesPointDTO] = []
+        period_evidence: list[LearningEvidenceDTO] = []
+        active_dates: set[date] = set()
+        practiced_nodes: set[UUID] = set()
+        current_date = period.start.date()
+        last_date = (period.end - timedelta(microseconds=1)).date()
+        elapsed_days = 0
+        while current_date <= last_date:
+            midnight = datetime.combine(current_date, datetime.min.time(), tzinfo=UTC)
+            bucket_start = max(period.start, midnight)
+            bucket_end = min(period.end, midnight + timedelta(days=1))
+            bucket: list[LearningEvidenceDTO] = []
+            while index < len(evidence) and evidence[index].occurred_at < bucket_end:
+                item = evidence[index]
+                states[item.node_id] = update_mastery_state(states.get(item.node_id), item)
+                if item.occurred_at >= bucket_start:
+                    bucket.append(item)
+                    period_evidence.append(item)
+                    practiced_nodes.add(item.node_id)
+                index += 1
+            elapsed_days += 1
+            if bucket:
+                active_dates.add(current_date)
+            mastery, retention, autonomy, mastered = self._state_metrics(
+                states, node_ids, at=bucket_end,
+            )
+            attempts = tuple(item for item in bucket if item.evidence_type is not EvidenceType.REVIEW)
+            active_seconds = sum(
+                max(0, item.active_seconds if item.active_seconds is not None else (item.duration_seconds or 0))
+                for item in bucket
+            )
+            series.append(ProgressSeriesPointDTO(
+                occurred_on=current_date,
+                mastery=mastery,
+                retention=retention,
+                autonomy=autonomy,
+                consistency=len(active_dates) / elapsed_days,
+                active_minutes=active_seconds / 60.0,
+                planned_minutes=planned.get(current_date, 0.0),
+                evidence_count=len(bucket),
+                attempts=len(attempts),
+                successes=sum(item.score >= 0.7 for item in attempts),
+                failures=sum(item.score < 0.7 for item in attempts),
+                practiced_nodes=len(practiced_nodes),
+                mastered_nodes=mastered,
+            ))
+            current_date += timedelta(days=1)
+
+        distribution = self._mastery_distribution(states, node_ids, at=period.end)
+        tracks = self._track_analytics(
+            catalog, states, period_evidence, at=period.end,
+        )
+        indicators = self._analytics_indicators(
+            user_id, series, planned, distribution,
+        )
+        scope = (
+            AnalyticsScope.NODE if node_id is not None else
+            AnalyticsScope.TRACK if track_slug is not None else
+            AnalyticsScope.GLOBAL
+        )
+        scope_id = str(node_id) if node_id is not None else track_slug
+        scope_title = (
+            str(catalog[0]["title"]) if node_id is not None else
+            str(catalog[0]["track_title"]) if track_slug is not None else
+            "Progresso global"
+        )
+        return DashboardAnalyticsDTO(
+            user_id=user_id,
+            scope=scope,
+            scope_id=scope_id,
+            scope_title=scope_title,
+            period=period,
+            indicators=indicators,
+            series=tuple(series),
+            mastery_distribution=distribution,
+            tracks=tracks,
+            definitions=_ANALYTICS_DEFINITIONS,
+        )
+
+    @staticmethod
+    def _analytics_period(
+        *, period_days: int, start: datetime | None, end: datetime | None,
+        now: datetime | None,
+    ) -> AnalyticsPeriodDTO:
+        if (start is None) != (end is None):
+            raise ValueError("custom analytics requires both start and end")
+        if start is not None and end is not None:
+            label = "Personalizado"
+            return AnalyticsPeriodDTO(start=start, end=end, label=label)
+        if period_days not in {7, 30, 90}:
+            raise ValueError("period_days must be 7, 30, or 90")
+        reference = (now or datetime.now(UTC)).astimezone(UTC)
+        first_day = reference.date() - timedelta(days=period_days - 1)
+        period_start = datetime.combine(first_day, datetime.min.time(), tzinfo=UTC)
+        return AnalyticsPeriodDTO(
+            start=period_start, end=reference, label=f"Últimos {period_days} dias",
+        )
+
+    @staticmethod
+    def _exclusive_end_date(value: datetime) -> date:
+        if value.time() == datetime.min.time():
+            return value.date()
+        return value.date() + timedelta(days=1)
+
+    @staticmethod
+    def _state_metrics(
+        states: dict[UUID, MasteryStateDTO],
+        node_ids: tuple[UUID, ...],
+        *,
+        at: datetime,
+    ) -> tuple[float, float, float, int]:
+        denominator = max(1, len(node_ids))
+        mastery = 0.0
+        retention = 0.0
+        autonomy = 0.0
+        mastered = 0
+        for node_id in node_ids:
+            state = states.get(node_id)
+            if state is None:
+                continue
+            current_retention = retention_probability(
+                last_practiced_at=state.last_practiced_at,
+                successful_reviews=state.successful_reviews,
+                now=at,
+            )
+            mastery += state.p_known
+            retention += current_retention
+            autonomy += state.autonomy
+            mastered += int(state.p_known >= 0.8 and current_retention >= 0.6)
+        return (
+            _bounded(mastery / denominator),
+            _bounded(retention / denominator),
+            _bounded(autonomy / denominator),
+            mastered,
+        )
+
+    @staticmethod
+    def _mastery_distribution(
+        states: dict[UUID, MasteryStateDTO],
+        node_ids: tuple[UUID, ...],
+        *,
+        at: datetime,
+    ) -> MasteryDistributionDTO:
+        buckets = defaultdict(int)
+        for node_id in node_ids:
+            state = states.get(node_id)
+            if state is None:
+                buckets["untouched"] += 1
+                continue
+            retention = retention_probability(
+                last_practiced_at=state.last_practiced_at,
+                successful_reviews=state.successful_reviews,
+                now=at,
+            )
+            if state.p_known >= 0.8 and retention >= 0.6:
+                buckets["mastered"] += 1
+            elif retention < 0.58:
+                buckets["at_risk"] += 1
+            elif state.evidence_count <= 1:
+                buckets["new"] += 1
+            else:
+                buckets["consolidating"] += 1
+        return MasteryDistributionDTO(**buckets)
+
+    def _track_analytics(
+        self,
+        catalog: tuple[dict[str, object], ...],
+        states: dict[UUID, MasteryStateDTO],
+        evidence: list[LearningEvidenceDTO],
+        *,
+        at: datetime,
+    ) -> tuple[TrackAnalyticsDTO, ...]:
+        by_track: dict[str, list[dict[str, object]]] = defaultdict(list)
+        for item in catalog:
+            by_track[str(item["track_slug"])].append(item)
+        active_by_node: dict[UUID, int] = defaultdict(int)
+        practiced: set[UUID] = set()
+        for item in evidence:
+            active_by_node[item.node_id] += max(
+                0,
+                item.active_seconds if item.active_seconds is not None else (item.duration_seconds or 0),
+            )
+            practiced.add(item.node_id)
+        result = []
+        for slug, items in by_track.items():
+            ids = tuple(item["node_id"] for item in items)
+            mastery, retention, autonomy, mastered = self._state_metrics(
+                states, ids, at=at,
+            )
+            result.append(TrackAnalyticsDTO(
+                track_slug=slug,
+                title=str(items[0]["track_title"]),
+                curriculum_nodes=len(ids),
+                practiced_nodes=sum(node_id in practiced for node_id in ids),
+                mastered_nodes=mastered,
+                mastery=mastery,
+                retention=retention,
+                autonomy=autonomy,
+                active_minutes=sum(active_by_node[node_id] for node_id in ids) / 60.0,
+            ))
+        return tuple(result)
+
+    def _analytics_indicators(
+        self,
+        user_id: UUID,
+        series: list[ProgressSeriesPointDTO],
+        planned: dict[date, float],
+        distribution: MasteryDistributionDTO,
+    ) -> tuple[DashboardIndicatorDTO, ...]:
+        latest = series[-1]
+        first = series[0]
+        total_active = sum(point.active_minutes for point in series)
+        total_planned = sum(planned.values())
+        midpoint = max(1, len(series) // 2)
+        earlier_active = sum(point.active_minutes for point in series[:midpoint]) / midpoint
+        later_count = max(1, len(series) - midpoint)
+        later_active = sum(point.active_minutes for point in series[midpoint:]) / later_count
+        milestone_provider = getattr(self._repository, "analytics_next_milestone", None)
+        milestone = milestone_provider(user_id) if milestone_provider else None
+        completed = int(milestone["completed"]) if milestone else 1
+        required = max(1, int(milestone["required"])) if milestone else 1
+        definition = {item.key: item for item in _ANALYTICS_DEFINITIONS}
+
+        def indicator(
+            key: str, value: float, *, target: float | None = None,
+            delta: float = 0.0, detail: str = "",
+        ) -> DashboardIndicatorDTO:
+            item = definition[key]
+            trend = (
+                "improving" if delta > 0.02 else
+                "slowing" if delta < -0.02 else
+                "starting" if not any(point.evidence_count for point in series) else
+                "stable"
+            )
+            return DashboardIndicatorDTO(
+                key=key, label=item.label, value=value, unit=item.unit,
+                target_value=target, trend_delta=delta, trend=trend,
+                definition=item.definition, denominator=item.denominator,
+                detail=detail,
+            )
+
+        return (
+            indicator("mastery", latest.mastery * 100, delta=latest.mastery - first.mastery),
+            indicator("retention", latest.retention * 100, delta=latest.retention - first.retention),
+            indicator("autonomy", latest.autonomy * 100, delta=latest.autonomy - first.autonomy),
+            indicator(
+                "active_time", total_active, target=total_planned,
+                delta=later_active - earlier_active,
+                detail=f"{total_active:.0f} de {total_planned:.0f} min planeados",
+            ),
+            indicator(
+                "consistency", latest.consistency * 100,
+                delta=latest.consistency - first.consistency,
+                detail=f"{sum(point.evidence_count > 0 for point in series)} dias ativos",
+            ),
+            indicator(
+                "next_milestone", completed / required * 100, target=100,
+                detail=(str(milestone["title"]) if milestone else "Todos os marcos concluídos"),
+            ),
+        )
+
+    def forecast(self, user_id: UUID, *, today: date | None = None) -> ProgressForecastDTO:
+        today = today or datetime.now(UTC).date()
+        reference_time = datetime.combine(today, datetime.min.time(), tzinfo=UTC)
+        states = self.states(user_id, now=reference_time)
+        total = max(0, self._repository.curriculum_node_count())
+        mastered = sum(state.p_known >= .8 and state.retention >= .6 for state in states)
+        mastered = min(total, mastered)
+        remaining = max(0, total - mastered)
+        plan = self._repository.study_plan(user_id) or {"weekly_hours": 3.0}
+        weekly_hours = max(.5, float(plan["weekly_hours"]))
+        velocity = sum(state.velocity for state in states) / max(1, len(states))
+        minutes_per_node = max(45.0, 105.0 - 35.0 * velocity)
+        capacity = weekly_hours * 60 / minutes_per_node
+        weeks = math.ceil(remaining / max(.25, capacity)) if remaining else 0
+        confidence_evidence = sum(state.confidence for state in states) / max(1, len(states))
+        coverage = min(1.0, len(states) / max(1, total))
+        confidence = _bounded(.25 + .5 * confidence_evidence + .25 * coverage)
+        return ProgressForecastDTO(
+            generated_for=today, total_nodes=total, mastered_nodes=mastered,
+            remaining_nodes=remaining, weekly_capacity_nodes=round(capacity, 2),
+            weeks_remaining=min(5_200, weeks),
+            estimated_completion=today + timedelta(weeks=min(5_200, weeks)),
+            confidence=confidence,
+            assumptions=(
+                f"Ritmo configurado: {weekly_hours:g} h/semana.",
+                "A estimativa usa apenas conceitos dos cursos e evidência local.",
+                "Pausas prolongadas ou alteração do objetivo recalculam a data.",
+            ),
+        )
+
+    def weekly_report(self, user_id: UUID, *, today: date | None = None) -> WeeklyProgressReportDTO:
+        today = today or datetime.now(UTC).date()
+        start = today - timedelta(days=today.weekday())
+        end = start + timedelta(days=6)
+        current_start = datetime.combine(start, datetime.min.time(), tzinfo=UTC)
+        current_end = current_start + timedelta(days=7)
+        current = self._repository.period_summary(user_id, current_start, current_end)
+        previous = self._repository.period_summary(
+            user_id, current_start - timedelta(days=7), current_start,
+        )
+        completion = self._repository.plan_completion(user_id, start, end)
+        current_minutes = round(int(current["active_seconds"]) / 60)
+        previous_minutes = round(int(previous["active_seconds"]) / 60)
+        if previous_minutes == 0:
+            change = 1.0 if current_minutes else 0.0
+            trend = "starting"
+        else:
+            change = max(-10.0, min(10.0, (current_minutes - previous_minutes) / previous_minutes))
+            trend = "improving" if change >= .1 else "slowing" if change <= -.2 else "stable"
+        progress = self.progress(user_id, today=start)
+        highlights = (
+            f"{current_minutes} minutos ativos em {int(current['evidence_count'])} evidências.",
+            f"Resultado médio observado: {float(current['average_score']):.0%}.",
+            f"{progress.mastered_nodes} conceitos dominados; {progress.at_risk_nodes} em risco de esquecimento.",
+        )
+        recommendations = []
+        if progress.at_risk_nodes:
+            recommendations.append("Começa por uma revisão espaçada dos conceitos em risco.")
+        if float(current["average_score"]) < .7 and int(current["evidence_count"]):
+            recommendations.append("Mantém a dificuldade e pede uma pista progressiva antes de repetir.")
+        if current_minutes < 60:
+            recommendations.append("Reserva pelo menos dois blocos curtos de foco para consolidar o hábito.")
+        if not recommendations:
+            recommendations.append("Mantém o ritmo e valida a transferência num exercício ou projeto diferente.")
+        return WeeklyProgressReportDTO(
+            week_start=start, week_end=end, active_minutes=current_minutes,
+            evidence_count=int(current["evidence_count"]),
+            average_score=float(current["average_score"]),
+            planned_items=completion["planned"], completed_items=completion["completed"],
+            activity_change=change, trend=trend,
+            highlights=highlights, recommendations=tuple(recommendations),
+        )
+
+    def complete_plan_item(self, user_id: UUID, item_id: UUID, completed: bool = True) -> bool:
+        return self._repository.complete_plan_item(user_id, item_id, completed)

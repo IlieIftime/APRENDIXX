@@ -504,11 +504,16 @@ class ExerciseRepository(BaseSQLiteRepository[ExerciseDTO]):
             raise EntityNotFoundError(f"exercise {exercise_id} was not found")
         return self._from_row(row)
 
-    def list_all(self) -> tuple[ExerciseDTO, ...]:
+    def list_all(self, *, include_quarantined: bool = False) -> tuple[ExerciseDTO, ...]:
+        quality_filter = "" if include_quarantined else "WHERE COALESCE(pq.status, 'accepted') = 'accepted'"
         with self._database.read_connection() as connection:
             rows = self._execute(
                 connection,
-                "SELECT * FROM exercises ORDER BY difficulty, slug, version",
+                f"""SELECT e.* FROM exercises e
+                    LEFT JOIN pedagogical_quality pq
+                      ON pq.item_type='exercise' AND pq.item_id=e.id
+                    {quality_filter}
+                    ORDER BY e.difficulty, e.slug, e.version""",
             ).fetchall()
         return tuple(self._from_row(row) for row in rows)
 

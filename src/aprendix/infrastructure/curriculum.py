@@ -19,6 +19,11 @@ from aprendix.application.academy_catalog import (
 from aprendix.application.learning_catalog import EXTRA_GLOSSARY, GLOSSARY_ALIASES
 from aprendix.application.stdlib_glossary import STDLIB_GLOSSARY
 from aprendix.application.vertical_practice import CORE_PRACTICE_VARIANTS, TRACK_SOURCE_IDS
+from aprendix.infrastructure.db.access_policy import (
+    access_from_state,
+    unit_access,
+    valid_completed_ids,
+)
 
 
 def _id(kind: str, slug: str) -> str:
@@ -219,6 +224,82 @@ GLOSSARY_SOURCE_IDS = {
     },
 }
 
+_GLOSSARY_TECHNOLOGY_SOURCES = {
+    "python": ("src-python-docs", "src-fluent-python"),
+    "algorithms": ("src-clrs", "src-python-docs"),
+    "mathematics": ("src-numpy", "src-probml"),
+    "statistics": ("src-probml", "src-numpy"),
+    "machine-learning": ("src-sklearn", "src-esl", "src-probml"),
+    "deep-learning": ("src-dlbook", "src-pytorch-autograd"),
+    "artificial-intelligence": ("src-aima", "src-ai-index"),
+    "computer-vision": ("src-resnet", "src-vit", "src-unet"),
+    "sql": ("src-postgresql", "src-sqlalchemy"),
+    "sqlalchemy": ("src-sqlalchemy", "src-postgresql"),
+    "django": ("src-django", "src-python-docs"),
+    "fastapi": ("src-fastapi", "src-python-docs"),
+    "flask": ("src-flask", "src-python-docs"),
+    "javascript": ("src-mdn", "src-python-docs"),
+    "html": ("src-mdn", "src-python-docs"),
+    "css": ("src-mdn", "src-python-docs"),
+    "numpy": ("src-numpy", "src-python-docs"),
+    "pandas": ("src-pandas", "src-python-docs"),
+    "pytorch": ("src-pytorch-autograd", "src-dlbook"),
+    "pytest": ("src-pytest", "src-python-docs"),
+    "mongodb": ("src-mongodb", "src-postgresql"),
+    "git": ("src-git", "src-python-docs"),
+    "docker": ("src-docker", "src-python-packaging"),
+    "python-packaging": ("src-python-packaging", "src-python-docs"),
+    "asyncio": ("src-python-asyncio", "src-python-docs"),
+}
+
+
+def _glossary_examples(
+    term: str,
+    definition: str,
+    signature: str,
+    example: str,
+) -> tuple[tuple[str, str, str, str], ...]:
+    """Return two original learning views without reproducing source prose."""
+
+    principal = example.strip() or signature.strip() or term
+    boundary = (
+        f"# Verificação de fronteira para {term}\n"
+        f"# Compare uma entrada mínima, uma entrada vazia e uma entrada inválida.\n"
+        f"{signature.strip() or term}"
+    )
+    return (
+        (
+            principal,
+            f"Exemplo principal: relaciona `{term}` com o contrato descrito na definição local.",
+            "beginner",
+            "utilização principal",
+        ),
+        (
+            boundary,
+            (
+                f"Exemplo de fronteira: usa o comportamento de `{term}` para testar limites e "
+                f"falhas previsíveis. Ideia central: {definition.strip()}"
+            ),
+            "intermediate",
+            "casos-limite e diagnóstico",
+        ),
+    )
+
+TRACK_BIBLIOGRAPHY_SOURCE_IDS = {
+    "computer-literacy": ("src-python-docs", "src-fluent-python", "src-pytest"),
+    "logic-pseudocode": ("src-python-docs", "src-clrs", "src-pytest"),
+    "python-foundations": ("src-python-docs", "src-fluent-python", "src-pytest"),
+    "python-oop": ("src-python-docs", "src-fluent-python", "src-pytest"),
+    "python-algorithms": ("src-clrs", "src-python-docs", "src-numpy"),
+    "python-data-structures": ("src-clrs", "src-python-docs", "src-fluent-python"),
+    "math-programming": ("src-numpy", "src-probml", "src-clrs"),
+    "testing-debugging": ("src-pytest", "src-python-docs", "src-fluent-python"),
+    "python-advanced": ("src-python-docs", "src-fluent-python", "src-pytest"),
+    "sql-databases": ("src-postgresql", "src-sqlalchemy", "src-django"),
+    "web-apis": ("src-mdn", "src-django", "src-fastapi"),
+    "data-ai": ("src-numpy", "src-sklearn", "src-pandas"),
+}
+
 
 def _normalize(value: str) -> str:
     folded = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode().casefold()
@@ -270,6 +351,16 @@ class CurriculumRepository:
                      f"{objective}\n\nCompleta o contrato iniciado. A solução deve passar todos os casos normais e limites sem rede nem ficheiros externos.",
                      starter, json.dumps((test,), ensure_ascii=False), difficulty, now, now),
                 )
+                for source_id in TRACK_BIBLIOGRAPHY_SOURCE_IDS[track_slug]:
+                    connection.execute(
+                        """INSERT INTO exercise_source_links(exercise_id,source_id,rationale)
+                           SELECT ?,id,? FROM curated_sources WHERE id=?
+                           ON CONFLICT(exercise_id,source_id) DO UPDATE SET
+                           rationale=excluded.rationale""",
+                        (exercise_id,
+                         "Referência técnica do percurso; o enunciado e os testes são originais Aprendix.",
+                         source_id),
+                    )
             for variant in CORE_PRACTICE_VARIANTS:
                 node_id = _id("graph-node", variant.module_slug)
                 exercise_id = _id("exercise", variant.slug)
@@ -306,6 +397,16 @@ class CurriculumRepository:
                 exercise = connection.execute("SELECT id FROM exercises WHERE slug=? ORDER BY version DESC", (exercise_slug,)).fetchone()
                 if node is None or exercise is None:
                     continue
+                for source_id in TRACK_BIBLIOGRAPHY_SOURCE_IDS[track_slug]:
+                    connection.execute(
+                        """INSERT INTO exercise_source_links(exercise_id,source_id,rationale)
+                           SELECT ?,id,? FROM curated_sources WHERE id=?
+                           ON CONFLICT(exercise_id,source_id) DO UPDATE SET
+                           rationale=excluded.rationale""",
+                        (exercise["id"],
+                         "Referência técnica do capítulo; teoria e prática são originais Aprendix.",
+                         source_id),
+                    )
                 connection.execute(
                     "INSERT OR IGNORE INTO learning_chapters VALUES(?,?,?,?,?,?,?)",
                     (chapter_id, track_id, node["id"], slug, title, objective, chapter_position),
@@ -362,6 +463,33 @@ class CurriculumRepository:
                              self._encrypt("assessment_options.text", f"{item_id}:{option_id}", text), position),
                         )
                 last_hybrid[track_slug] = unit_ids["hybrid"]
+            # Within a course, each new chapter starts only after the previous
+            # chapter's hybrid check. Content remains viewable at all times;
+            # this spine controls credit only.
+            for slug, _title, _description, _position in TRACKS:
+                ordered = connection.execute(
+                    """SELECT c.id chapter_id,
+                              (SELECT id FROM learning_units p
+                               WHERE p.chapter_id=c.id AND p.kind='practice'
+                               ORDER BY p.position,p.id LIMIT 1) practice_id,
+                              (SELECT id FROM learning_units h
+                               WHERE h.chapter_id=c.id AND h.kind='hybrid'
+                               ORDER BY h.position,h.id LIMIT 1) hybrid_id
+                       FROM learning_chapters c
+                       JOIN learning_tracks t ON t.id=c.track_id
+                       WHERE t.slug=? ORDER BY c.position,c.id""",
+                    (slug,),
+                ).fetchall()
+                previous_hybrid = None
+                for stage in ordered:
+                    if previous_hybrid and stage["practice_id"]:
+                        connection.execute(
+                            """INSERT OR IGNORE INTO learning_unit_dependencies
+                               VALUES(?,?)""",
+                            (stage["practice_id"], previous_hybrid),
+                        )
+                    if stage["hybrid_id"]:
+                        previous_hybrid = stage["hybrid_id"]
             for slug, title, description, position in TRACKS:
                 unit_id = _id("unit", f"{slug}-project")
                 first_chapter = connection.execute(
@@ -451,9 +579,25 @@ class CurriculumRepository:
             )
             glossary_nodes: dict[str, str] = {}
             glossary_relations: list[tuple[str, tuple[str, ...]]] = []
-            for term, technology, definition, signature, example, related in (
+            glossary_specs = (
                 *GLOSSARY, *EXTRA_GLOSSARY, *CORE_GLOSSARY, *STDLIB_GLOSSARY_ENTRIES
-            ):
+            )
+            expected_glossary_entries = len({
+                _normalize(spec[0]) for spec in glossary_specs
+            })
+            glossary_examples_complete = int(connection.execute(
+                "SELECT count(*) FROM glossary_examples"
+            ).fetchone()[0]) >= 2 * expected_glossary_entries
+            source_catalog = {
+                row["id"]: row["title"]
+                for row in connection.execute("SELECT id,title FROM curated_sources")
+            }
+            detailed_python_source = {}
+            for source_id, source_title in source_catalog.items():
+                suffix = " — Python 3 Documentation"
+                if source_id.startswith("src-pydoc-") and suffix in source_title:
+                    detailed_python_source[_normalize(source_title.split(suffix, 1)[0])] = source_id
+            for term, technology, definition, signature, example, related in glossary_specs:
                 identity = _id("glossary", _normalize(term))
                 normalized_term = _normalize(term)
                 connection.execute(
@@ -478,6 +622,56 @@ class CurriculumRepository:
                 )
                 glossary_nodes[normalized_term] = node_id
                 glossary_relations.append((normalized_term, related))
+                linked_source_ids = tuple(dict.fromkeys((
+                    *GLOSSARY_SOURCE_IDS.get(term, ()),
+                    *((detailed_python_source.get(normalized_term),)
+                      if detailed_python_source.get(normalized_term) else ()),
+                    *_GLOSSARY_TECHNOLOGY_SOURCES.get(
+                        technology,
+                        ("src-python-docs", "src-fluent-python"),
+                    ),
+                )))
+                linked_source_ids = tuple(
+                    source_id for source_id in linked_source_ids if source_id in source_catalog
+                )[:4]
+                for position, source_id in enumerate(linked_source_ids):
+                    connection.execute(
+                        """INSERT INTO glossary_source_links(
+                            entry_id,source_id,position,rationale
+                           ) VALUES(?,?,?,?)
+                           ON CONFLICT(entry_id,source_id) DO UPDATE SET
+                           position=excluded.position,rationale=excluded.rationale""",
+                        (
+                            identity, source_id, position,
+                            "Referência técnica aprovada; definição e exemplos são originais Aprendix.",
+                        ),
+                    )
+                example_source_id = linked_source_ids[0] if linked_source_ids else None
+                generated_examples = (
+                    () if glossary_examples_complete else
+                    _glossary_examples(term, definition, signature, example)
+                )
+                for ordinal, (example_text, explanation, difficulty, context) in enumerate(
+                    generated_examples
+                ):
+                    example_id = _id("glossary-example", f"{normalized_term}:{ordinal}")
+                    connection.execute(
+                        """INSERT INTO glossary_examples(
+                            id,entry_id,ordinal,example_encrypted,explanation_encrypted,
+                            difficulty,context,source_id
+                           ) VALUES(?,?,?,?,?,?,?,?)
+                           ON CONFLICT(id) DO UPDATE SET
+                           example_encrypted=excluded.example_encrypted,
+                           explanation_encrypted=excluded.explanation_encrypted,
+                           difficulty=excluded.difficulty,context=excluded.context,
+                           source_id=excluded.source_id""",
+                        (
+                            example_id, identity, ordinal,
+                            self._encrypt("glossary_examples.example", example_id, example_text),
+                            self._encrypt("glossary_examples.explanation", example_id, explanation),
+                            difficulty, context, example_source_id,
+                        ),
+                    )
             for canonical, aliases in (*GLOSSARY_ALIASES, *GENERATED_GLOSSARY_ALIASES):
                 entry = connection.execute(
                     "SELECT id FROM glossary_entries WHERE normalized_term=?",
@@ -585,38 +779,53 @@ class CurriculumRepository:
             rows = connection.execute(
                 """SELECT p.id,p.slug,p.title,p.description,p.position,t.id track_id,
                           t.slug track_slug,t.title course_title,
-                          count(DISTINCT u.id) total_units,
-                          count(DISTINCT up.unit_id) completed_units
+                          count(DISTINCT u.id) total_units
                    FROM learning_paths p JOIN learning_path_courses pc ON pc.path_id=p.id
                    JOIN learning_tracks t ON t.id=pc.track_id
                    LEFT JOIN learning_chapters c ON c.track_id=t.id
                    LEFT JOIN learning_units u ON u.chapter_id=c.id
-                   LEFT JOIN learning_unit_progress up ON up.unit_id=u.id AND up.user_id=?
                    WHERE p.active=1 GROUP BY p.id,t.id ORDER BY p.position,pc.position""",
-                (str(user_id),),
             ).fetchall()
-            completed_projects = {row[0] for row in connection.execute(
-                """SELECT c.track_id FROM learning_unit_progress up
-                   JOIN learning_units u ON u.id=up.unit_id
-                   JOIN learning_chapters c ON c.id=u.chapter_id
-                   WHERE up.user_id=? AND u.kind='project'""", (str(user_id),)
-            )}
-            started_tracks = {row[0] for row in connection.execute(
-                """SELECT DISTINCT c.track_id FROM learning_unit_progress up
-                   JOIN learning_units u ON u.id=up.unit_id
-                   JOIN learning_chapters c ON c.id=u.chapter_id WHERE up.user_id=?""",
-                (str(user_id),),
-            )}
+            valid_ids = valid_completed_ids(connection, user_id)
+            unit_rows = connection.execute(
+                """SELECT u.id,u.kind,c.track_id FROM learning_units u
+                   JOIN learning_chapters c ON c.id=u.chapter_id"""
+            ).fetchall()
+            unit_tracks = {
+                str(row["id"]): (str(row["track_id"]), str(row["kind"]))
+                for row in unit_rows
+            }
+            completed_counts: dict[str, int] = {}
+            completed_projects = set()
+            for unit_id in valid_ids:
+                context = unit_tracks.get(unit_id)
+                if context is None:
+                    continue
+                track_id, kind = context
+                completed_counts[track_id] = completed_counts.get(track_id, 0) + 1
+                if kind == "project":
+                    completed_projects.add(track_id)
             prerequisites = {}
             for row in connection.execute("SELECT * FROM course_prerequisites"):
                 prerequisites.setdefault(row["track_id"], set()).add(row["prerequisite_track_id"])
         result = []
         for row in rows:
             item = dict(row)
-            item["unlocked"] = (
-                item["track_id"] in started_tracks or
-                prerequisites.get(item["track_id"], set()).issubset(completed_projects)
+            item["completed_units"] = completed_counts.get(item["track_id"], 0)
+            completed = bool(item["total_units"]) and (
+                item["completed_units"] >= item["total_units"]
             )
+            eligible = not completed and prerequisites.get(
+                item["track_id"], set()
+            ).issubset(completed_projects)
+            item["viewable"] = True
+            item["credit_eligible"] = eligible
+            item["completed"] = completed
+            item["reason_code"] = (
+                "completed" if completed else
+                "eligible" if eligible else "prerequisites_incomplete"
+            )
+            item["unlocked"] = eligible or completed
             item["progress"] = (
                 item["completed_units"] / item["total_units"] if item["total_units"] else 0.0
             )
@@ -687,31 +896,60 @@ class CurriculumRepository:
         defects["dependency_cycles"] = int(any(has_cycle(node) for node in tuple(graph)))
         return {"valid": not any(defects.values()), "counts": counts, "defects": defects}
 
-    def units(self, track_slug: str, user_id: UUID) -> tuple[dict[str, object], ...]:
+    def units(self, track_slug: str, user_id: UUID, *,
+              include_quarantined: bool = False) -> tuple[dict[str, object], ...]:
+        quality_filter = "" if include_quarantined else "AND COALESCE(pq.status, 'accepted') = 'accepted'"
         with self._database.read_connection() as connection:
-            rows = connection.execute("""
+            rows = connection.execute(f"""
                 SELECT u.*, c.title chapter_title, c.graph_node_id,
                        (SELECT id FROM assessment_items a WHERE a.unit_id=u.id LIMIT 1) assessment_id,
                        EXISTS(SELECT 1 FROM learning_unit_progress p
                               WHERE p.user_id=? AND p.unit_id=u.id) completed
                 FROM learning_units u JOIN learning_chapters c ON c.id=u.chapter_id
-                JOIN learning_tracks t ON t.id=c.track_id WHERE t.slug=?
+                JOIN learning_tracks t ON t.id=c.track_id
+                LEFT JOIN pedagogical_quality pq
+                  ON pq.item_type='unit' AND pq.item_id=u.id
+                WHERE t.slug=? {quality_filter}
                 ORDER BY c.position,u.position
             """, (str(user_id), track_slug)).fetchall()
-            completed_ids = {
-                row[0] for row in connection.execute(
-                    "SELECT unit_id FROM learning_unit_progress WHERE user_id=?", (str(user_id),)
-                ).fetchall()
-            }
+            completed_ids = valid_completed_ids(connection, user_id)
             dependencies = {}
             for row in connection.execute("SELECT unit_id,prerequisite_unit_id FROM learning_unit_dependencies"):
                 dependencies.setdefault(row["unit_id"], set()).add(row["prerequisite_unit_id"])
+            course_dependencies = {
+                str(row["id"]) for row in connection.execute(
+                    """SELECT parent.id FROM learning_tracks child
+                       JOIN course_prerequisites cp ON cp.track_id=child.id
+                       JOIN learning_chapters parent_chapter
+                         ON parent_chapter.track_id=cp.prerequisite_track_id
+                       JOIN learning_units parent
+                         ON parent.chapter_id=parent_chapter.id
+                        AND parent.kind='project'
+                       WHERE child.slug=?""",
+                    (track_slug,),
+                ).fetchall()
+            }
         result = []
         for row in rows:
             item = dict(row); identity = item["id"]
             item["body"] = self._decrypt("learning_units.body", identity, item.pop("body_encrypted"))
             item["example"] = self._decrypt("learning_units.example", identity, item.pop("example_encrypted"))
-            item["unlocked"] = dependencies.get(identity, set()).issubset(completed_ids)
+            access = access_from_state(
+                resource_id=identity,
+                resource_kind=str(item["kind"]),
+                track_slug=track_slug,
+                completed=identity in completed_ids,
+                prerequisite_ids=(
+                    set(dependencies.get(identity, set())) | course_dependencies
+                ),
+                completed_ids=completed_ids,
+            )
+            item["viewable"] = access.viewable
+            item["credit_eligible"] = access.credit_eligible
+            item["completed"] = access.completed
+            item["reason_code"] = access.reason_code.value
+            item["missing_prerequisite_ids"] = access.missing_prerequisite_ids
+            item["unlocked"] = access.credit_eligible or access.completed
             result.append(item)
         return tuple(result)
 
@@ -723,7 +961,8 @@ class CurriculumRepository:
                 (str(user_id),),
             ).fetchone()[0])
             rows = connection.execute(
-                """SELECT DISTINCT e.id,e.slug,e.title,e.difficulty,c.title chapter_title,
+                """SELECT DISTINCT e.id,e.slug,e.title,e.difficulty,u.id unit_id,
+                          c.title chapter_title,
                           t.slug track_slug,
                           EXISTS(SELECT 1 FROM attempts a WHERE a.user_id=? AND a.exercise_id=e.id) attempted
                    FROM exercises e JOIN learning_units u ON u.exercise_id=e.id
@@ -742,59 +981,217 @@ class CurriculumRepository:
                        JOIN learning_chapters pc ON pc.id=pu.chapter_id
                        WHERE up.user_id=? AND pu.kind='project'
                        AND pc.track_id=cp.prerequisite_track_id)))
-                   ORDER BY attempted,abs(e.difficulty-?),e.difficulty,e.slug LIMIT ?""",
-                (str(user_id), str(user_id), str(user_id), ability, max(1, min(10, limit))),
+                   ORDER BY attempted,abs(e.difficulty-?),e.difficulty,e.slug LIMIT 200""",
+                (str(user_id), str(user_id), str(user_id), ability),
             ).fetchall()
-        return tuple({**dict(row), "target_ability": ability,
-                      "reason_code": "maximum_information_near_ability"} for row in rows)
+            valid_ids = valid_completed_ids(connection, user_id)
+            candidate_ids = {str(row["unit_id"]) for row in rows}
+            dependencies: dict[str, set[str]] = {}
+            if candidate_ids:
+                placeholders = ",".join("?" for _ in candidate_ids)
+                for dependency in connection.execute(
+                    f"""SELECT unit_id,prerequisite_unit_id
+                        FROM learning_unit_dependencies
+                        WHERE unit_id IN ({placeholders})""",
+                    tuple(sorted(candidate_ids)),
+                ).fetchall():
+                    dependencies.setdefault(
+                        str(dependency["unit_id"]), set()
+                    ).add(str(dependency["prerequisite_unit_id"]))
+            eligible = tuple(
+                row for row in rows
+                if str(row["unit_id"]) not in valid_ids
+                and dependencies.get(str(row["unit_id"]), set()).issubset(valid_ids)
+            )[:max(1, min(10, limit))]
+        return tuple({
+            **dict(row), "target_ability": ability,
+            "reason_code": "maximum_information_near_ability",
+        } for row in eligible)
 
-    def complete_unit(self, user_id: UUID, unit_id: str) -> None:
+    def complete_unit(self, user_id: UUID, unit_id: str):
         now = datetime.now(UTC).isoformat()
         with self._database.transaction() as connection:
             row = connection.execute("SELECT kind FROM learning_units WHERE id=?", (unit_id,)).fetchone()
             if row is None: raise KeyError(unit_id)
             if row["kind"] == "practice":
                 raise ValueError("practice units are completed only by a passed IDE attempt")
+            if row["kind"] in {"quiz", "hybrid"}:
+                raise ValueError(
+                    "assessment units are completed only by a passed assessment attempt"
+                )
             if row["kind"] == "project":
-                has_project = connection.execute(
-                    "SELECT 1 FROM local_projects WHERE user_id=? LIMIT 1", (str(user_id),)
-                ).fetchone()
-                if has_project is None:
-                    raise ValueError("guarda primeiro um projeto verificável no IDE")
-            prerequisites = {
-                item[0] for item in connection.execute(
-                    "SELECT prerequisite_unit_id FROM learning_unit_dependencies WHERE unit_id=?", (unit_id,)
-                ).fetchall()
-            }
-            completed = {
-                item[0] for item in connection.execute(
-                    "SELECT unit_id FROM learning_unit_progress WHERE user_id=?", (str(user_id),)
-                ).fetchall()
-            }
-            if not prerequisites.issubset(completed):
+                raise ValueError(
+                    "project units are completed only by an approved matching capstone evaluation"
+                )
+            access = unit_access(connection, user_id, unit_id)
+            if access.completed:
+                return access
+            if not access.credit_eligible:
                 raise ValueError("unit prerequisites are not complete")
             connection.execute(
                 "INSERT OR IGNORE INTO learning_unit_progress VALUES(?,?,?)",
                 (str(user_id), unit_id, now),
             )
+            return unit_access(connection, user_id, unit_id)
+
+    def progress_integrity_audit(self, user_id: UUID) -> dict[str, object]:
+        """Aggregate legacy progress that cannot safely unlock the curriculum."""
+
+        with self._database.read_connection() as connection:
+            rows = connection.execute(
+                """SELECT p.unit_id,u.kind FROM learning_unit_progress p
+                   JOIN learning_units u ON u.id=p.unit_id
+                   WHERE p.user_id=?""",
+                (str(user_id),),
+            ).fetchall()
+            valid = valid_completed_ids(connection, user_id)
+        by_kind: dict[str, int] = {}
+        suspicious = 0
+        for row in rows:
+            if str(row["unit_id"]) in valid:
+                continue
+            suspicious += 1
+            kind = str(row["kind"])
+            by_kind[kind] = by_kind.get(kind, 0) + 1
+        return {
+            "recorded": len(rows),
+            "valid": len(valid),
+            "suspicious": suspicious,
+            "suspicious_by_kind": dict(sorted(by_kind.items())),
+            "history_preserved": True,
+            "used_for_unlocking": False,
+        }
+
+    def _materialize_glossary_entries(
+        self, entry_ids: tuple[str, ...],
+    ) -> tuple[dict[str, object], ...]:
+        """Decrypt only the already ranked glossary entries and their evidence."""
+
+        if not entry_ids:
+            return ()
+        placeholders = ",".join("?" for _ in entry_ids)
+        with self._database.read_connection() as connection:
+            rows = connection.execute(
+                f"SELECT * FROM glossary_entries WHERE id IN ({placeholders})",
+                entry_ids,
+            ).fetchall()
+            alias_rows = connection.execute(
+                f"""SELECT entry_id,alias FROM glossary_aliases
+                    WHERE entry_id IN ({placeholders}) ORDER BY normalized_alias""",
+                entry_ids,
+            ).fetchall()
+            source_rows = connection.execute(
+                f"""SELECT l.entry_id,s.title,s.canonical_url
+                   FROM glossary_source_links l
+                   JOIN curated_sources s ON s.id=l.source_id
+                   WHERE l.entry_id IN ({placeholders})
+                   ORDER BY l.entry_id,l.position,s.title""",
+                entry_ids,
+            ).fetchall()
+            example_rows = connection.execute(
+                f"""SELECT id,entry_id,ordinal,example_encrypted,explanation_encrypted,
+                           difficulty,context,source_id
+                    FROM glossary_examples WHERE entry_id IN ({placeholders})
+                    ORDER BY entry_id,ordinal""",
+                entry_ids,
+            ).fetchall()
+        rows_by_id = {str(row["id"]): row for row in rows}
+        aliases: dict[str, list[str]] = {}
+        for row in alias_rows:
+            aliases.setdefault(str(row["entry_id"]), []).append(str(row["alias"]))
+        sources: dict[str, list[tuple[str, str]]] = {}
+        for row in source_rows:
+            sources.setdefault(str(row["entry_id"]), []).append(
+                (str(row["title"]), str(row["canonical_url"]))
+            )
+        examples: dict[str, list[dict[str, object]]] = {}
+        for row in example_rows:
+            example_id = str(row["id"])
+            examples.setdefault(str(row["entry_id"]), []).append({
+                "id": example_id,
+                "example": self._decrypt(
+                    "glossary_examples.example", example_id, row["example_encrypted"]
+                ),
+                "explanation": self._decrypt(
+                    "glossary_examples.explanation", example_id,
+                    row["explanation_encrypted"],
+                ),
+                "difficulty": row["difficulty"], "context": row["context"],
+                "source_id": row["source_id"],
+            })
+        reference_map = {
+            "python": (("Documentação Python", "https://docs.python.org/3/"),),
+            "sql": (("PostgreSQL Documentation", "https://www.postgresql.org/docs/current/"),),
+            "javascript": (("MDN Web Docs", "https://developer.mozilla.org/docs/Web/JavaScript"),),
+            "django": (("Django Documentation", "https://docs.djangoproject.com/"),),
+            "numpy": (("NumPy Documentation", "https://numpy.org/doc/stable/"),),
+            "pandas": (("pandas Documentation", "https://pandas.pydata.org/docs/"),),
+            "pytorch": (("PyTorch Documentation", "https://pytorch.org/docs/stable/"),),
+        }
+        materialized = []
+        for identity in entry_ids:
+            row = rows_by_id.get(identity)
+            if row is None:
+                continue
+            item = dict(row)
+            for name in ("definition", "signature", "example"):
+                item[name] = self._decrypt(
+                    f"glossary_entries.{name}", identity,
+                    item.pop(f"{name}_encrypted"),
+                )
+            item["related_terms"] = tuple(json.loads(item.pop("related_terms_json")))
+            item["aliases"] = tuple(aliases.get(identity, ()))
+            item["examples"] = tuple(examples.get(identity, ()))
+            item["references"] = tuple(sources.get(identity, ())) or reference_map.get(
+                item["technology"], (
+                    ("Python Glossary", "https://docs.python.org/3/glossary.html"),
+                    ("Aprendix · conhecimento local", "aprendix://dictionary"),
+                ),
+            )
+            materialized.append(item)
+        return tuple(materialized)
 
     def glossary(self, term: str, *, limit: int = 8) -> tuple[dict[str, object], ...]:
         normalized = _normalize(term)
+        result_limit = max(1, min(limit, 30))
+        if normalized:
+            with self._database.read_connection() as connection:
+                exact_rows = connection.execute(
+                    """SELECT id,0 priority FROM glossary_entries
+                       WHERE normalized_term=?
+                       UNION ALL
+                       SELECT entry_id id,1 priority FROM glossary_aliases
+                       WHERE normalized_alias=?
+                       ORDER BY priority,id LIMIT ?""",
+                    (normalized, normalized, result_limit),
+                ).fetchall()
+            exact_ids = tuple(dict.fromkeys(str(row["id"]) for row in exact_rows))
+            if exact_ids:
+                return self._materialize_glossary_entries(exact_ids)
         with self._database.read_connection() as connection:
             if normalized:
-                escaped = normalized.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
                 candidate_rows = connection.execute(
+                    """SELECT e.id FROM glossary_entries e
+                       WHERE e.normalized_term=?
+                       UNION
+                       SELECT a.entry_id FROM glossary_aliases a
+                       WHERE a.normalized_alias=?
+                       LIMIT 30""",
+                    (normalized, normalized),
+                ).fetchall()
+                if not candidate_rows:
+                    escaped = normalized.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                    candidate_rows = connection.execute(
                     """SELECT DISTINCT e.id FROM glossary_entries e
                        LEFT JOIN glossary_aliases a ON a.entry_id=e.id
-                       WHERE e.normalized_term=? OR a.normalized_alias=?
-                          OR e.normalized_term LIKE ? ESCAPE '\\'
-                          OR a.normalized_alias LIKE ? ESCAPE '\\'
-                          OR e.normalized_term LIKE ? ESCAPE '\\'
-                          OR a.normalized_alias LIKE ? ESCAPE '\\'
+                       WHERE e.normalized_term LIKE ? ESCAPE '\\'
+                           OR a.normalized_alias LIKE ? ESCAPE '\\'
+                           OR e.normalized_term LIKE ? ESCAPE '\\'
+                           OR a.normalized_alias LIKE ? ESCAPE '\\'
                        LIMIT 320""",
-                    (normalized, normalized, escaped + "%", escaped + "%",
-                     "%" + escaped + "%", "%" + escaped + "%"),
-                ).fetchall()
+                        (escaped + "%", escaped + "%",
+                         "%" + escaped + "%", "%" + escaped + "%"),
+                    ).fetchall()
                 if not candidate_rows and len(normalized) >= 2:
                     prefix = normalized[:2].replace("%", "\\%").replace("_", "\\_") + "%"
                     candidate_rows = connection.execute(
@@ -830,6 +1227,13 @@ class CurriculumRepository:
                    ORDER BY l.entry_id,l.position,s.title""",
                 candidate_ids,
             ).fetchall()
+            example_rows = connection.execute(
+                f"""SELECT id,entry_id,ordinal,example_encrypted,explanation_encrypted,
+                           difficulty,context,source_id
+                    FROM glossary_examples WHERE entry_id IN ({placeholders})
+                    ORDER BY entry_id,ordinal""",
+                candidate_ids,
+            ).fetchall()
         aliases_by_entry: dict[str, list[tuple[str, str]]] = {}
         for alias in alias_rows:
             aliases_by_entry.setdefault(alias["entry_id"], []).append(
@@ -840,6 +1244,22 @@ class CurriculumRepository:
             sources_by_entry.setdefault(source["entry_id"], []).append(
                 (source["title"], source["canonical_url"])
             )
+        examples_by_entry: dict[str, list[dict[str, object]]] = {}
+        for example in example_rows:
+            example_id = example["id"]
+            examples_by_entry.setdefault(example["entry_id"], []).append({
+                "id": example_id,
+                "example": self._decrypt(
+                    "glossary_examples.example", example_id, example["example_encrypted"]
+                ),
+                "explanation": self._decrypt(
+                    "glossary_examples.explanation", example_id,
+                    example["explanation_encrypted"],
+                ),
+                "difficulty": example["difficulty"],
+                "context": example["context"],
+                "source_id": example["source_id"],
+            })
         query_tokens = set(normalized.split())
         def rank(row):
             candidate = row["normalized_term"]
@@ -869,6 +1289,7 @@ class CurriculumRepository:
                 item[name] = self._decrypt(f"glossary_entries.{name}", identity, item.pop(f"{name}_encrypted"))
             item["related_terms"] = tuple(json.loads(item.pop("related_terms_json")))
             item["aliases"] = tuple(label for label, _normalized in aliases_by_entry.get(identity, ()))
+            item["examples"] = tuple(examples_by_entry.get(identity, ()))
             reference_map = {
                 "python": (("Documentação Python", "https://docs.python.org/3/"),),
                 "sql": (("PostgreSQL Documentation", "https://www.postgresql.org/docs/current/"),),
@@ -916,20 +1337,7 @@ class CurriculumRepository:
             if row is None: raise KeyError(item_id)
             if row["kind"] == "practical":
                 raise ValueError("practical assessments are graded only by the IDE")
-            prerequisites = {
-                item[0] for item in connection.execute(
-                    "SELECT prerequisite_unit_id FROM learning_unit_dependencies WHERE unit_id=?",
-                    (row["unit_id"],),
-                ).fetchall()
-            }
-            completed = {
-                item[0] for item in connection.execute(
-                    "SELECT unit_id FROM learning_unit_progress WHERE user_id=?",
-                    (str(user_id),),
-                ).fetchall()
-            }
-            if not prerequisites.issubset(completed):
-                raise ValueError("assessment prerequisites are not complete")
+            access = unit_access(connection, user_id, str(row["unit_id"]))
             expected = self._decrypt("assessment_items.answer", item_id, row["answer_encrypted"])
             explanation = self._decrypt("assessment_items.explanation", item_id, row["explanation_encrypted"])
             passed = _normalize(answer) == _normalize(expected)
@@ -942,14 +1350,32 @@ class CurriculumRepository:
                 (attempt_id, str(user_id), item_id, encrypted, int(passed),
                  1.0 if passed else 0.0, now, duration_seconds, mode),
             )
-            if passed:
-                connection.execute(
+            credit_awarded = False
+            if passed and access.credit_eligible:
+                cursor = connection.execute(
                     "INSERT OR IGNORE INTO learning_unit_progress VALUES(?,?,?)",
                     (str(user_id), row["unit_id"], now),
                 )
-        return {"attempt_id": attempt_id, "passed": passed, "score": 1.0 if passed else 0.0,
-                "kind": row["kind"],
-                "explanation": explanation}
+                credit_awarded = cursor.rowcount == 1
+                access = unit_access(connection, user_id, str(row["unit_id"]))
+        return {
+            "attempt_id": attempt_id,
+            "passed": passed,
+            "score": 1.0 if passed else 0.0,
+            "kind": row["kind"],
+            "mode": mode,
+            "viewable": access.viewable,
+            "credit_eligible": access.credit_eligible,
+            "completed": access.completed,
+            "reason_code": access.reason_code.value,
+            "missing_prerequisite_ids": access.missing_prerequisite_ids,
+            "credit_awarded": credit_awarded,
+            "explanation": explanation if mode == "training" else "",
+            "feedback": (
+                "Resposta registada em avaliação sem revelar a solução; a explicação fica disponível no modo de treino."
+                if mode == "evaluation" else explanation
+            ),
+        }
 
     def graph_node_for_assessment(self, item_id: str) -> str:
         with self._database.read_connection() as connection:

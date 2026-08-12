@@ -18,6 +18,8 @@ class CurriculumService:
     def tracks(self): return self._repository.tracks()
     def paths(self): return self._repository.paths(self.user.id)
     def audit(self): return self._repository.validate_catalog()
+    def progress_integrity_audit(self):
+        return self._repository.progress_integrity_audit(self.user.id)
     def diagnostic(self, *, limit: int = 5):
         return self._repository.diagnostic(self.user.id, limit=limit)
     def units(self, track_slug: str): return self._repository.units(track_slug, self.user.id)

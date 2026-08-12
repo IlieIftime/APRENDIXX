@@ -12,7 +12,26 @@ datas = collect_data_files(
     includes=["assets/*"],
 )
 datas += collect_data_files("rapidocr_onnxruntime")
-hidden_imports = ["aprendix.bootstrap", *collect_submodules("rapidocr_onnxruntime")]
+# The source catalogue introspects this bounded stdlib set at startup.  Listing
+# it here makes the same verified catalogue available in the frozen executable
+# instead of relying on incidental imports discovered by PyInstaller.
+stdlib_catalogue_imports = [
+    "abc", "argparse", "array", "ast", "asyncio", "bisect", "calendar",
+    "collections", "concurrent.futures", "contextlib", "csv", "dataclasses",
+    "datetime", "decimal", "difflib", "email", "enum", "fractions",
+    "functools", "hashlib", "heapq", "html", "http", "inspect", "io",
+    "itertools", "json", "logging", "math", "operator", "os.path", "pathlib",
+    "queue", "random", "re", "secrets", "shlex", "sqlite3", "statistics",
+    "string", "subprocess", "tempfile", "textwrap", "threading", "time",
+    "timeit", "tokenize", "traceback", "typing", "unittest", "urllib.parse",
+    "uuid", "warnings", "weakref",
+]
+hidden_imports = [
+    "aprendix.bootstrap",
+    "kivy.graphics.svg",
+    *stdlib_catalogue_imports,
+    *collect_submodules("rapidocr_onnxruntime"),
+]
 
 analysis = Analysis(
     [str(project_root / "main.py")],

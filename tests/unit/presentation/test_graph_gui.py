@@ -4,8 +4,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from aprendix.application.contracts import ExerciseDTO, UserDTO
-from aprendix.presentation import gui
-from aprendix.presentation import graph_webview
+from aprendix.presentation import graph_webview, gui
 from aprendix.presentation.graph_webview import GraphDocumentRenderer
 from aprendix.presentation.gui import LearningGuiController
 
@@ -29,6 +28,36 @@ def test_graph_document_bundles_d3_and_escapes_html_payload() -> None:
     assert "\\u003c/script>" in html
     assert "__GRAPH_DATA__" not in html
     assert "__D3_SOURCE__" not in html
+    # The vendored D3 runtime contains its own generic ``innerHTML`` helper;
+    # security depends on the Aprendix template never sending graph data to it.
+    template = (
+        Path(graph_webview.__file__).parent / "assets" / "graph.html"
+    ).read_text(encoding="utf-8")
+    assert "innerHTML" not in template
+
+
+def test_graph_document_normalizes_period_metrics_and_typed_relations() -> None:
+    html = GraphDocumentRenderer().render({
+        "nodes": [{
+            "id": "n1", "title": "Nó", "difficulty": 0,
+            "statistics": {"attempt_count": 9, "success_count": 7,
+                           "failure_count": 2},
+            "analytics": {"attempts": 3, "successes": 2, "failures": 1,
+                          "mastery": 0.8, "retention": 0.7,
+                          "autonomy": 0.6, "active_seconds": 120},
+        }],
+        "edges": [{
+            "source_node_id": "n1", "target_node_id": "n2", "weight": 1,
+            "relation_type": "prerequisite", "directed": True,
+            "reason": "Nó 1 precede nó 2.", "origin": "curriculum",
+        }],
+    })
+
+    assert '"attempts":3' in html
+    assert '"retention":0.7' in html
+    assert '"source":"n1"' in html
+    assert '"relation_type":"prerequisite"' in html
+    assert "pré-requisito" in html
 
 
 def test_gui_controller_submits_through_application_service() -> None:

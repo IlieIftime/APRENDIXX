@@ -1,0 +1,25 @@
+{
+  "passed": true,
+  "sandbox": {
+    "schema_version": 1,
+    "status": "ok",
+    "stdout": "42\n",
+    "duration_ms": 483,
+    "exit_code": 0,
+    "error_type": null,
+    "error_message": null,
+    "policy_violations": [],
+    "memory_limit_enforced": true,
+    "output_truncated": false
+  },
+  "integrity": "ok",
+  "schema_version": 34,
+  "authored_fact_cards": 1131,
+  "dictionary_else": true,
+  "games": true,
+  "extended_features": true,
+  "tutor_confidence": 0.5319444911616965,
+  "projects": 20,
+  "runtime_health": "healthy",
+  "feature_flags": 14
+}

@@ -1,0 +1,28 @@
+{
+  "iteration": 19,
+  "passed": true,
+  "checks": {
+    "seed_schema_integrity_and_catalog": true,
+    "course_opens_in_builtin_ide": true,
+    "prediction_encrypted_at_rest": true,
+    "attempt_aware_training_diagnosis": true,
+    "protected_evaluation": true,
+    "independent_and_transfer_evidence": true,
+    "android_and_ios_shell_parity": true,
+    "release_apk_contains_current_seed": true
+  },
+  "metrics": {
+    "schema_version": 6,
+    "sources": 1121,
+    "course_units": 50,
+    "glossary_entries": 3315,
+    "learning_sessions": 1,
+    "apk_bytes": 30849511,
+    "apk_sha256": "23f34cf68c6c1aa8c7273c1fd66b35af8589d0a9aff4ed5d1b475cbbb38eee75"
+  },
+  "privacy": "temporary local profile; report contains aggregate counts only",
+  "external_gates": [
+    "physical Android touch/offline smoke",
+    "macOS/Xcode signed iOS build and physical-device smoke"
+  ]
+}

@@ -91,13 +91,14 @@ def launch_mobile() -> int:
                                       halign="left", text_size=(Window.width-dp(60), None)))
                 card.add_widget(Label(text=str(unit["objective"]) + "\n\n" + str(unit["explanation"]),
                                       halign="left", valign="top", text_size=(Window.width-dp(60), None)))
-                title = "Concluída ✓" if unit["slug"] in completed else "Marcar prática concluída"
-                button = Button(text=title, disabled=unit["slug"] in completed, size_hint_y=None, height=dp(44))
-                button.bind(on_release=partial(self.complete, str(unit["slug"])))
+                title = "Rever no IDE" if unit["slug"] in completed else "Abrir no IDE"
+                button = Button(text=title, size_hint_y=None, height=dp(44))
+                button.bind(on_release=partial(self.open_unit, dict(unit)))
                 card.add_widget(button); self.column.add_widget(card)
 
-        def complete(self, slug, *_args):
-            self.runtime.complete_unit(slug); self.render()
+        def open_unit(self, unit, *_args):
+            self.manager.get_screen("ide").load_unit(unit)
+            self.manager.current = "ide"
 
     class ProgressScreen(Screen):
         def __init__(self, runtime: MobileRuntime, **kwargs):
@@ -107,18 +108,33 @@ def launch_mobile() -> int:
 
         def on_pre_enter(self, *_args):
             self.root_box.clear_widgets()
-            complete = len(self.runtime.state.completed_units())
-            total = sum(int(item["unit_count"]) for item in self.runtime.courses())
+            report = self.runtime.progress_report()
+            complete = int(report["completed_units"])
+            total = int(report["total_units"])
             passed = self.runtime.state.passed_attempts()
             self.root_box.add_widget(Label(text="O teu progresso local", font_size=sp(28), bold=True,
                                            size_hint_y=None, height=dp(62)))
-            panel = Surface(orientation="vertical", padding=dp(18), spacing=dp(10), size_hint_y=None, height=dp(240))
+            panel = Surface(orientation="vertical", padding=dp(18), spacing=dp(10), size_hint_y=None, height=dp(330))
             panel.add_widget(Label(text=f"Unidades praticadas: {complete}/{total}", font_size=sp(21)))
             bar = ProgressBar(max=max(1, total), value=complete); panel.add_widget(bar)
             panel.add_widget(Label(text=f"Exercícios distintos aprovados: {passed}\n"
                                         "Os jogos não alteram este progresso.", font_size=sp(18)))
+            evidence = report["learning_sessions"]
+            panel.add_widget(Label(
+                text=(f"Autónomos: {evidence['independent_passes']} · "
+                      f"Transferência: {evidence['transfer_passes']} · "
+                      f"Em curso: {evidence['in_progress']}"),
+                font_size=sp(16),
+            ))
+            panel.add_widget(Label(
+                text=(f"Últimos 7 dias · {report['attempts']} tentativas · "
+                      f"{report['passed']} aprovadas · {report['quizzes']} testes\n"
+                      f"Tendência: {report['trend']} "
+                      f"({int(report['passed_delta']):+d} face à semana anterior)"),
+                font_size=sp(17), halign="left",
+            ))
             self.root_box.add_widget(panel)
-            self.root_box.add_widget(Label(text="O próximo passo recomendado é continuar a primeira unidade não concluída.",
+            self.root_box.add_widget(Label(text=str(report["next_action"]),
                                            halign="left", valign="top", text_size=(Window.width-dp(40), None)))
 
     class CardsScreen(Screen):
@@ -219,14 +235,36 @@ def launch_mobile() -> int:
     class IdeScreen(Screen):
         def __init__(self, runtime: MobileRuntime, **kwargs):
             super().__init__(**kwargs); self.runtime = runtime; self.item = None
+            self.kind = "card"; self.transfer_context = False
             root = BoxLayout(orientation="vertical", padding=dp(10), spacing=dp(7))
             top = BoxLayout(size_hint_y=None, height=dp(42), spacing=dp(8))
-            back = Button(text="‹ Cards", size_hint_x=.25); back.bind(on_release=self._back)
-            self.rank = Label(text="Iniciante · 0/10", size_hint_x=.35)
-            self.progress = ProgressBar(max=10, value=0)
-            top.add_widget(back); top.add_widget(self.rank); top.add_widget(self.progress); root.add_widget(top)
-            self.prompt = Label(text="Escolhe um card", size_hint_y=.18, halign="left", valign="middle", font_size=sp(18))
-            self.prompt.bind(size=lambda widget, _size: setattr(widget, "text_size", widget.size)); root.add_widget(self.prompt)
+            back = Button(text="Voltar", size_hint_x=.22); back.bind(on_release=self._back)
+            self.rank = Label(text="Iniciante · 0/10", size_hint_x=.30)
+            self.mode = Spinner(
+                text="Treino", values=("Treino", "Avaliação"), size_hint_x=.28
+            )
+            top.add_widget(back); top.add_widget(self.rank); top.add_widget(self.mode)
+            root.add_widget(top)
+            prompt_scroll = ScrollView(
+                do_scroll_x=False, size_hint_y=.22,
+                scroll_type=["bars", "content"], bar_width=dp(8),
+            )
+            self.prompt = Label(
+                text="Escolhe um card", size_hint_y=None, halign="left",
+                valign="top", font_size=sp(18),
+            )
+            self.prompt.bind(
+                width=lambda widget, width: setattr(widget, "text_size", (width, None))
+            )
+            self.prompt.bind(
+                texture_size=lambda widget, size: setattr(widget, "height", size[1] + dp(12))
+            )
+            prompt_scroll.add_widget(self.prompt); root.add_widget(prompt_scroll)
+            self.learning_note = TextInput(
+                hint_text="Antes: prevê o resultado. Depois: regista o que aprendeste.",
+                multiline=False, size_hint_y=None, height=dp(44),
+            )
+            root.add_widget(self.learning_note)
             self.editor = TextInput(multiline=True, font_name="RobotoMono", font_size=sp(17),
                 background_color=(.02, .025, .04, 1), foreground_color=(.94, .97, 1, 1),
                 cursor_color=(.3, .85, 1, 1))
@@ -239,7 +277,10 @@ def launch_mobile() -> int:
             actions = BoxLayout(size_hint_y=None, height=dp(54), spacing=dp(8))
             vary = Button(text="Variar contexto"); vary.bind(on_release=self._vary)
             run = Button(text="Executar e corrigir"); run.bind(on_release=self._run)
-            actions.add_widget(vary); actions.add_widget(run); root.add_widget(actions)
+            self.next_button = Button(text="Seguinte")
+            self.next_button.bind(on_release=self._next_unit)
+            actions.add_widget(vary); actions.add_widget(run); actions.add_widget(self.next_button)
+            root.add_widget(actions)
             self.output = Label(text="Output local", size_hint_y=.18, halign="left", valign="top")
             self.output.bind(size=lambda widget, _size: setattr(widget, "text_size", widget.size)); root.add_widget(self.output)
             quiz_row = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
@@ -248,12 +289,30 @@ def launch_mobile() -> int:
             quiz_row.add_widget(self.quiz); quiz_row.add_widget(answer); root.add_widget(quiz_row)
             self.add_widget(root); self._chips()
         def load_card(self, item):
+            self.kind = "card"; self.transfer_context = False
             self.item = item; self.prompt.text = str(item["prompt"])
             self.editor.text = str(item["starter_code"])
+            self.learning_note.text = ""
             self.quiz.text = str(item["question"])
             self.quiz.values = tuple(
                 f"{chr(65 + index)}. {value}" for index, value in enumerate(item["options"])
             )
+            self._progress()
+        def load_unit(self, unit):
+            prepared = self.runtime.prepare_course_unit(str(unit["slug"]))
+            self.kind = "course"; self.transfer_context = False; self.item = prepared
+            self.prompt.text = self.runtime.course_unit_brief(prepared)
+            self.editor.text = str(prepared["starter_code"])
+            session = prepared["session"]
+            self.learning_note.text = str(session["reflection"] or session["prediction"])
+            self.quiz.text = "Teste protegido no corretor"
+            self.quiz.values = ()
+            self.course_units = self.runtime.course_units(str(prepared["track_slug"]))
+            self.course_index = next(
+                (index for index, value in enumerate(self.course_units)
+                 if value["slug"] == prepared["slug"]), 0,
+            )
+            self.output.text = "Lê o contexto, regista uma previsão e completa o contrato."
             self._progress()
         def _insert_raw(self, token, *_args):
             if token == "⇥":
@@ -286,14 +345,52 @@ def launch_mobile() -> int:
             self.editor.text, self.editor.cursor = text, self.editor.get_cursor_from_index(cursor)
         def _run(self, *_args):
             if not self.item: return
+            if self.kind == "course":
+                session = self.item["session"]
+                if not session["prediction"] and self.learning_note.text.strip():
+                    session = self.runtime.update_learning_note(
+                        str(self.item["slug"]), prediction=self.learning_note.text.strip()
+                    )
+                    self.item["session"] = session
+                receipt = self.runtime.execute_course_unit(
+                    str(self.item["slug"]), self.editor.text,
+                    mode="evaluation" if self.mode.text == "Avaliação" else "training",
+                    transfer_context=self.transfer_context,
+                )
+                result, passed = receipt["result"], bool(receipt["passed"])
+                detail = result.stdout or result.error_message or "Sem output"
+                actions = "\n".join(f"- {value}" for value in receipt["actions"])
+                self.output.text = (
+                    ("Código aceite\n" if passed else "Revê o código\n")
+                    + f"Tentativa {receipt['attempt_number']} · {receipt['assistance_stage']}\n"
+                    + str(receipt["diagnosis"]) + "\n" + actions
+                    + (("\n\n" + detail) if detail and self.mode.text == "Treino" else "")
+                )
+                self.item["session"] = receipt["session"]
+                if passed:
+                    self.learning_note.text = ""
+                    self.learning_note.hint_text = "Reflexão: o que corrigiste ou transferiste?"
+                    self.manager.get_screen("course").render()
+                self._progress()
+                return
             result, passed = self.runtime.execute(
                 str(self.item["exercise_id"]), self.editor.text,
                 str(self.item["expected_output"]),
             )
-            self.output.text = ("✓ Código aceite\n" if passed else "⚠ Revê o código\n") + (result.stdout or result.error_message or "Sem output")
+            detail = result.stdout or result.error_message or "Sem output"
+            if not passed and result.error_message:
+                from aprendix.application.editor_support import explain_runtime_error
+                detail += (
+                    "\n\nSugestão de depuração: "
+                    + explain_runtime_error(result.error_type, result.error_message)
+                )
+            self.output.text = ("✓ Código aceite\n" if passed else "⚠ Revê o código\n") + detail
             if passed: self.manager.get_screen("cards").reveal(str(self.item["id"]))
             self._progress()
         def _answer_quiz(self, *_args):
+            if self.kind != "card":
+                self.output.text = "O contrato é corrigido pelos testes protegidos ao executar."
+                return
             if not self.item or self.quiz.text == str(self.item["question"]):
                 self.output.text = "Escolhe primeiro uma das respostas."
                 return
@@ -304,11 +401,33 @@ def launch_mobile() -> int:
             if not self.item: return
             contexts = ("finanças pessoais", "jogos offline", "dados locais", "automação doméstica")
             index = (len(self.editor.text) + self.runtime.state.passed_attempts()) % len(contexts)
-            self.prompt.text = f"Variação A2 ({contexts[index]}): mantém a mesma estrutura e cria um exemplo novo."
+            self.transfer_context = True
+            base = (
+                self.runtime.course_unit_brief(self.item)
+                if self.kind == "course" else str(self.item["prompt"])
+            )
+            self.prompt.text = (
+                f"Variação A2 ({contexts[index]}): mantém a mesma estrutura e cria um exemplo novo.\n\n"
+                + base
+            )
         def _progress(self):
-            passed = min(10, self.runtime.state.passed_attempts()); self.progress.value = passed
+            passed = min(10, self.runtime.state.passed_attempts())
             self.rank.text = ("Adepto" if passed >= 10 else "Iniciante") + f" · {passed}/10"
-        def _back(self, *_args): self.manager.current = "cards"
+        def _next_unit(self, *_args):
+            if self.kind != "course" or not self.item:
+                self.manager.current = "cards"
+                return
+            if self.learning_note.text.strip() and self.item["session"].get("independent_passed"):
+                self.runtime.update_learning_note(
+                    str(self.item["slug"]), reflection=self.learning_note.text.strip()
+                )
+            if self.course_index + 1 >= len(self.course_units):
+                self.output.text = "Percurso concluído. Volta ao curso para escolher o seguinte."
+                return
+            self.course_index += 1
+            self.load_unit(self.course_units[self.course_index])
+        def _back(self, *_args):
+            self.manager.current = "course" if self.kind == "course" else "cards"
 
     class GlossaryScreen(Screen):
         def __init__(self, runtime: MobileRuntime, **kwargs):

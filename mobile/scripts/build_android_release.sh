@@ -16,7 +16,9 @@ if [[ "${ROOT}" == /mnt/* ]]; then
   mkdir -p "${ROOT}"
   rsync -a --delete --exclude='.venv*' --exclude='build' --exclude='dist' --exclude='.buildozer' "${SOURCE_ROOT}/" "${ROOT}/"
 fi
+export PIP_CONSTRAINT="${ROOT}/mobile/android/pip-constraints.txt"
 cd "${ROOT}"
+bash "${ROOT}/mobile/scripts/prepare_android_toolchain.sh" "${ROOT}"
 PYTHONPATH="src:mobile" "${VENV_DIR}/bin/python" -m pytest tests/mobile \
   --confcutdir=tests/mobile -c /dev/null -p no:cacheprovider -q
 "${VENV_DIR}/bin/buildozer" -v android release

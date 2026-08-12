@@ -71,6 +71,8 @@ class ContentGovernanceService:
     def refresh_coverage(self): return self._repository.refresh_coverage()
     def coverage(self, *, gaps_only: bool = False):
         return self._repository.coverage(gaps_only=gaps_only)
+    def bibliography_coverage(self):
+        return self._repository.bibliography_coverage()
     def rollback(self, logical_source: str, sequence: int):
         result = self._repository.rollback(logical_source, sequence)
         self._on_content_changed()

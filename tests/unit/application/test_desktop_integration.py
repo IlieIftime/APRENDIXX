@@ -90,15 +90,120 @@ def test_hdbscan_assigns_every_chunk_once():
 
 def test_ide_evaluation_updates_graph_and_fixed_milestone(tmp_path):
     runtime = build_runtime(tmp_path / "profile")
-    exercise = runtime.exercises.list_all()[0]
+    exercise = next(
+        item for item in runtime.exercises.list_all()
+        if item.slug == "core-types-and-conversion-001"
+    )
+    source = """def inteiro_ou(texto, predefinido=None):
+    if not isinstance(texto, str):
+        return predefinido
+    valor = texto.strip()
+    if valor[:1] in {'+', '-'}:
+        digitos = valor[1:]
+    else:
+        digitos = valor
+    return int(valor) if digitos.isdigit() and digitos else predefinido
+"""
 
-    receipt = runtime.desktop.evaluate(exercise, exercise.starter_code, 100)
+    receipt = runtime.desktop.evaluate(exercise, source, 100)
 
     assert receipt.passed is True
     assert receipt.milestone is not None
     assert receipt.milestone.completed == 1
     snapshot = runtime.graph_snapshot_service.get_snapshot(runtime.user.id)
     assert sum(node.statistics.attempt_count for node in snapshot.nodes) == 1
+    history = runtime.desktop.test_history()
+    assert len(history) == 1
+    assert history[0]["public_passed"] + history[0]["hidden_passed"] >= 0
+
+
+def test_failed_attempts_drive_persisted_help_ladder_and_hint_evidence(tmp_path):
+    runtime = build_runtime(tmp_path / "profile")
+    exercise = runtime.exercises.list_all()[0]
+    receipts = [
+        runtime.desktop.evaluate(
+            exercise, "def quebrada(:\n    pass", 100,
+            hint_count=index,
+            theory_title="Funções seguras",
+            theory_example="def dobro(valor):\n    return valor * 2",
+        )
+        for index in range(4)
+    ]
+
+    assert [item.failed_attempts for item in receipts] == [1, 2, 3, 4]
+    assert [item.attempt_number for item in receipts] == [1, 2, 3, 4]
+    assert receipts[0].assistance_stage == "location"
+    assert receipts[0].diagnostic_code == "syntax"
+    assert receipts[0].prerequisite_terms == ("sintaxe", "indentação", "bloco")
+    assert receipts[-1].assistance_stage == "analogous_example"
+    assert "score manteve-se" in receipts[-1].improvement
+    assert "def dobro" in receipts[-1].worked_example
+    assert receipts[-1].reference_available is True
+    assert receipts[-1].reference_solution
+    assert receipts[-1].reference_explanation
+    assert len(receipts[-1].reference_validation_hash) == 64
+    with runtime.database.read_connection() as connection:
+        hint_counts = [
+            row[0] for row in connection.execute(
+                "SELECT hint_count FROM learning_evidence ORDER BY occurred_at,id"
+            ).fetchall()
+        ]
+        stored_references = connection.execute(
+            "SELECT count(*) FROM exercise_reference_solutions"
+        ).fetchone()[0]
+        encrypted_reference = bytes(connection.execute(
+            "SELECT solution_encrypted FROM exercise_reference_solutions"
+        ).fetchone()[0])
+    assert hint_counts == [0, 1, 2, 3]
+    assert stored_references == 1
+    assert receipts[-1].reference_solution.encode("utf-8") not in encrypted_reference
+
+
+def test_objective_learning_session_resumes_with_encrypted_prediction_and_reflection(tmp_path):
+    runtime = build_runtime(tmp_path / "profile")
+    exercise = next(
+        item for item in runtime.exercises.list_all() if item.slug == "hello-python"
+    )
+
+    initial = runtime.desktop.learning_session(exercise.id)
+    assert initial.unit_id
+    assert initial.objective_id
+    assert initial.objective_code
+    assert initial.theory_viewed is False
+
+    resumed = runtime.desktop.update_learning_session(
+        exercise.id,
+        phase="independent_practice",
+        theory_viewed=True,
+        prediction="SEGREDO_PREVISAO_151",
+        reflection="SEGREDO_REFLEXAO_151",
+        active_seconds=37,
+    )
+    assert resumed.prediction == "SEGREDO_PREVISAO_151"
+    assert resumed.reflection == "SEGREDO_REFLEXAO_151"
+    assert resumed.active_seconds == 37
+    raw = runtime.database.path.read_bytes()
+    assert b"SEGREDO_PREVISAO_151" not in raw
+    assert b"SEGREDO_REFLEXAO_151" not in raw
+
+    receipt = runtime.desktop.evaluate(
+        exercise, exercise.starter_code, 42_000,
+        hint_count=0, active_seconds=42,
+    )
+    completed = runtime.desktop.learning_session(exercise.id)
+    assert receipt.passed
+    assert completed.phase.value == "reflection"
+    assert completed.independent_passed is True
+    assert completed.active_seconds == 42
+    assert runtime.desktop.learning_session_summary()["independent_passes"] == 1
+
+    transfer = runtime.desktop.evaluate(
+        exercise, exercise.starter_code, 42_000,
+        hint_count=0, active_seconds=42, transfer_context=True,
+    )
+    assert transfer.passed
+    assert runtime.desktop.learning_session(exercise.id).transfer_passed is True
+    assert runtime.desktop.learning_session_summary()["transfer_passes"] == 1
 
 
 def test_projects_are_encrypted_and_round_trip(tmp_path):
@@ -119,6 +224,10 @@ def test_debug_state_and_project_versions_survive_locally_encrypted(tmp_path):
     )
     result = runtime.desktop.debug(request, exercise.id)
     assert result.status == "completed" and result.token_verified
+    history = runtime.desktop.debug_history()
+    assert len(history) == 1
+    assert history[0]["breakpoints"][0]["line"] == 2
+    assert history[0]["watches"] == ("x",)
     runtime.desktop.save_debug_recovery(
         exercise.id, request.source_code, cursor_index=4,
         breakpoints=tuple(item.model_dump(mode="json") for item in request.breakpoints),
@@ -158,10 +267,16 @@ def test_project_workspace_supports_encrypted_nested_files_without_duplicate_pro
 
 def test_local_onboarding_streak_xp_badge_and_certificate(tmp_path):
     runtime = build_runtime(tmp_path / "profile")
+    source = """def inteiro_ou(texto, predefinido=None):
+    if not isinstance(texto, str):
+        return predefinido
+    valor = texto.strip()
+    digitos = valor[1:] if valor[:1] in {'+', '-'} else valor
+    return int(valor) if digitos.isdigit() and digitos else predefinido
+"""
     solutions = {
-        "hello-python": 'print("Olá, Python!")',
-        "sum-two-values": "a = 7\nb = 5\nprint(a + b)",
-        "even-or-odd": "numero = 9\nprint('par' if numero % 2 == 0 else 'ímpar')",
+        f"core-types-and-conversion-{index:03d}": source
+        for index in range(1, 4)
     }
     exercises = {
         item.slug: item for item in runtime.exercises.list_all()
@@ -184,12 +299,17 @@ def test_local_onboarding_streak_xp_badge_and_certificate(tmp_path):
 def test_oop_catalog_runs_and_grades_classes_end_to_end(tmp_path):
     runtime = build_runtime(tmp_path / "profile")
     exercise = next(
-        item for item in runtime.exercises.list_all() if item.slug == "oop-account"
+        item for item in runtime.exercises.list_all()
+        if item.slug == "core-constructors-and-validation-001"
     )
     source = """class Conta:
     def __init__(self, saldo):
+        if saldo < 0:
+            raise ValueError('saldo negativo')
         self.saldo = saldo
     def depositar(self, valor):
+        if valor <= 0:
+            raise ValueError('depósito inválido')
         self.saldo += valor
 """
     assert runtime.desktop.run(source).status == "ok"

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 import re
@@ -61,6 +61,24 @@ class MobileStateStore:
                     id TEXT PRIMARY KEY, name_encrypted BLOB NOT NULL,
                     relative_path TEXT NOT NULL, source_encrypted BLOB NOT NULL,
                     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+                ) STRICT;
+                CREATE TABLE IF NOT EXISTS mobile_learning_sessions(
+                    exercise_id TEXT PRIMARY KEY,
+                    unit_slug TEXT NOT NULL DEFAULT '',
+                    phase TEXT NOT NULL CHECK(phase IN (
+                        'microtheory','prediction','guided_practice',
+                        'independent_practice','reflection','review','completed'
+                    )),
+                    mode TEXT NOT NULL CHECK(mode IN ('training','evaluation')),
+                    theory_viewed INTEGER NOT NULL CHECK(theory_viewed IN (0,1)),
+                    independent_passed INTEGER NOT NULL CHECK(independent_passed IN (0,1)),
+                    transfer_passed INTEGER NOT NULL CHECK(transfer_passed IN (0,1)),
+                    hint_count INTEGER NOT NULL CHECK(hint_count BETWEEN 0 AND 100),
+                    active_seconds INTEGER NOT NULL CHECK(active_seconds BETWEEN 0 AND 86400),
+                    prediction_encrypted BLOB NOT NULL,
+                    reflection_encrypted BLOB NOT NULL,
+                    started_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
                 ) STRICT;
             """)
             connection.commit()
@@ -167,6 +185,186 @@ class MobileStateStore:
             ).fetchone()[0])
         finally:
             connection.close()
+
+    def attempt_summary(self, exercise_id: str) -> dict[str, int]:
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                """SELECT count(*),
+                          coalesce(sum(CASE WHEN score >= 1 THEN 1 ELSE 0 END),0)
+                   FROM mobile_attempts WHERE exercise_id=?""",
+                (exercise_id,),
+            ).fetchone()
+            total, passed = int(row[0]), int(row[1])
+            return {"attempts": total, "passed": passed, "failed": total - passed}
+        finally:
+            connection.close()
+
+    @staticmethod
+    def _session_aad(field: str, exercise_id: str) -> bytes:
+        return f"mobile_learning_session.{field}:{exercise_id}".encode()
+
+    def learning_session(self, exercise_id: str, *, unit_slug: str = "") -> dict[str, object]:
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                "SELECT * FROM mobile_learning_sessions WHERE exercise_id=?",
+                (exercise_id,),
+            ).fetchone()
+        finally:
+            connection.close()
+        if row is None:
+            now = datetime.now(UTC).isoformat()
+            return {
+                "exercise_id": exercise_id, "unit_slug": unit_slug,
+                "phase": "microtheory", "mode": "training",
+                "theory_viewed": False, "independent_passed": False,
+                "transfer_passed": False, "hint_count": 0,
+                "active_seconds": 0, "prediction": "", "reflection": "",
+                "started_at": now, "updated_at": now,
+            }
+        values = tuple(row)
+        return {
+            "exercise_id": values[0], "unit_slug": values[1], "phase": values[2],
+            "mode": values[3], "theory_viewed": bool(values[4]),
+            "independent_passed": bool(values[5]), "transfer_passed": bool(values[6]),
+            "hint_count": int(values[7]), "active_seconds": int(values[8]),
+            "prediction": self._cipher.decrypt(
+                values[9], associated_data=self._session_aad("prediction", exercise_id)
+            ).decode(),
+            "reflection": self._cipher.decrypt(
+                values[10], associated_data=self._session_aad("reflection", exercise_id)
+            ).decode(),
+            "started_at": values[11], "updated_at": values[12],
+        }
+
+    def update_learning_session(
+        self, exercise_id: str, *, unit_slug: str = "", **changes: object
+    ) -> dict[str, object]:
+        current = self.learning_session(exercise_id, unit_slug=unit_slug)
+        allowed = {
+            "phase", "mode", "theory_viewed", "independent_passed",
+            "transfer_passed", "hint_count", "active_seconds",
+            "prediction", "reflection",
+        }
+        unknown = set(changes) - allowed
+        if unknown:
+            raise ValueError("unknown learning session fields")
+        current.update(changes)
+        current["unit_slug"] = unit_slug or str(current["unit_slug"])
+        if current["phase"] not in {
+            "microtheory", "prediction", "guided_practice", "independent_practice",
+            "reflection", "review", "completed",
+        } or current["mode"] not in {"training", "evaluation"}:
+            raise ValueError("invalid learning session state")
+        current["hint_count"] = max(0, min(100, int(current["hint_count"])))
+        current["active_seconds"] = max(0, min(86_400, int(current["active_seconds"])))
+        current["prediction"] = str(current["prediction"])[:4_000]
+        current["reflection"] = str(current["reflection"])[:4_000]
+        current["updated_at"] = datetime.now(UTC).isoformat()
+        prediction = self._cipher.encrypt(
+            str(current["prediction"]).encode(),
+            associated_data=self._session_aad("prediction", exercise_id),
+        )
+        reflection = self._cipher.encrypt(
+            str(current["reflection"]).encode(),
+            associated_data=self._session_aad("reflection", exercise_id),
+        )
+        connection = self._connect()
+        try:
+            connection.execute(
+                """INSERT INTO mobile_learning_sessions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(exercise_id) DO UPDATE SET
+                   unit_slug=excluded.unit_slug,phase=excluded.phase,mode=excluded.mode,
+                   theory_viewed=excluded.theory_viewed,
+                   independent_passed=excluded.independent_passed,
+                   transfer_passed=excluded.transfer_passed,hint_count=excluded.hint_count,
+                   active_seconds=excluded.active_seconds,
+                   prediction_encrypted=excluded.prediction_encrypted,
+                   reflection_encrypted=excluded.reflection_encrypted,
+                   updated_at=excluded.updated_at""",
+                (
+                    exercise_id, current["unit_slug"], current["phase"], current["mode"],
+                    int(bool(current["theory_viewed"])),
+                    int(bool(current["independent_passed"])),
+                    int(bool(current["transfer_passed"])), current["hint_count"],
+                    current["active_seconds"], prediction, reflection,
+                    current["started_at"], current["updated_at"],
+                ),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        return self.learning_session(exercise_id, unit_slug=str(current["unit_slug"]))
+
+    def learning_session_summary(self) -> dict[str, int]:
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                """SELECT count(*),
+                          coalesce(sum(independent_passed),0),
+                          coalesce(sum(transfer_passed),0),
+                          coalesce(sum(CASE WHEN phase <> 'completed' THEN 1 ELSE 0 END),0)
+                   FROM mobile_learning_sessions"""
+            ).fetchone()
+            assisted = int(connection.execute(
+                """SELECT count(DISTINCT exercise_id) FROM mobile_attempts
+                   WHERE score >= 1 AND exercise_id NOT IN (
+                       SELECT exercise_id FROM mobile_learning_sessions
+                       WHERE independent_passed=1
+                   )"""
+            ).fetchone()[0])
+        finally:
+            connection.close()
+        return {
+            "sessions": int(row[0]), "independent_passes": int(row[1]),
+            "transfer_passes": int(row[2]), "in_progress": int(row[3]),
+            "assisted_passes": assisted,
+        }
+
+    def learning_report(self, *, now: datetime | None = None) -> dict[str, object]:
+        """Build a seven-day learning summary using only local activity."""
+        current = (now or datetime.now(UTC)).astimezone(UTC)
+        week_start = current - timedelta(days=7)
+        previous_start = week_start - timedelta(days=7)
+        connection = self._connect()
+        try:
+            def period(start: datetime, end: datetime) -> tuple[int, int, int, float, int]:
+                attempts = connection.execute(
+                    """SELECT count(*), count(DISTINCT exercise_id),
+                              coalesce(sum(CASE WHEN score >= 1 THEN 1 ELSE 0 END), 0),
+                              coalesce(avg(score), 0)
+                       FROM mobile_attempts WHERE created_at >= ? AND created_at < ?""",
+                    (start.isoformat(), end.isoformat()),
+                ).fetchone()
+                quizzes = int(connection.execute(
+                    "SELECT count(*) FROM mobile_quiz_attempts WHERE created_at >= ? AND created_at < ?",
+                    (start.isoformat(), end.isoformat()),
+                ).fetchone()[0])
+                return int(attempts[0]), int(attempts[1]), int(attempts[2]), float(attempts[3]), quizzes
+
+            recent = period(week_start, current)
+            previous = period(previous_start, week_start)
+            completed = int(connection.execute(
+                "SELECT count(*) FROM unit_progress WHERE status='completed'"
+            ).fetchone()[0])
+            reviews = int(connection.execute(
+                "SELECT count(*) FROM card_actions WHERE occurred_at >= ? AND occurred_at < ?",
+                (week_start.isoformat(), current.isoformat()),
+            ).fetchone()[0])
+        finally:
+            connection.close()
+        delta = recent[2] - previous[2]
+        trend = "subiu" if delta > 0 else "desceu" if delta < 0 else "estável"
+        return {
+            "period_start": week_start.date().isoformat(),
+            "period_end": current.date().isoformat(),
+            "attempts": recent[0], "distinct_exercises": recent[1],
+            "passed": recent[2], "average_score": round(recent[3], 3),
+            "quizzes": recent[4], "card_reviews": reviews,
+            "completed_units": completed, "previous_passed": previous[2],
+            "passed_delta": delta, "trend": trend,
+        }
 
     def complete_unit(self, unit_slug: str) -> None:
         now = datetime.now(UTC).isoformat(); connection = self._connect()
@@ -286,9 +484,33 @@ class MobileStateStore:
                     "SELECT unit_slug,status,updated_at FROM unit_progress ORDER BY unit_slug"
                 )
             ]
+            sessions = []
+            for row in connection.execute(
+                """SELECT exercise_id,unit_slug,phase,mode,theory_viewed,
+                          independent_passed,transfer_passed,hint_count,
+                          active_seconds,prediction_encrypted,reflection_encrypted,
+                          started_at,updated_at
+                   FROM mobile_learning_sessions ORDER BY exercise_id"""
+            ):
+                identity = str(row[0])
+                sessions.append({
+                    "id": identity, "unit_slug": row[1], "phase": row[2],
+                    "mode": row[3], "theory_viewed": bool(row[4]),
+                    "independent_passed": bool(row[5]),
+                    "transfer_passed": bool(row[6]), "hint_count": int(row[7]),
+                    "active_seconds": int(row[8]),
+                    "prediction": self._cipher.decrypt(
+                        row[9], associated_data=self._session_aad("prediction", identity)
+                    ).decode(),
+                    "reflection": self._cipher.decrypt(
+                        row[10], associated_data=self._session_aad("reflection", identity)
+                    ).decode(),
+                    "started_at": row[11], "updated_at": row[12],
+                })
             return {
                 "platform": "mobile", "reviews": reviews, "attempts": attempts,
                 "completed_units": completed_units, "projects": list(self.projects()),
+                "learning_sessions": sessions,
             }
         finally:
             connection.close()
@@ -304,14 +526,19 @@ class MobileStateStore:
         _, project_conflicts = merge_by_identity(
             list(local.get("projects", [])), list(snapshot.get("projects", []))
         )
+        _, session_conflicts = merge_by_identity(
+            list(local.get("learning_sessions", [])),
+            list(snapshot.get("learning_sessions", [])),
+        )
         return {
             "incoming_reviews": len(snapshot.get("reviews", [])),
             "incoming_attempts": len(snapshot.get("attempts", [])),
             "incoming_completed_units": len(snapshot.get("completed_units", [])),
             "incoming_projects": len(snapshot.get("projects", [])),
+            "incoming_learning_sessions": len(snapshot.get("learning_sessions", [])),
             "conflicts": (
                 len(review_conflicts) + len(attempt_conflicts)
-                + len(unit_conflicts) + len(project_conflicts)
+                + len(unit_conflicts) + len(project_conflicts) + len(session_conflicts)
             ),
         }
 
@@ -325,6 +552,10 @@ class MobileStateStore:
         )
         projects, project_conflicts = merge_by_identity(
             list(local.get("projects", [])), list(snapshot.get("projects", []))
+        )
+        sessions, session_conflicts = merge_by_identity(
+            list(local.get("learning_sessions", [])),
+            list(snapshot.get("learning_sessions", [])),
         )
         connection = self._connect()
         try:
@@ -380,6 +611,48 @@ class MobileStateStore:
                        updated_at=excluded.updated_at""",
                     (identity, encrypted_name, relative_path, encrypted_source, updated, updated),
                 )
+            for item in sessions:
+                identity = str(item["id"])
+                phase = str(item.get("phase", "microtheory"))
+                mode = str(item.get("mode", "training"))
+                if phase not in {
+                    "microtheory", "prediction", "guided_practice",
+                    "independent_practice", "reflection", "review", "completed",
+                } or mode not in {"training", "evaluation"}:
+                    raise ValueError("invalid mobile learning session")
+                prediction = str(item.get("prediction", ""))[:4_000]
+                reflection = str(item.get("reflection", ""))[:4_000]
+                prediction_blob = self._cipher.encrypt(
+                    prediction.encode(),
+                    associated_data=self._session_aad("prediction", identity),
+                )
+                reflection_blob = self._cipher.encrypt(
+                    reflection.encode(),
+                    associated_data=self._session_aad("reflection", identity),
+                )
+                connection.execute(
+                    """INSERT INTO mobile_learning_sessions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                       ON CONFLICT(exercise_id) DO UPDATE SET
+                       unit_slug=excluded.unit_slug,phase=excluded.phase,mode=excluded.mode,
+                       theory_viewed=excluded.theory_viewed,
+                       independent_passed=excluded.independent_passed,
+                       transfer_passed=excluded.transfer_passed,
+                       hint_count=excluded.hint_count,active_seconds=excluded.active_seconds,
+                       prediction_encrypted=excluded.prediction_encrypted,
+                       reflection_encrypted=excluded.reflection_encrypted,
+                       updated_at=excluded.updated_at""",
+                    (
+                        identity, str(item.get("unit_slug", "")), phase, mode,
+                        int(bool(item.get("theory_viewed", False))),
+                        int(bool(item.get("independent_passed", False))),
+                        int(bool(item.get("transfer_passed", False))),
+                        max(0, min(100, int(item.get("hint_count", 0)))),
+                        max(0, min(86_400, int(item.get("active_seconds", 0)))),
+                        prediction_blob, reflection_blob,
+                        str(item.get("started_at") or item["updated_at"]),
+                        str(item["updated_at"]),
+                    ),
+                )
             connection.commit()
         except BaseException:
             connection.rollback(); raise
@@ -387,5 +660,6 @@ class MobileStateStore:
             connection.close()
         return {"reviews": len(reviews), "attempts": len(attempts),
                 "completed_units": len(units), "projects": len(projects),
+                "learning_sessions": len(sessions),
                 "conflicts": len(review_conflicts) + len(attempt_conflicts)
-                + len(unit_conflicts) + len(project_conflicts)}
+                + len(unit_conflicts) + len(project_conflicts) + len(session_conflicts)}

@@ -1,0 +1,21 @@
+{
+  "iteration": 15,
+  "passed": true,
+  "checks": {
+    "objective_session_resumable": true,
+    "learner_notes_encrypted": true,
+    "diagnosis_is_attempt_aware": true,
+    "reference_is_validated_and_encrypted": true,
+    "independent_and_transfer_evidence": true,
+    "step_assessments_seeded": true
+  },
+  "metrics": {
+    "schema_version": 36,
+    "assessment_items": 177,
+    "failed_attempts_exercised": 4,
+    "sessions": 1,
+    "independent_passes": 1,
+    "transfer_passes": 1
+  },
+  "privacy": "aggregate results only; learner notes and code are omitted"
+}

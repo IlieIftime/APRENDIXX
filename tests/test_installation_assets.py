@@ -1,9 +1,9 @@
+import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
-
+from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
 
@@ -15,6 +15,13 @@ def test_windows_installer_separates_build_venv_and_installed_application() -> N
     assert "installation-self-test" in script
     assert 'self_test = "passed"' in script
     assert "$shortcut.TargetPath = $installedExecutable" in script
+    for iteration in range(15, 18):
+        assert f'"ITERATION-{iteration}.md"' in script
+        assert f'"ITERATION-{iteration}-AUDIT-1.0.0.json"' in script
+    assert '"ITERATION-19.md"' in script
+    assert '"ITERATION-19-AUDIT-1.0.0.json"' in script
+    assert '"ITERATION-20.md"' in script
+    assert '"ITERATION-20-AUDIT-1.0.0.json"' in script
 
 
 def test_release_scan_only_allows_dynamic_execution_in_child_boundaries() -> None:
@@ -115,7 +122,10 @@ def test_windows_uninstaller_dry_run_and_isolated_removal(tmp_path: Path) -> Non
 
 def test_mobile_install_readme_distinguishes_android_from_ios() -> None:
     guide = (ROOT / "INSTALL-MOBILE.md").read_text(encoding="utf-8")
-    assert "9C1869F0271DC1622CB3A2B26C262CCF772988F80CD28E2B8059CC8918FF0F3F" in guide
+    apk = ROOT / "dist" / "mobile" / "Aprendix-1.0.0-android-arm64-release.apk"
+    with apk.open("rb") as artifact:
+        apk_sha256 = hashlib.file_digest(artifact, "sha256").hexdigest().upper()
+    assert apk_sha256 in guide
     assert "Instalar-Android-ADB.bat" in guide
     assert "build_ios.sh" in guide
     assert "não pode ser instalado num iPhone" in guide

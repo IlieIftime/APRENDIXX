@@ -48,3 +48,14 @@ class CurriculumCoverageDTO(ContractModel):
     coverage_score: float = Field(ge=0.0, le=1.0)
     gap_code: GapCode
     measured_at: datetime = Field(default_factory=utc_now)
+
+
+class BibliographyCoverageDTO(ContractModel):
+    objective_count: int = Field(ge=0)
+    covered_objectives: int = Field(ge=0)
+    triple_sourced_objectives: int = Field(ge=0)
+    authoritative_objectives: int = Field(ge=0)
+    distinct_sources: int = Field(ge=0)
+    coverage_score: float = Field(ge=0.0, le=1.0)
+    weak_objective_codes: tuple[str, ...] = Field(default=(), max_length=500)
+    measured_at: datetime = Field(default_factory=utc_now)

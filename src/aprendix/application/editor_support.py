@@ -36,6 +36,26 @@ class Diagnostic:
     quick_fix: str = ""
 
 
+def explain_runtime_error(error_type: str | None, message: str | None) -> str:
+    """Translate a Python failure into an actionable, non-solution hint."""
+
+    name = (error_type or "Erro de execução").strip()
+    detail = (message or "").strip().splitlines()[-1][:500]
+    guidance = {
+        "NameError": "O nome ainda não existe neste ponto. Confirma a grafia, o âmbito e a ordem de atribuição.",
+        "TypeError": "Uma operação recebeu um tipo ou número de argumentos incompatível. Observa os valores e o contrato da função.",
+        "IndexError": "O índice está fora dos limites atuais. Verifica o tamanho da sequência e as fronteiras do ciclo.",
+        "KeyError": "A chave não está presente no mapa. Confirma a origem dos dados ou trata explicitamente a ausência.",
+        "ZeroDivisionError": "O denominador tornou-se zero. Identifica que entrada produz esse estado e define a política adequada.",
+        "AttributeError": "O objeto não expõe esse atributo. Confirma o seu tipo real e a interface esperada.",
+        "ValueError": "O tipo é aceite, mas o valor não respeita o domínio esperado. Valida a entrada antes da operação.",
+        "RecursionError": "A recursão não atingiu um caso base. Revê a condição de paragem e a redução do problema.",
+        "SyntaxError": "O analisador não conseguiu construir a estrutura do programa. Começa pela linha indicada e pelos delimitadores anteriores.",
+        "IndentationError": "Os blocos não têm uma indentação coerente. Usa quatro espaços e alinha instruções do mesmo bloco.",
+    }.get(name, "Segue o último frame executado, observa os valores locais e reduz o caso até reproduzir a falha.")
+    return f"{name}: {detail}\n\nComo investigar: {guidance}".strip()
+
+
 def diagnose_python(source: str) -> tuple[Diagnostic, ...]:
     """Return bounded syntax and maintainability diagnostics, fully offline."""
 

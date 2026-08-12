@@ -14,6 +14,11 @@ from aprendix.application.contracts.models import (
     NonBlankText,
     utc_now,
 )
+from aprendix.application.contracts.pedagogy import (
+    CardFormat,
+    CardSourceLinkDTO,
+    PedagogicalBlockDTO,
+)
 
 
 class ContentKind(str, Enum):
@@ -192,6 +197,11 @@ class TheoryCardDTO(ContractModel):
     themes: tuple[LearningTheme, ...] = Field(default=(), max_length=20)
     cluster_id: str | None = Field(default=None, max_length=160)
     area_ids: tuple[str, ...] = Field(default=(), max_length=20)
+    format: CardFormat = CardFormat.CONCEPT
+    asset_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    asset_alt_text: str = Field(default="", max_length=1_000)
+    asset_uri: str = Field(default="", max_length=200)
+    sources: tuple[CardSourceLinkDTO, ...] = Field(default=(), max_length=30)
 
     @field_validator("image_path")
     @classmethod
@@ -270,6 +280,9 @@ class ReadingDetailDTO(ContractModel):
     related_sources: tuple[CuratedSourceDTO, ...] = Field(default=(), max_length=20)
     canonical_url: str | None = Field(default=None, max_length=2_000)
     copyright_note: NonBlankText = Field(max_length=1_000)
+    original_blocks: tuple[PedagogicalBlockDTO, ...] = Field(default=(), max_length=500)
+    summary_blocks: tuple[PedagogicalBlockDTO, ...] = Field(default=(), max_length=200)
+    simplified_blocks: tuple[PedagogicalBlockDTO, ...] = Field(default=(), max_length=300)
 
 
 class DashboardNodeDTO(ContractModel):

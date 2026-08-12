@@ -24,6 +24,8 @@ class FactDefinition:
     formula_or_code: str = ""
     complexity: str = "beginner"
     source_ids: tuple[str, ...] = ()
+    card_format: str = "concept"
+    visual_hint: str = ""
 
 
 FACTS: tuple[FactDefinition, ...] = (
@@ -189,6 +191,11 @@ def _vertical_fact_bank() -> tuple[FactDefinition, ...]:
                     formula_or_code=starter.strip(),
                     complexity=("beginner" if track == "python-foundations" else "intermediate"),
                     source_ids=_AREA_SOURCES.get(area, ("src-python-docs",)),
+                    card_format=(
+                        "microexample", "pitfall", "concept", "comparison",
+                        "application", "formula", "visual",
+                    )[(operation_index * len(_CARD_EVIDENCE) + evidence_index) % 7],
+                    visual_hint=f"{title}: contrato, evidência e resultado observável",
                 ))
     return tuple(facts)
 
@@ -213,6 +220,11 @@ _PROJECT_CURRICULUM_FACTS = tuple(
 )
 
 
+from aprendix.application.advanced_learning_catalog import build_advanced_facts
+
+_ADVANCED_FACTS = build_advanced_facts(FactDefinition)
+
+
 # A single, stable catalogue used by search, cards and curriculum evidence.
 # Every generated item is original Aprendix copy assembled from the authored
 # curriculum specifications above; no external body text is copied.
@@ -222,6 +234,7 @@ ALL_FACTS: tuple[FactDefinition, ...] = (
     *_MODULE_CURRICULUM_FACTS,
     *_PROJECT_CURRICULUM_FACTS,
     *_VERTICAL_PRACTICE_FACTS,
+    *_ADVANCED_FACTS,
 )
 
 

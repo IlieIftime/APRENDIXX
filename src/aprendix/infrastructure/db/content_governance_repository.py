@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from aprendix.application.contracts import (
+    BibliographyCoverageDTO,
     AuthorityLevel, ContentSourceDTO, CurriculumCoverageDTO, GapCode,
 )
 from aprendix.application.knowledge_structure import classify_areas
@@ -301,6 +302,47 @@ class ContentGovernanceRepository:
             coverage_score=row["coverage_score"], gap_code=GapCode(row["gap_code"]),
             measured_at=datetime.fromisoformat(row["measured_at"]),
         ) for row in rows)
+
+    def bibliography_coverage(self) -> BibliographyCoverageDTO:
+        """Measure useful source diversity per curriculum objective."""
+
+        with self._database.read_connection() as connection:
+            rows = connection.execute(
+                """SELECT o.code,
+                          count(DISTINCT esl.source_id) source_count,
+                          count(DISTINCT CASE WHEN cs.source_type IN
+                              ('documentation','book','paper') THEN cs.id END) authority_count
+                   FROM curriculum_objectives o
+                   LEFT JOIN unit_objectives uo ON uo.objective_id=o.id
+                   LEFT JOIN learning_units u ON u.id=uo.unit_id
+                   LEFT JOIN learning_chapters lc ON lc.id=u.chapter_id
+                   LEFT JOIN exercises direct ON direct.id=u.exercise_id
+                   LEFT JOIN exercises related
+                     ON related.graph_node_id=COALESCE(direct.graph_node_id,lc.graph_node_id)
+                   LEFT JOIN exercise_source_links esl ON esl.exercise_id=related.id
+                   LEFT JOIN curated_sources cs ON cs.id=esl.source_id
+                   GROUP BY o.id,o.code ORDER BY o.code"""
+            ).fetchall()
+            distinct_sources = int(connection.execute(
+                "SELECT count(DISTINCT source_id) FROM exercise_source_links"
+            ).fetchone()[0])
+        total = len(rows)
+        covered = sum(int(row["source_count"]) >= 1 for row in rows)
+        triple = sum(int(row["source_count"]) >= 3 for row in rows)
+        authoritative = sum(int(row["authority_count"]) >= 1 for row in rows)
+        weak = tuple(row["code"] for row in rows if int(row["source_count"]) < 3)
+        score = (
+            .35 * covered / max(1, total)
+            + .40 * triple / max(1, total)
+            + .25 * authoritative / max(1, total)
+        )
+        return BibliographyCoverageDTO(
+            objective_count=total, covered_objectives=covered,
+            triple_sourced_objectives=triple,
+            authoritative_objectives=authoritative,
+            distinct_sources=distinct_sources, coverage_score=score,
+            weak_objective_codes=weak,
+        )
 
     def rollback(self, logical_source: str, sequence: int) -> str:
         if not logical_source.strip() or sequence < 1:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal
 from aprendix.domain.enums import StrEnum
 from uuid import UUID, uuid4
 
@@ -117,3 +118,29 @@ class PersonalProgressDTO(ContractModel):
     at_risk_nodes: int = Field(default=0, ge=0)
     next_action: NextLearningActionDTO | None = None
     weekly_plan: tuple[WeeklyPlanItemDTO, ...] = ()
+
+
+class ProgressForecastDTO(ContractModel):
+    generated_for: date
+    total_nodes: int = Field(ge=0)
+    mastered_nodes: int = Field(ge=0)
+    remaining_nodes: int = Field(ge=0)
+    weekly_capacity_nodes: float = Field(ge=0.0)
+    weeks_remaining: int | None = Field(default=None, ge=0, le=5_200)
+    estimated_completion: date | None = None
+    confidence: float = Field(ge=0.0, le=1.0)
+    assumptions: tuple[str, ...] = Field(default=(), max_length=10)
+
+
+class WeeklyProgressReportDTO(ContractModel):
+    week_start: date
+    week_end: date
+    active_minutes: int = Field(ge=0)
+    evidence_count: int = Field(ge=0)
+    average_score: float = Field(ge=0.0, le=1.0)
+    planned_items: int = Field(ge=0)
+    completed_items: int = Field(ge=0)
+    activity_change: float = Field(ge=-10.0, le=10.0)
+    trend: Literal["starting", "improving", "stable", "slowing"]
+    highlights: tuple[str, ...] = Field(default=(), max_length=8)
+    recommendations: tuple[str, ...] = Field(default=(), max_length=8)

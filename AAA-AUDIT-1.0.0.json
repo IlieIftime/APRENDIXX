@@ -4,7 +4,7 @@
     "authored_cards": 1131,
     "bibliography_links": 1089,
     "content_source_adapters": 18,
-    "curated_sources": 200,
+    "curated_sources": 1121,
     "curriculum_objectives": 71,
     "exercises": 3063,
     "glossary_aliases": 9757,
@@ -20,7 +20,7 @@
     },
     "orphan_units": 0,
     "practice_without_exercise": 0,
-    "status": "open",
+    "status": "passed",
     "targets": {
       "authored_cards": {
         "actual": 1131,
@@ -29,10 +29,10 @@
         "passed": true
       },
       "curated_sources": {
-        "actual": 200,
+        "actual": 1121,
         "maximum": null,
         "minimum": 1000,
-        "passed": false
+        "passed": true
       },
       "exercises": {
         "actual": 3063,
@@ -68,7 +68,7 @@
   },
   "database": {
     "integrity": "ok",
-    "schema_version": 33
+    "schema_version": 36
   },
   "external_gates": {
     "android_physical": "not-measured-by-this-host",

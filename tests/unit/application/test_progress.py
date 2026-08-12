@@ -80,6 +80,15 @@ class FakeProgressRepository:
         return {"weekly_hours": 2.0, "assessment_percent": 25}
     def replace_week(self, user_id, start, items): self.items = items
     def weekly_plan(self, user_id, start, end): return self.items
+    def curriculum_node_count(self): return 2
+    def activity_summary(self, user_id): return {"active_seconds": 1800, "total_seconds": 2400}
+    def period_summary(self, user_id, start, end):
+        if start.date() == date(2026, 8, 3):
+            return {"active_seconds": 3600, "evidence_count": 4, "average_score": .8}
+        return {"active_seconds": 1800, "evidence_count": 2, "average_score": .65}
+    def plan_completion(self, user_id, start, end):
+        return {"planned": len(self.items), "completed": 1}
+    def complete_plan_item(self, user_id, item_id, completed=True): return True
 
 
 def test_planner_prioritizes_retention_risk_and_respects_week_budget() -> None:
@@ -102,3 +111,22 @@ def test_planner_prioritizes_retention_risk_and_respects_week_budget() -> None:
     assert service.action_for_time(repository.user_id, 10, now=NOW).duration_minutes == 10
     with pytest.raises(ValueError):
         service.action_for_time(repository.user_id, 12, now=NOW)
+
+
+def test_forecast_and_weekly_report_use_local_evidence_and_study_budget() -> None:
+    repository = FakeProgressRepository()
+    repository.saved[repository.node_ids[0]] = MasteryStateDTO(
+        user_id=repository.user_id, node_id=repository.node_ids[0],
+        p_known=.9, retention=.9, autonomy=.8, velocity=.75, confidence=.8,
+        evidence_count=5, last_practiced_at=datetime(2026, 8, 2, tzinfo=UTC),
+        successful_reviews=3, updated_at=datetime(2026, 8, 2, tzinfo=UTC),
+    )
+    service = LearningProgressService(repository)
+    forecast = service.forecast(repository.user_id, today=date(2026, 8, 3))
+    report = service.weekly_report(repository.user_id, today=date(2026, 8, 5))
+    assert forecast.total_nodes == 2
+    assert forecast.mastered_nodes == 1
+    assert forecast.estimated_completion >= date(2026, 8, 3)
+    assert report.active_minutes == 60
+    assert report.trend == "improving"
+    assert report.average_score == pytest.approx(.8)

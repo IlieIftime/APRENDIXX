@@ -1,0 +1,20 @@
+{
+  "iteration": 16,
+  "passed": true,
+  "checks": {
+    "aaa_catalogue_target": true,
+    "unique_ids_and_urls": true,
+    "official_docs_allowlisted": true,
+    "local_library_is_metadata_only": true,
+    "every_objective_has_three_sources": true
+  },
+  "metrics": {
+    "stored_sources": 1121,
+    "official_python_api_entries": 921,
+    "local_library_entries": 166,
+    "objectives": 71,
+    "triple_sourced_objectives": 71,
+    "bibliography_coverage_score": 1.0
+  },
+  "privacy": "metadata and aggregate coverage only; no local absolute paths or text"
+}

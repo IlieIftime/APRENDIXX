@@ -84,9 +84,16 @@ def test_broker_checks_caches_and_installs_only_signed_pack(tmp_path):
     assert broker.check(_policy())["status"] == "cached"
     assert FakeClient.fetches == 1
 
+    preview = broker.preview(checked["offers"][0], _policy())
+    assert preview["requires_confirmation"] is True
+    assert preview["uploads_user_data"] is False
+    assert preview["affected_tracks"] == ("python-foundations",)
+    assert preview["rollback_available"] is False
+
     installed = broker.install(checked["offers"][0], _policy())
     assert installed["version"] == "1.2.0"
     assert manager.installed()[0]["active"] == "1.2.0"
+    assert broker.preview(checked["offers"][0], _policy())["rollback_available"] is True
     assert broker.check(_policy())["offers"] == ()
 
 

@@ -13,6 +13,10 @@ def test_every_track_has_capstone_and_portfolio_distinguishes_mode(tmp_path) -> 
     capstone_tracks = {item.track_slug for item in templates if item.capstone}
     assert capstone_tracks == {item["slug"] for item in runtime.curriculum.tracks()}
     project = runtime.portfolio.start(templates[0].id, mode="autonomous")
+    context = runtime.portfolio.context(project.id)
+    assert context["template"].id == templates[0].id
+    assert context["template"].track_slug == templates[0].track_slug
+    assert context["work_mode"] == "autonomous"
     runtime.portfolio.set_milestone(project.id, 0)
     entry = runtime.portfolio.entries()[0]
     assert entry.work_mode == "autonomous"

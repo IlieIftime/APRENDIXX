@@ -5,10 +5,12 @@ from __future__ import annotations
 import os
 import sys
 import time
+from hashlib import sha256
 from importlib.resources import files
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from uuid import NAMESPACE_URL, uuid5
 
 from aprendix.application.graph import GraphRecommender, GraphSnapshotService, GraphWorker
 from aprendix.application.knowledge import (
@@ -28,6 +30,12 @@ from aprendix.application.platform import PlatformService
 from aprendix.application.progress import LearningProgressService
 from aprendix.application.content_governance import ContentGovernanceService
 from aprendix.application.content_updates import ContentUpdateService
+from aprendix.application.learning_catalog import ALL_FACTS
+from aprendix.application.pedagogical_quality import PedagogicalQualityCompiler
+from aprendix.application.pedagogical_documents import (
+    ManagedAssetStore,
+    PedagogicalDocumentService,
+)
 from aprendix.application.profile_service import ProfileTransferService
 from aprendix.application.clustering import HdbscanClusterService
 from aprendix.application.contracts import EventDTO, SearchFiltersDTO, UserDTO
@@ -56,6 +64,8 @@ from aprendix.infrastructure.db import (
     SnippetRepository,
     GameRepository,
     DesktopProfileRepository,
+    PedagogicalQualityRepository,
+    PedagogicalRepository,
 )
 from aprendix.infrastructure.db.schema import SCHEMA_VERSION
 from aprendix.infrastructure.curriculum import CurriculumRepository
@@ -110,6 +120,9 @@ class Runtime:
     content_packs: ContentPackManager
     content_updates: ContentUpdateService
     profile_transfer: ProfileTransferService
+    quality: PedagogicalQualityCompiler
+    pedagogy: PedagogicalDocumentService
+    pedagogical_assets: ManagedAssetStore
 
 
 def default_data_directory() -> Path:
@@ -159,7 +172,6 @@ def build_runtime(data_directory: Path | None = None) -> Runtime:
     knowledge_repository = KnowledgeRepository(database, cipher)
     knowledge_structure = KnowledgeStructureRepository(database, cipher)
     knowledge_structure.seed()
-    knowledge_repository.seed_authored_facts()
     content_governance_repository = ContentGovernanceRepository(database, cipher)
     content = ContentGovernanceService(
         content_governance_repository,
@@ -189,6 +201,20 @@ def build_runtime(data_directory: Path | None = None) -> Runtime:
     desktop_repository.seed_milestones()
     curriculum_repository = CurriculumRepository(database, cipher)
     curriculum_repository.seed()
+    # Curriculum seeding creates the complete graph-node spine. Re-running the
+    # idempotent authored-fact upsert now attaches every curiosity card to its
+    # semantically corresponding adaptive node.
+    authored_document_id = str(uuid5(NAMESPACE_URL, "aprendix:authored-facts:v1"))
+    expected_catalog_hash = sha256(
+        "\n".join(repr(fact) for fact in ALL_FACTS).encode("utf-8")
+    ).hexdigest()
+    with database.read_connection() as connection:
+        catalog_is_current = connection.execute(
+            "SELECT 1 FROM documents WHERE id=? AND content_hash=?",
+            (authored_document_id, expected_catalog_hash),
+        ).fetchone() is not None
+    if not catalog_is_current:
+        knowledge_repository.seed_authored_facts()
     content.refresh_objective_evidence()
     content.refresh_coverage()
     with database.read_connection() as connection:
@@ -247,6 +273,40 @@ def build_runtime(data_directory: Path | None = None) -> Runtime:
     portfolio = ProjectPortfolioService(
         user=user, repository=portfolio_repository, desktop=desktop,
     )
+    quality = PedagogicalQualityCompiler(PedagogicalQualityRepository(database))
+    pedagogical_repository = PedagogicalRepository(database, cipher)
+    pedagogy = PedagogicalDocumentService(pedagogical_repository)
+    pedagogical_assets = ManagedAssetStore(data_directory / "cache" / "pedagogical-assets")
+    document_seed = pedagogical_repository.seed_catalog_documents()
+    with database.read_connection() as connection:
+        catalog_search_count = int(connection.execute(
+            "SELECT count(*) FROM catalog_search_entries"
+        ).fetchone()[0])
+        insecure_glossary_shadow = connection.execute(
+            """SELECT 1 FROM catalog_search_entries
+               WHERE entity_type='glossary' AND trim(body)<>trim(title) LIMIT 1"""
+        ).fetchone() is not None
+    if document_seed["updated"] or catalog_search_count == 0 or insecure_glossary_shadow:
+        pedagogy.rebuild_catalog_search()
+
+    def audit_pedagogical_catalog():
+        units = tuple(
+            unit
+            for track in curriculum_repository.tracks()
+            for unit in curriculum_repository.units(
+                str(track["slug"]), user.id, include_quarantined=True,
+            )
+        )
+        return quality.audit(
+            exercises=exercise_repository.list_all(include_quarantined=True),
+            projects=portfolio_repository.templates(include_quarantined=True),
+            cards=knowledge_repository.list_theory_cards(
+                limit=5_000, authored_only=True, include_quarantined=True,
+            ),
+            units=units,
+        )
+
+    audit_pedagogical_catalog()
     snippets = SnippetAssistantService(
         user=user, analyzer=SnippetAnalyzer(), ocr=LocalImageOcr(),
         repository=SnippetRepository(database, cipher),
@@ -263,6 +323,9 @@ def build_runtime(data_directory: Path | None = None) -> Runtime:
         curriculum_repository.rebuild_bibliography_links()
         content.refresh_objective_evidence()
         content.refresh_coverage()
+        pedagogical_repository.seed_catalog_documents()
+        pedagogy.rebuild_catalog_search()
+        audit_pedagogical_catalog()
 
     pack_catalog = PackCatalogImporter(
         database, knowledge_repository, content_governance_repository,
@@ -307,6 +370,9 @@ def build_runtime(data_directory: Path | None = None) -> Runtime:
         content_packs=content_packs,
         content_updates=content_updates,
         profile_transfer=profile_transfer,
+        quality=quality,
+        pedagogy=pedagogy,
+        pedagogical_assets=pedagogical_assets,
     )
 
 
@@ -333,8 +399,9 @@ def gui_main() -> int:
         exercises=runtime.exercises,
         submissions=runtime.submission_service,
         snapshot_provider=lambda: _snapshot(runtime),
+        graph_service=runtime.graph_snapshot_service,
         search_service=runtime.search_service,
-        card_provider=lambda **filters: runtime.knowledge.list_theory_cards(limit=60, **filters),
+        card_provider=lambda **filters: runtime.knowledge.list_theory_cards(limit=2_000, **filters),
         corrector=runtime.corrector,
         desktop=runtime.desktop,
         cluster_provider=lambda: runtime.knowledge.list_clusters(limit=40),
@@ -347,6 +414,10 @@ def gui_main() -> int:
         games=runtime.games,
         content_updates=runtime.content_updates,
         profile_transfer=runtime.profile_transfer,
+        quality=runtime.quality,
+        governance=runtime.content,
+        pedagogy=runtime.pedagogy,
+        asset_store=runtime.pedagogical_assets,
     )
     try:
         return launch_kivy(controller)
@@ -369,8 +440,9 @@ def toga_main() -> int:
             exercises=runtime.exercises,
             submissions=runtime.submission_service,
             snapshot_provider=lambda: _snapshot(runtime),
+            graph_service=runtime.graph_snapshot_service,
             search_service=runtime.search_service,
-            card_provider=lambda **filters: runtime.knowledge.list_theory_cards(limit=60, **filters),
+            card_provider=lambda **filters: runtime.knowledge.list_theory_cards(limit=2_000, **filters),
             corrector=runtime.corrector,
             desktop=runtime.desktop,
             cluster_provider=lambda: runtime.knowledge.list_clusters(limit=40),
@@ -383,5 +455,9 @@ def toga_main() -> int:
             games=runtime.games,
             content_updates=runtime.content_updates,
             profile_transfer=runtime.profile_transfer,
+            quality=runtime.quality,
+            governance=runtime.content,
+            pedagogy=runtime.pedagogy,
+            asset_store=runtime.pedagogical_assets,
         )
     )

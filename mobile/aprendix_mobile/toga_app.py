@@ -57,17 +57,26 @@ def main():
             self.cards_box = toga.Box(style=Pack(direction=COLUMN), children=[
                 toolbar, learning_toolbar, support_toolbar, self.title_label, self.body_label, actions,
             ])
-            self.prompt = toga.Label("", style=Pack(font_size=17, margin=8))
+            self.ide_kind = "card"
+            self.prompt = toga.MultilineTextInput(readonly=True, style=Pack(height=190, margin=8))
+            self.learning_note = toga.TextInput(
+                placeholder="Previsão antes; reflexão depois", style=Pack(margin=8)
+            )
             self.editor = toga.MultilineTextInput(style=Pack(flex=1, margin=8))
             code_row = toga.Box(style=Pack(direction=ROW, margin=6))
             for token in ("(", ")", "[", "]", "{", "}", ":", "_", "=", "    "):
                 code_row.add(toga.Button(token, on_press=lambda _w, value=token: self.insert_token(value), style=Pack(flex=1)))
             self.output = toga.MultilineTextInput(readonly=True, style=Pack(height=100, margin=8))
+            self.ide_mode = toga.Selection(items=["Treino", "Avaliação"], style=Pack(flex=1))
             ide_actions = toga.Box(style=Pack(direction=ROW, margin=8), children=[
-                toga.Button("‹ Cards", on_press=self.back, style=Pack(flex=1)),
+                toga.Button("Voltar", on_press=self.back_from_ide, style=Pack(flex=1)),
+                self.ide_mode,
                 toga.Button("Executar e corrigir", on_press=self.run_code, style=Pack(flex=2, margin_left=6)),
+                toga.Button("Seguinte", on_press=self.next_course_unit, style=Pack(flex=1, margin_left=6)),
             ])
-            self.ide_box = toga.Box(style=Pack(direction=COLUMN), children=[self.prompt, self.editor, code_row, ide_actions, self.output])
+            self.ide_box = toga.Box(style=Pack(direction=COLUMN), children=[
+                self.prompt, self.learning_note, self.editor, code_row, ide_actions, self.output,
+            ])
             self.search_query = toga.TextInput(placeholder="Tema, método, autor ou aplicação", style=Pack(flex=1))
             self.search_area = toga.Selection(items=["Toda a árvore", *self.area_labels], style=Pack(flex=1, margin_left=6))
             search_controls = toga.Box(style=Pack(direction=ROW, margin=8), children=[
@@ -118,7 +127,7 @@ def main():
             self.course_box = toga.Box(style=Pack(direction=COLUMN), children=[
                 toga.Box(style=Pack(direction=ROW, margin=8), children=[
                     toga.Button("‹ Cards", on_press=self.back), self.course_select, self.unit_select,
-                    toga.Button("Concluir", on_press=self.complete_course_unit, style=Pack(margin_left=6)),
+                    toga.Button("Abrir no IDE", on_press=self.open_course_unit, style=Pack(margin_left=6)),
                 ]), self.unit_body,
             ])
             self.progress_body = toga.MultilineTextInput(readonly=True, style=Pack(flex=1, margin=12))
@@ -222,7 +231,9 @@ def main():
             if not item: return
             if not item.get("exercise_id"):
                 self.open_reader(str(item["id"])); return
-            self.prompt.text = str(item["prompt"])
+            self.ide_kind = "card"
+            self.prompt.value = str(item["prompt"])
+            self.learning_note.value = ""
             self.editor.value = str(item["starter_code"]); self.main_window.content = self.ide_box
         def flip_card(self, _widget):
             item = self.current()
@@ -234,6 +245,28 @@ def main():
         def insert_token(self, token):
             self.editor.value = (self.editor.value or "") + token + (" " if token in {"def", "class"} else "")
         def run_code(self, _widget):
+            if self.ide_kind == "course":
+                unit = self.current_course_unit
+                session = unit["session"]
+                if not session["prediction"] and (self.learning_note.value or "").strip():
+                    unit["session"] = self.runtime.update_learning_note(
+                        str(unit["slug"]), prediction=(self.learning_note.value or "").strip()
+                    )
+                receipt = self.runtime.execute_course_unit(
+                    str(unit["slug"]), self.editor.value or "",
+                    mode="evaluation" if self.ide_mode.value == "Avaliação" else "training",
+                )
+                unit["session"] = receipt["session"]
+                actions = "\n".join(f"- {value}" for value in receipt["actions"])
+                self.output.value = (
+                    ("Código aceite\n" if receipt["passed"] else "Revê o código\n")
+                    + f"Tentativa {receipt['attempt_number']} · {receipt['assistance_stage']}\n"
+                    + str(receipt["diagnosis"]) + "\n" + actions
+                )
+                if receipt["passed"]:
+                    self.learning_note.value = ""
+                    self.learning_note.placeholder = "Reflexão: o que corrigiste?"
+                return
             item = self.current()
             result, passed = self.runtime.execute(
                 str(item["exercise_id"]), self.editor.value or "",
@@ -242,6 +275,8 @@ def main():
             self.output.value = ("Código aceite\n" if passed else "Revê o código\n") + (result.stdout or result.error_message or "Sem output")
             if passed: self.body_label.value = str(item["body"]) + "\n\n" + str(item["code"])
         def back(self, _widget): self.main_window.content = self.cards_box
+        def back_from_ide(self, _widget):
+            self.main_window.content = self.course_box if self.ide_kind == "course" else self.cards_box
         def show_course(self, _widget):
             self.main_window.content = self.course_box
             self.change_course(None)
@@ -257,16 +292,48 @@ def main():
                 f"{item['objective']}\n\n{item['explanation']}\n\nCódigo inicial\n{item['starter_code']}"
                 if item else "Escolhe uma unidade."
             )
-        def complete_course_unit(self, _widget):
+        def open_course_unit(self, _widget):
             item = self.unit_labels.get(str(self.unit_select.value)) if hasattr(self, "unit_labels") else None
             if item:
-                self.runtime.complete_unit(str(item["slug"])); self.unit_body.value += "\n\nConcluída neste dispositivo."
+                self.current_course_unit = self.runtime.prepare_course_unit(str(item["slug"]))
+                self.ide_kind = "course"
+                self.course_unit_index = next(
+                    (index for index, value in enumerate(self.course_units)
+                     if value["slug"] == item["slug"]), 0,
+                )
+                self.prompt.value = self.runtime.course_unit_brief(self.current_course_unit)
+                self.editor.value = str(self.current_course_unit["starter_code"])
+                session = self.current_course_unit["session"]
+                self.learning_note.value = str(session["reflection"] or session["prediction"])
+                self.output.value = "Regista uma previsão e completa o contrato."
+                self.main_window.content = self.ide_box
+        def next_course_unit(self, _widget):
+            if self.ide_kind != "course":
+                self.main_window.content = self.cards_box
+                return
+            if ((self.learning_note.value or "").strip()
+                    and self.current_course_unit["session"].get("independent_passed")):
+                self.runtime.update_learning_note(
+                    str(self.current_course_unit["slug"]),
+                    reflection=(self.learning_note.value or "").strip(),
+                )
+            if self.course_unit_index + 1 >= len(self.course_units):
+                self.output.value = "Percurso concluído."
+                return
+            self.course_unit_index += 1
+            next_item = self.course_units[self.course_unit_index]
+            self.unit_select.value = str(next_item["title"])
+            self.open_course_unit(None)
         def show_progress(self, _widget):
             complete = len(self.runtime.state.completed_units())
             total = sum(int(item["unit_count"]) for item in self.runtime.courses())
+            evidence = self.runtime.state.learning_session_summary()
             self.progress_body.value = (
                 f"Unidades concluídas: {complete}/{total}\n\n"
                 f"Exercícios aprovados: {self.runtime.state.passed_attempts()}\n\n"
+                f"Autónomos: {evidence['independent_passes']} · "
+                f"Transferência: {evidence['transfer_passes']} · "
+                f"Em curso: {evidence['in_progress']}\n\n"
                 "Os jogos não alteram o progresso pedagógico."
             )
             self.main_window.content = self.progress_box

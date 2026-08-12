@@ -1,0 +1,18 @@
+{
+  "iteration": 17,
+  "passed": true,
+  "checks": {
+    "opt_in_and_connectivity_policy": true,
+    "https_host_allowlist": true,
+    "explicit_preview": true,
+    "signature_hash_and_staging_validated": true,
+    "weekly_cache_prevents_repeat_network": true
+  },
+  "metrics": {
+    "interval_days": 7,
+    "registry_fetches": 1,
+    "installed_files": 1,
+    "installed_bytes": 12
+  },
+  "privacy": "offline synthetic pack; no learner data or external request"
+}

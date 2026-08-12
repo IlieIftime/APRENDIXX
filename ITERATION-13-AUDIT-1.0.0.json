@@ -1,0 +1,115 @@
+{
+  "audit_version": "iteration-13.1",
+  "duration_ms": 31413.62,
+  "journeys": {
+    "adaptive_progress": {
+      "detail": "confidence 0.25; weekly report 7 days",
+      "duration_ms": 356.45,
+      "error_type": "",
+      "passed": true
+    },
+    "bibliography": {
+      "detail": "71/71 objectives covered",
+      "duration_ms": 96.17,
+      "error_type": "",
+      "passed": true
+    },
+    "curiosity_cards": {
+      "detail": "12 sourced graph-linked cards sampled",
+      "duration_ms": 111.34,
+      "error_type": "",
+      "passed": true
+    },
+    "curriculum": {
+      "detail": "12 tracks",
+      "duration_ms": 312.28,
+      "error_type": "",
+      "passed": true
+    },
+    "database": {
+      "detail": "schema 34",
+      "duration_ms": 706.04,
+      "error_type": "",
+      "passed": true
+    },
+    "dictionary": {
+      "detail": "1 local matches",
+      "duration_ms": 25.92,
+      "error_type": "",
+      "passed": true
+    },
+    "games_isolation": {
+      "detail": "local session sudoku",
+      "duration_ms": 24.61,
+      "error_type": "",
+      "passed": true
+    },
+    "hybrid_search": {
+      "detail": "5 evidence items",
+      "duration_ms": 100.05,
+      "error_type": "",
+      "passed": true
+    },
+    "ide_diagnostics": {
+      "detail": "static diagnostics returned",
+      "duration_ms": 0.11,
+      "error_type": "",
+      "passed": true
+    },
+    "ide_sandbox": {
+      "detail": "isolated execution and output",
+      "duration_ms": 103.98,
+      "error_type": "",
+      "passed": true
+    },
+    "knowledge_graph": {
+      "detail": "3398 nodes; 3 recommendations",
+      "duration_ms": 336.63,
+      "error_type": "",
+      "passed": true
+    },
+    "mobile_parity": {
+      "detail": "1137 cards; 12 courses; 50 units",
+      "duration_ms": 10290.15,
+      "error_type": "",
+      "passed": true
+    },
+    "offline_tutor": {
+      "detail": "1 grounded evidence items",
+      "duration_ms": 4369.14,
+      "error_type": "",
+      "passed": true
+    },
+    "pedagogical_compiler": {
+      "detail": "4462 compiled; 0 quarantined",
+      "duration_ms": 12.77,
+      "error_type": "",
+      "passed": true
+    },
+    "responsive_layout": {
+      "detail": "9 release viewports",
+      "duration_ms": 0.0,
+      "error_type": "",
+      "passed": true
+    },
+    "snippet_assistant": {
+      "detail": "4 suggested tests",
+      "duration_ms": 17.32,
+      "error_type": "",
+      "passed": true
+    }
+  },
+  "manual_release_gates": {
+    "android_touch": "requires-physical-device",
+    "authenticode": "requires-publisher-certificate",
+    "ios_build_and_touch": "requires-macos-xcode-and-physical-device",
+    "windows_mixed_dpi": "requires-two-physical-monitors"
+  },
+  "passed": true,
+  "privacy": {
+    "aggregate_only": true,
+    "contains_paths": false,
+    "contains_user_content": false,
+    "contains_user_identifiers": false
+  }
+}

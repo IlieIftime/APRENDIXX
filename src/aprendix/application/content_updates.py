@@ -65,3 +65,6 @@ class ContentUpdateService:
 
     def install_remote(self, offer, registry_url: str, *, channel: str = "stable"):
         return self._broker.install(offer, self.policy(registry_url, channel=channel))
+
+    def preview_remote(self, offer, registry_url: str, *, channel: str = "stable"):
+        return self._broker.preview(offer, self.policy(registry_url, channel=channel))

@@ -27,6 +27,10 @@ from aprendix.application.knowledge_structure import (
     descendants,
     fold,
 )
+from aprendix.application.pedagogical_documents import (
+    legacy_text_to_blocks,
+    normalize_pedagogical_text,
+)
 
 
 class KnowledgeStructureRepository:
@@ -180,12 +184,18 @@ class KnowledgeStructureRepository:
         if expanded:
             where = "WHERE kas.area_id IN (" + ",".join("?" for _ in expanded) + ")"
             parameters.extend(expanded)
-        parameters.append(max(1, min(limit, 100)))
+        parameters.append(max(1, min(limit, 5_000)))
         with self._database.read_connection() as connection:
             rows = connection.execute(
                 f"""SELECT cs.*,group_concat(DISTINCT kas.area_id) area_ids
                 FROM curated_sources cs JOIN knowledge_area_sources kas ON kas.source_id=cs.id
-                {where} GROUP BY cs.id ORDER BY cs.publication_year DESC,cs.title LIMIT ?""",
+                {where} GROUP BY cs.id ORDER BY
+                    CASE cs.provenance
+                        WHEN 'curated-primary-source-2026-08' THEN 0
+                        WHEN 'user-approved-local-library-metadata-2026-08' THEN 1
+                        ELSE 2
+                    END,
+                    cs.publication_year DESC,cs.title LIMIT ?""",
                 parameters,
             ).fetchall()
         return tuple(self._source_dto(row) for row in rows)
@@ -202,7 +212,7 @@ class KnowledgeStructureRepository:
             if (term := fold(item)) not in stopwords and not term.isdigit()
         }
         scored = []
-        for source in self.sources(area_ids, limit=100):
+        for source in self.sources(area_ids, limit=5_000):
             haystack = fold(" ".join((source.title, *source.authors, source.overview, source.why_it_matters)))
             hits = sum(1 for term in terms if term in haystack)
             if hits:
@@ -268,7 +278,7 @@ class KnowledgeStructureRepository:
             ).decode("utf-8"))
             if part["image_path"] and Path(part["image_path"]).is_file():
                 visual_assets.append(str(Path(part["image_path"]).resolve()))
-        original = "\n\n".join(original_parts)[:100_000]
+        original = normalize_pedagogical_text("\n\n".join(original_parts))[:100_000]
         summary, simplified, points, math_notes = self._assistance(chunk_id, original, query)
         concepts = self._concepts(original)
         areas = self._areas_for_chunk(str(chunk_id))
@@ -287,6 +297,21 @@ class KnowledgeStructureRepository:
             copyright_note=(
                 "Conteúdo apresentado a partir de um ficheiro local fornecido pelo utilizador. "
                 "A versão simplificada é uma síntese automática e deve ser confrontada com o original."
+            ),
+            original_blocks=legacy_text_to_blocks(
+                original, document_id=f"reading:{chunk_id}:original",
+                provenance="Ficheiro local privado do utilizador",
+                license_name="private-local",
+            ),
+            summary_blocks=legacy_text_to_blocks(
+                summary, document_id=f"reading:{chunk_id}:summary",
+                provenance="Síntese local Aprendix",
+                license_name="private-local-derived",
+            ),
+            simplified_blocks=legacy_text_to_blocks(
+                simplified, document_id=f"reading:{chunk_id}:simplified",
+                provenance="Simplificação local Aprendix",
+                license_name="private-local-derived",
             ),
         )
 
@@ -445,7 +470,7 @@ class KnowledgeStructureRepository:
         return tuple(row[0] for row in rows)
 
     def _reference_detail(self, source_id: str) -> ReadingDetailDTO:
-        sources = [item for item in self.sources(limit=100) if item.id == source_id]
+        sources = [item for item in self.sources(limit=5_000) if item.id == source_id]
         if not sources:
             raise KeyError("Referência curada desconhecida.")
         source = sources[0]
@@ -464,5 +489,17 @@ class KnowledgeStructureRepository:
             copyright_note=(
                 f"{source.access_note} {source.license_note} "
                 "Esta ficha é conteúdo original do Aprendix, não o texto integral da obra."
+            ),
+            original_blocks=legacy_text_to_blocks(
+                original, document_id=f"reference:{source.id}:original",
+                provenance="Ficha bibliográfica original Aprendix", license_name="MIT",
+            ),
+            summary_blocks=legacy_text_to_blocks(
+                summary, document_id=f"reference:{source.id}:summary",
+                provenance="Síntese original Aprendix", license_name="MIT",
+            ),
+            simplified_blocks=legacy_text_to_blocks(
+                simplified, document_id=f"reference:{source.id}:simplified",
+                provenance="Simplificação original Aprendix", license_name="MIT",
             ),
         )

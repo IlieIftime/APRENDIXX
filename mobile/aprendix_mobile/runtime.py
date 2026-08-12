@@ -58,8 +58,136 @@ class MobileRuntime:
     def course_units(self, track_slug: str) -> tuple[dict[str, object], ...]:
         return self.content.course_units(track_slug)
 
+    def prepare_course_unit(self, unit_slug: str) -> dict[str, object]:
+        unit = self.content.course_unit(unit_slug)
+        exercise_id = f"unit:{unit_slug}"
+        session = self.state.update_learning_session(
+            exercise_id,
+            unit_slug=unit_slug,
+            phase="independent_practice",
+            theory_viewed=True,
+        )
+        return {**unit, "exercise_id": exercise_id, "session": session}
+
+    @staticmethod
+    def course_unit_brief(unit: dict[str, object]) -> str:
+        return (
+            "Contextualização\n"
+            f"{unit['explanation']}\n\n"
+            "Objetivo\n"
+            f"{unit['objective']}\n\n"
+            "Especificação técnica\n"
+            "Completa o contrato iniciado no editor, mantendo nomes e parâmetros.\n\n"
+            "Requisitos e casos-limite\n"
+            "A solução deve ser determinística, não alterar argumentos sem indicação e "
+            "funcionar sem rede, processos ou ficheiros externos.\n\n"
+            "Critérios de avaliação\n"
+            "Executar sem erros e passar os casos normais e de fronteira do corretor local."
+        )
+
+    def execute_course_unit(
+        self,
+        unit_slug: str,
+        source: str,
+        *,
+        mode: str = "training",
+        active_seconds: int = 0,
+        transfer_context: bool = False,
+    ) -> dict[str, object]:
+        if mode not in {"training", "evaluation"}:
+            raise ValueError("invalid assessment mode")
+        unit = self.content.course_unit(unit_slug)
+        exercise_id = f"unit:{unit_slug}"
+        result, passed = self.executor.grade(source, str(unit["test_code"]))
+        self.state.save_attempt(
+            exercise_id, source, result.status, 1.0 if passed else 0.0,
+            result.stdout or result.error_message or "",
+        )
+        attempts = self.state.attempt_summary(exercise_id)
+        previous = self.state.learning_session(exercise_id, unit_slug=unit_slug)
+        independent = bool(previous["independent_passed"]) or (
+            passed and int(previous["hint_count"]) == 0 and mode == "training"
+        )
+        transfer = bool(previous["transfer_passed"]) or (
+            passed and transfer_context and mode == "training"
+        )
+        phase = "reflection" if passed else (
+            "guided_practice" if int(previous["hint_count"]) else "independent_practice"
+        )
+        session = self.state.update_learning_session(
+            exercise_id,
+            unit_slug=unit_slug,
+            phase=phase,
+            mode=mode,
+            independent_passed=independent,
+            transfer_passed=transfer,
+            active_seconds=max(int(previous["active_seconds"]), max(0, active_seconds)),
+        )
+        if passed:
+            self.complete_unit(unit_slug)
+            diagnosis = "Contrato cumprido nos casos protegidos."
+            actions = ("Regista uma reflexão curta.", "Repete num contexto diferente.")
+        elif result.status == "syntax_error":
+            diagnosis = "A estrutura do código ainda não forma Python válido."
+            actions = ("Revê a linha indicada.", "Confirma dois pontos e indentação do bloco.")
+        elif result.status == "rejected":
+            diagnosis = "Este contrato usa uma construção fora do subconjunto seguro mobile."
+            actions = ("Resolve esta unidade no desktop para usar o sandbox completo.",)
+        elif result.status in {"runtime_error", "limit"}:
+            diagnosis = "O programa iniciou, mas terminou com erro ou excedeu um limite local."
+            actions = ("Testa primeiro a menor entrada válida.", "Segue os valores até à primeira divergência.")
+        else:
+            diagnosis = "O código executa, mas pelo menos um caso protegido diverge do contrato."
+            actions = ("Relê o tipo de retorno pedido.", "Testa entrada vazia e fronteiras.")
+        stage = ("localização", "conceito", "estratégia", "exemplo análogo")[
+            min(3, max(0, attempts["failed"] - 1))
+        ]
+        if mode == "evaluation" and not passed:
+            diagnosis = "Resposta registada sem revelar a causa nem os casos protegidos."
+            actions = ("Revê a matéria depois de terminares a avaliação.",)
+            stage = "protegido"
+        self.haptics.emit("success" if passed else "error")
+        return {
+            "result": result, "passed": passed, "attempt_number": attempts["attempts"],
+            "failed_attempts": attempts["failed"], "assistance_stage": stage,
+            "diagnosis": diagnosis, "actions": actions, "session": session,
+            "advanced_desktop_required": result.status == "rejected",
+        }
+
+    def update_learning_note(
+        self, unit_slug: str, *, prediction: str | None = None,
+        reflection: str | None = None,
+    ) -> dict[str, object]:
+        exercise_id = f"unit:{unit_slug}"
+        changes = {}
+        if prediction is not None:
+            changes["prediction"] = prediction
+            changes["phase"] = "independent_practice"
+        if reflection is not None:
+            changes["reflection"] = reflection
+            changes["phase"] = "completed"
+        return self.state.update_learning_session(
+            exercise_id, unit_slug=unit_slug, **changes,
+        )
+
     def complete_unit(self, unit_slug: str) -> None:
         self.state.complete_unit(unit_slug)
+
+    def progress_report(self) -> dict[str, object]:
+        report = self.state.learning_report()
+        total_units = sum(int(item["unit_count"]) for item in self.courses())
+        completed = int(report["completed_units"])
+        report.update({
+            "total_units": total_units,
+            "completion_ratio": completed / max(1, total_units),
+            "next_action": (
+                "Revê um card e conclui um exercício curto para retomar o ritmo."
+                if int(report["attempts"]) == 0 else
+                "Continua na primeira unidade ainda não concluída e testa o que aprendeste."
+            ),
+            "learning_sessions": self.state.learning_session_summary(),
+        })
+        return report
 
     def shortcuts(self, area_id: str | None = None) -> tuple[dict[str, object], ...]:
         return self.content.shortcuts(area_id)

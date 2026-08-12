@@ -6,7 +6,11 @@ from datetime import date, datetime
 from uuid import UUID
 
 from aprendix.application.contracts import (
-    EvidenceType, LearningAction, LearningEvidenceDTO, MasteryStateDTO,
+    ErrorCategory,
+    EvidenceType,
+    LearningAction,
+    LearningEvidenceDTO,
+    MasteryStateDTO,
     WeeklyPlanItemDTO,
 )
 
@@ -194,8 +198,47 @@ class LearningProgressRepository:
         return {"total_seconds": int(row["total_seconds"]),
                 "active_seconds": int(row["active_seconds"])}
 
+    def period_summary(self, user_id: UUID, start: datetime, end: datetime) -> dict[str, float | int]:
+        with self._database.read_connection() as connection:
+            row = connection.execute(
+                """SELECT count(*) evidence_count,COALESCE(avg(score),0) average_score,
+                          COALESCE(sum(COALESCE(active_seconds,duration_seconds,0)),0) active_seconds
+                   FROM learning_evidence WHERE user_id=? AND occurred_at>=? AND occurred_at<?""",
+                (str(user_id), start.isoformat(), end.isoformat()),
+            ).fetchone()
+        return {
+            "evidence_count": int(row["evidence_count"]),
+            "average_score": float(row["average_score"]),
+            "active_seconds": int(row["active_seconds"]),
+        }
+
+    def curriculum_node_count(self) -> int:
+        with self._database.read_connection() as connection:
+            return int(connection.execute(
+                "SELECT count(DISTINCT graph_node_id) FROM learning_chapters"
+            ).fetchone()[0])
+
+    def plan_completion(self, user_id: UUID, start: date, end: date) -> dict[str, int]:
+        with self._database.read_connection() as connection:
+            row = connection.execute(
+                """SELECT count(*) planned,COALESCE(sum(completed),0) completed
+                   FROM weekly_plan_items WHERE user_id=? AND scheduled_for BETWEEN ? AND ?""",
+                (str(user_id), start.isoformat(), end.isoformat()),
+            ).fetchone()
+        return {"planned": int(row["planned"]), "completed": int(row["completed"])}
+
+    def complete_plan_item(self, user_id: UUID, item_id: UUID, completed: bool = True) -> bool:
+        from datetime import UTC
+        with self._database.transaction() as connection:
+            cursor = connection.execute(
+                """UPDATE weekly_plan_items SET completed=?,updated_at=?
+                   WHERE id=? AND user_id=?""",
+                (int(completed), datetime.now(UTC).isoformat(), str(item_id), str(user_id)),
+            )
+        return cursor.rowcount == 1
+
     def replace_week(self, user_id: UUID, start: date, items: tuple[WeeklyPlanItemDTO, ...]) -> None:
-        from datetime import timedelta, UTC, datetime
+        from datetime import UTC, datetime, timedelta
         now = datetime.now(UTC).isoformat()
         end = start + timedelta(days=6)
         with self._database.transaction() as connection:
@@ -226,3 +269,158 @@ class LearningProgressRepository:
             action=LearningAction(row["action"]), duration_minutes=row["duration_minutes"],
             reason_code=row["reason_code"], completed=bool(row["completed"]),
         ) for row in rows)
+
+    def analytics_scope_nodes(
+        self,
+        *,
+        track_slug: str | None = None,
+        node_id: UUID | None = None,
+    ) -> tuple[dict[str, object], ...]:
+        """Return only curriculum nodes for a global, track, or node scope.
+
+        Dictionary/glossary nodes deliberately never enter the global denominator.
+        A graph node reused by more than one chapter is counted exactly once.
+        """
+
+        clauses: list[str] = []
+        parameters: list[str] = []
+        if track_slug is not None:
+            clauses.append("t.slug = ?")
+            parameters.append(track_slug)
+        if node_id is not None:
+            clauses.append("g.id = ?")
+            parameters.append(str(node_id))
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._database.read_connection() as connection:
+            rows = connection.execute(
+                f"""SELECT g.id AS node_id,g.title,t.slug AS track_slug,
+                           t.title AS track_title,t.position AS track_position,
+                           MIN(c.position) AS chapter_position
+                    FROM learning_chapters c
+                    JOIN learning_tracks t ON t.id=c.track_id
+                    JOIN graph_nodes g ON g.id=c.graph_node_id
+                    {where}
+                    GROUP BY g.id,g.title,t.slug,t.title,t.position
+                    ORDER BY t.position,chapter_position,g.title,g.id""",
+                tuple(parameters),
+            ).fetchall()
+        # A shared graph concept has one denominator entry. Retain the first
+        # curricular placement for display/grouping deterministically.
+        unique: dict[str, dict[str, object]] = {}
+        for row in rows:
+            unique.setdefault(
+                row["node_id"],
+                {
+                    "node_id": UUID(row["node_id"]),
+                    "title": row["title"],
+                    "track_slug": row["track_slug"],
+                    "track_title": row["track_title"],
+                },
+            )
+        return tuple(unique.values())
+
+    def analytics_evidence(
+        self,
+        user_id: UUID,
+        node_ids: tuple[UUID, ...],
+        *,
+        before: datetime,
+    ) -> tuple[LearningEvidenceDTO, ...]:
+        """Load numeric evidence needed to reconstruct historical mastery."""
+
+        if not node_ids:
+            return ()
+        placeholders = ",".join("?" for _ in node_ids)
+        parameters = (
+            str(user_id),
+            *(str(node_id) for node_id in node_ids),
+            before.isoformat(),
+        )
+        with self._database.read_connection() as connection:
+            rows = connection.execute(
+                f"""SELECT * FROM learning_evidence
+                    WHERE user_id=? AND node_id IN ({placeholders})
+                      AND occurred_at<?
+                    ORDER BY occurred_at,id""",
+                parameters,
+            ).fetchall()
+        return tuple(
+            LearningEvidenceDTO(
+                id=UUID(row["id"]),
+                user_id=UUID(row["user_id"]),
+                node_id=UUID(row["node_id"]),
+                source_key=row["source_key"],
+                evidence_type=EvidenceType(row["evidence_type"]),
+                score=float(row["score"]),
+                duration_seconds=row["duration_seconds"],
+                active_seconds=row["active_seconds"],
+                hint_count=int(row["hint_count"]),
+                paste_ratio=float(row["paste_ratio"]),
+                error_category=ErrorCategory(row["error_category"]),
+                transfer_score=row["transfer_score"],
+                project_quality=row["project_quality"],
+                item_difficulty=float(row["item_difficulty"]),
+                item_discrimination=float(row["item_discrimination"]),
+                response_confidence=float(row["response_confidence"]),
+                context_key=row["context_key"],
+                occurred_at=datetime.fromisoformat(row["occurred_at"]),
+            )
+            for row in rows
+        )
+
+    def analytics_planned_minutes(
+        self,
+        user_id: UUID,
+        start: date,
+        end: date,
+    ) -> dict[date, float]:
+        """Return explicit daily plan minutes, or the configured weekly pace."""
+
+        with self._database.read_connection() as connection:
+            rows = connection.execute(
+                """SELECT scheduled_for,sum(duration_minutes) AS minutes
+                   FROM weekly_plan_items
+                   WHERE user_id=? AND scheduled_for>=? AND scheduled_for<?
+                   GROUP BY scheduled_for ORDER BY scheduled_for""",
+                (str(user_id), start.isoformat(), end.isoformat()),
+            ).fetchall()
+            plan = connection.execute(
+                "SELECT start_date,weekly_hours FROM study_plans WHERE user_id=?",
+                (str(user_id),),
+            ).fetchone()
+        explicit = {
+            date.fromisoformat(row["scheduled_for"]): float(row["minutes"])
+            for row in rows
+        }
+        daily = (float(plan["weekly_hours"]) * 60.0 / 7.0) if plan else 0.0
+        plan_start = date.fromisoformat(plan["start_date"]) if plan else None
+        result: dict[date, float] = {}
+        current = start
+        while current < end:
+            result[current] = daily if plan_start is None or current >= plan_start else 0.0
+            current = date.fromordinal(current.toordinal() + 1)
+        result.update(explicit)
+        return result
+
+    def analytics_next_milestone(self, user_id: UUID) -> dict[str, object] | None:
+        """Return the next unfinished local milestone without exposing evidence."""
+
+        with self._database.read_connection() as connection:
+            row = connection.execute(
+                """SELECT md.theme,md.rank_to,md.required_distinct_passes,
+                          COALESCE(json_array_length(um.completed_exercises_json),0)
+                              AS completed
+                   FROM milestone_definitions md
+                   LEFT JOIN user_milestones um
+                     ON um.milestone_id=md.id AND um.user_id=?
+                   WHERE um.completed_at IS NULL
+                   ORDER BY md.position,md.id LIMIT 1""",
+                (str(user_id),),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "title": f"{row['theme']} · {row['rank_to']}",
+            "completed": int(row["completed"]),
+            "required": int(row["required_distinct_passes"]),
+        }

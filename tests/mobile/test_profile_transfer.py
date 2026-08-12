@@ -30,7 +30,8 @@ def test_encrypted_profile_roundtrip_and_conflict_preview(tmp_path: Path) -> Non
     preview = target.preview_profile(package, "frase-passe-segura")
     assert preview == {
         "incoming_reviews": 1, "incoming_attempts": 1,
-        "incoming_completed_units": 1, "incoming_projects": 1, "conflicts": 0,
+        "incoming_completed_units": 1, "incoming_projects": 1,
+        "incoming_learning_sessions": 0, "conflicts": 0,
     }
     result = target.import_profile(package, "frase-passe-segura")
     assert result["attempts"] == 1 and target.state.passed_attempts() == 1

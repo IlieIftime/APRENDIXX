@@ -10,6 +10,9 @@ from aprendix.application.contracts import (
 )
 from aprendix.application.knowledge import HybridSearchService
 from aprendix.application.knowledge_structure import (
+    LOCAL_LIBRARY_SOURCES,
+    OFFICIAL_PYTHON_API_SOURCES,
+    SOURCES,
     PedagogicalReadingAssistant,
     classify_areas,
 )
@@ -63,6 +66,26 @@ def test_knowledge_tree_catalogue_sources_and_explainable_classification(databas
     assert {item.id for item in sources} >= {"src-react", "src-reflexion"}
     assigned = classify_areas("ReAct agent tool use with episodic memory")
     assert any(area_id in {"agent-architectures", "agent-memory"} for area_id, _score, _reason in assigned)
+
+
+def test_source_catalogue_meets_aaa_target_without_fabricated_publications() -> None:
+    assert len(SOURCES) >= 1_000
+    assert len(OFFICIAL_PYTHON_API_SOURCES) >= 800
+    assert len({source.id for source in SOURCES}) == len(SOURCES)
+    assert len({source.url for source in SOURCES}) == len(SOURCES)
+    assert all(
+        source.authors == ("Python Software Foundation",)
+        and source.source_type == "documentation"
+        and source.url.startswith("https://docs.python.org/3/library/")
+        and "#" in source.url
+        and source.provenance == "python-public-api-official-docs-2026-08"
+        for source in OFFICIAL_PYTHON_API_SOURCES
+    )
+    assert all(
+        source.url.startswith("aprendix-library://")
+        and source.provenance == "user-approved-local-library-metadata-2026-08"
+        for source in LOCAL_LIBRARY_SOURCES
+    )
 
 
 def test_area_filtered_cards_search_and_assisted_reading_are_operational(database, cipher) -> None:

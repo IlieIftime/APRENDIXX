@@ -9,7 +9,8 @@ import webbrowser
 import ast
 import ctypes
 import os
-from datetime import date
+import math
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from aprendix.application.contracts import (
@@ -37,11 +38,29 @@ from aprendix.application.editor_support import (
     matching_delimiter,
     organize_imports,
 )
+from aprendix.application.exercise_presentation import build_exercise_brief
 from aprendix.application.games import DIFFICULTIES, MinesweeperGame, SudokuGame
+from aprendix.application.ide_commands import search_ide_commands
 from aprendix.application.knowledge import SearchCancellationToken
 from aprendix.application.navigation import CommandPalette, NavigationHistory, Route
 from aprendix.application.pedagogy_tools import profile_execution, visualize_structures
 from aprendix.presentation.design_system import THEMES, palette
+from aprendix.presentation.responsive import (
+    dashboard_tab_width,
+    ide_journey_header_profile,
+)
+
+
+def _walk_theme_widgets(branches):
+    """Yield every active or cached screen widget exactly once."""
+
+    visited = set()
+    for branch in branches:
+        for widget in branch.walk():
+            identity = id(widget)
+            if identity not in visited:
+                visited.add(identity)
+                yield widget
 
 
 def launch_advanced_kivy(controller) -> int:
@@ -60,22 +79,29 @@ def launch_advanced_kivy(controller) -> int:
     from kivy.clock import Clock
     from kivy.core.window import Window
     from kivy.core.clipboard import Clipboard
-    from kivy.graphics import Color, RoundedRectangle
+    from kivy.graphics import (
+        Color, Line, PopMatrix, PushMatrix, Rectangle, RoundedRectangle, Scale,
+        Translate,
+    )
+    from kivy.graphics.svg import Svg
     from kivy.metrics import dp
     from kivy.uix.image import AsyncImage
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
     from kivy.uix.checkbox import CheckBox
     from kivy.uix.codeinput import CodeInput
+    from kivy.uix.floatlayout import FloatLayout
     from kivy.uix.label import Label
     from kivy.uix.gridlayout import GridLayout
     from kivy.uix.progressbar import ProgressBar
     from kivy.uix.popup import Popup
     from kivy.uix.screenmanager import NoTransition, Screen, ScreenManager
     from kivy.uix.scrollview import ScrollView
+    from kivy.uix.scatter import Scatter
     from kivy.uix.spinner import Spinner
     from kivy.uix.textinput import TextInput
     from kivy.uix.togglebutton import ToggleButton
+    from kivy.uix.widget import Widget
 
     palettes = {name: palette(name) for name in THEMES}
     theme_name = controller.load_preference("theme", "dark")
@@ -107,6 +133,332 @@ def launch_advanced_kivy(controller) -> int:
         def refresh_theme(self):
             self.theme_color.rgba = colors["card"]
 
+    class PaneDivider(Widget):
+        """Keyboard-neutral drag handle for the adjustable IDE brief pane."""
+
+        def __init__(self, target=None, **kwargs):
+            kwargs.setdefault("size_hint_x", None)
+            kwargs.setdefault("width", dp(9))
+            super().__init__(**kwargs)
+            self.target = target
+            self._drag_origin = None
+            self._target_origin = None
+            with self.canvas:
+                self.divider_color = Color(*colors["accent"])
+                self.divider_line = Rectangle(pos=self.pos, size=self.size)
+            self.bind(pos=self._sync, size=self._sync)
+
+        def _sync(self, *_args):
+            self.divider_line.pos = (self.center_x - dp(1), self.y)
+            self.divider_line.size = (dp(2), self.height)
+
+        def on_touch_down(self, touch):
+            if self.collide_point(*touch.pos) and self.target is not None:
+                touch.grab(self)
+                self._drag_origin = touch.x
+                self._target_origin = self.target.width
+                return True
+            return super().on_touch_down(touch)
+
+        def on_touch_move(self, touch):
+            if touch.grab_current is self and self.target is not None:
+                available = max(dp(640), self.parent.width if self.parent else Window.width)
+                self.target.width = min(
+                    available * .58,
+                    max(dp(300), self._target_origin - (touch.x - self._drag_origin)),
+                )
+                return True
+            return super().on_touch_move(touch)
+
+        def on_touch_up(self, touch):
+            if touch.grab_current is self:
+                touch.ungrab(self)
+                if self.target is not None:
+                    controller.save_preference("ide.brief_width", f"{self.target.width:.2f}")
+                return True
+            return super().on_touch_up(touch)
+
+    class TrendChart(FloatLayout):
+        """Small local canvas chart; no browser process and no network dependency."""
+
+        def __init__(self, **kwargs):
+            kwargs.setdefault("size_hint_y", None)
+            kwargs.setdefault("height", dp(230))
+            super().__init__(**kwargs)
+            self._series = ()
+            self.bind(pos=self._draw, size=self._draw)
+
+        def set_series(self, series):
+            self._series = tuple(
+                (str(name), tuple(float(value or 0) for value in values))
+                for name, values in series if values
+            )
+            self._draw()
+
+        def refresh_theme(self):
+            self._draw()
+
+        def _draw(self, *_args):
+            self.canvas.clear()
+            self.clear_widgets()
+            with self.canvas:
+                Color(*colors["card_alt"])
+                Rectangle(pos=self.pos, size=self.size)
+                left, bottom = self.x + dp(42), self.y + dp(30)
+                width, height = max(dp(40), self.width - dp(62)), max(dp(30), self.height - dp(70))
+                Color(*(*colors["muted"][:3], .22))
+                for step in range(5):
+                    y = bottom + height * step / 4
+                    Line(points=(left, y, left + width, y), width=1)
+                palette_values = (
+                    colors["accent"], colors["success"], colors["warning"], colors["muted"],
+                )
+                all_values = [value for _name, values in self._series for value in values]
+                maximum = max(all_values, default=1.0) or 1.0
+                for series_index, (_name, values) in enumerate(self._series):
+                    if not values:
+                        continue
+                    points = []
+                    for index, value in enumerate(values):
+                        x = left + width * index / max(1, len(values) - 1)
+                        y = bottom + height * max(0.0, value) / maximum
+                        points.extend((x, y))
+                    Color(*palette_values[series_index % len(palette_values)])
+                    Line(points=points, width=dp(1.7))
+            for index, (name, _values) in enumerate(self._series[:4]):
+                legend = Label(
+                    text=name, color=(
+                        colors["accent"], colors["success"], colors["warning"], colors["muted"]
+                    )[index % 4],
+                    size_hint=(None, None), size=(dp(150), dp(26)),
+                    pos=(self.x + dp(15) + index * dp(155), self.top - dp(32)),
+                    halign="left",
+                )
+                self.add_widget(legend)
+
+    class SvgAssetWidget(Widget):
+        """Render verified local SVG assets through Kivy's native vector path."""
+
+        def __init__(self, source, **kwargs):
+            super().__init__(**kwargs)
+            with self.canvas:
+                PushMatrix()
+                self._translate = Translate()
+                self._scale = Scale(1, 1, 1)
+                self._svg = Svg(source=str(source))
+                PopMatrix()
+            self.bind(pos=self._sync_svg, size=self._sync_svg)
+            self._sync_svg()
+
+        def _sync_svg(self, *_args):
+            intrinsic_width = max(1, self._svg.width)
+            intrinsic_height = max(1, self._svg.height)
+            factor = min(self.width / intrinsic_width, self.height / intrinsic_height)
+            rendered_width = intrinsic_width * factor
+            rendered_height = intrinsic_height * factor
+            self._scale.xyz = (factor, factor, 1)
+            self._translate.xy = (
+                self.x + (self.width - rendered_width) / 2,
+                self.y + (self.height - rendered_height) / 2,
+            )
+
+    def local_visual(source, *, height):
+        path = Path(source)
+        if path.suffix.casefold() == ".svg":
+            return SvgAssetWidget(source=path, size_hint_y=None, height=height)
+        return AsyncImage(source=str(path), size_hint_y=None, height=height)
+
+    class SkillGraphCanvas(FloatLayout):
+        """Pan/zoom curriculum graph with typed visual relationships."""
+
+        def __init__(self, on_node=None, on_edge=None, **kwargs):
+            super().__init__(**kwargs)
+            self._on_node = on_node
+            self._on_edge = on_edge
+            self.snapshot = None
+            self.node_buttons = {}
+            self.scatter = Scatter(
+                do_rotation=False, scale_min=.45, scale_max=2.6,
+                size_hint=(None, None), size=(dp(1500), dp(850)),
+            )
+            self.layer = Widget(size=self.scatter.size, size_hint=(None, None))
+            self.scatter.add_widget(self.layer)
+            self.add_widget(self.scatter)
+            self.bind(size=self._fit_scatter, pos=self._fit_scatter)
+
+        def _fit_scatter(self, *_args):
+            if self.scatter.parent is self:
+                self.scatter.pos = self.pos
+
+        def refresh_theme(self):
+            if self.snapshot is not None:
+                self.set_snapshot(self.snapshot)
+
+        def set_snapshot(self, snapshot):
+            self.snapshot = snapshot
+            nodes = tuple(getattr(snapshot, "nodes", ()) or ())
+            edges = tuple(getattr(snapshot, "edges", ()) or ())
+            self.layer.clear_widgets()
+            self.layer.canvas.before.clear()
+            self.node_buttons = {}
+            if not nodes:
+                return
+            node_ids = {str(node.id) for node in nodes}
+            prerequisite_edges = tuple(
+                edge for edge in edges
+                if str(edge.source_node_id) in node_ids and str(edge.target_node_id) in node_ids
+                and str(getattr(edge.relation_type, "value", edge.relation_type))
+                in {"prerequisite", "progression"}
+            )
+            levels = {str(node.id): 0 for node in nodes}
+            for _pass in range(len(nodes)):
+                changed = False
+                for edge in prerequisite_edges:
+                    source, target = str(edge.source_node_id), str(edge.target_node_id)
+                    proposed = min(8, levels[source] + 1)
+                    if proposed > levels[target]:
+                        levels[target], changed = proposed, True
+                if not changed:
+                    break
+            grouped = {}
+            for node in nodes:
+                grouped.setdefault(levels[str(node.id)], []).append(node)
+            positions = {}
+            for level, group in grouped.items():
+                for index, node in enumerate(sorted(group, key=lambda item: item.title)):
+                    positions[str(node.id)] = (
+                        dp(80 + level * 185), dp(70 + index * 88),
+                    )
+            max_x = max(position[0] for position in positions.values()) + dp(210)
+            max_y = max(position[1] for position in positions.values()) + dp(110)
+            self.layer.size = (max(dp(900), max_x), max(dp(620), max_y))
+            self.scatter.size = self.layer.size
+            with self.layer.canvas.before:
+                for edge in edges:
+                    source = positions.get(str(edge.source_node_id))
+                    target = positions.get(str(edge.target_node_id))
+                    if source is None or target is None:
+                        continue
+                    relation = str(getattr(edge.relation_type, "value", edge.relation_type))
+                    if relation == "prerequisite":
+                        edge_color, width, dash = colors["accent"], dp(1.7), 0
+                    elif relation == "progression":
+                        edge_color, width, dash = colors["success"], dp(1.5), 0
+                    elif relation == "related":
+                        edge_color, width, dash = colors["warning"], dp(1.1), dp(7)
+                    else:
+                        edge_color, width, dash = (*colors["muted"][:3], .32), dp(.8), dp(4)
+                    Color(*edge_color)
+                    sx, sy = source; tx, ty = target
+                    kwargs = {"points": (sx + dp(74), sy + dp(29), tx + dp(74), ty + dp(29)), "width": width}
+                    if dash:
+                        kwargs.update(dash_length=dash, dash_offset=dp(4))
+                    Line(**kwargs)
+                    if getattr(edge, "directed", False):
+                        start_x, start_y = sx + dp(74), sy + dp(29)
+                        end_x, end_y = tx + dp(74), ty + dp(29)
+                        angle = math.atan2(end_y - start_y, end_x - start_x)
+                        length = dp(11)
+                        wing = .58
+                        Line(points=(
+                            end_x, end_y,
+                            end_x - length * math.cos(angle - wing),
+                            end_y - length * math.sin(angle - wing),
+                        ), width=width)
+                        Line(points=(
+                            end_x, end_y,
+                            end_x - length * math.cos(angle + wing),
+                            end_y - length * math.sin(angle + wing),
+                        ), width=width)
+            recommended = {
+                str(item.node_id) for item in getattr(snapshot, "recommendations", ()) or ()
+            }
+            for node in nodes:
+                mastery = float(getattr(
+                    getattr(node, "analytics", None), "mastery",
+                    getattr(node.statistics, "mastery", 0.0),
+                ))
+                base = colors["card_alt"]
+                success = colors["success"]
+                mix = min(.8, max(0.0, mastery))
+                color = tuple(base[i] * (1 - mix) + success[i] * mix for i in range(3)) + (1,)
+                title = node.title if len(node.title) <= 22 else node.title[:20] + "…"
+                if str(node.id) in recommended:
+                    title = "> " + title
+                button = Button(
+                    text=f"{title}\n{mastery:.0%}", size_hint=(None, None),
+                    size=(dp(148), dp(58)), pos=positions[str(node.id)],
+                    background_normal="", background_color=color, color=colors["text"],
+                    font_size=dp(12), halign="center",
+                )
+                button.node_id = node.id
+                button.base_color = color
+                button.bind(on_release=lambda item, identity=node.id: self._select_node(identity))
+                self.layer.add_widget(button)
+                self.node_buttons[str(node.id)] = button
+            for edge in edges:
+                source = positions.get(str(edge.source_node_id))
+                target = positions.get(str(edge.target_node_id))
+                if source is None or target is None:
+                    continue
+                midpoint = (
+                    (source[0] + target[0]) / 2 + dp(64),
+                    (source[1] + target[1]) / 2 + dp(19),
+                )
+                edge_button = Button(
+                    text="i", size_hint=(None, None), size=(dp(22), dp(22)),
+                    pos=midpoint, background_normal="",
+                    background_color=(*colors["card"][:3], .72),
+                    color=colors["muted"], font_size=dp(10),
+                )
+                edge_button.bind(
+                    on_release=lambda _item, relation=edge: self._select_edge(relation)
+                )
+                self.layer.add_widget(edge_button)
+
+        def _select_node(self, node_id):
+            if self._on_node is not None:
+                self._on_node(node_id)
+
+        def _select_edge(self, edge):
+            if self._on_edge is not None:
+                self._on_edge(edge)
+
+        def focus(self, query):
+            term = (query or "").strip().casefold()
+            found = None
+            for button in self.node_buttons.values():
+                button.background_color = button.base_color
+                label = button.text.replace("> ", "").splitlines()[0].rstrip("…").casefold()
+                if term and found is None and term in label:
+                    found = button
+            if found is None:
+                return False
+            found.background_color = colors["warning"]
+            self.scatter.scale = max(.8, self.scatter.scale)
+            self.scatter.pos = (
+                self.center_x - found.center_x * self.scatter.scale,
+                self.center_y - found.center_y * self.scatter.scale,
+            )
+            return True
+
+        def reset_view(self):
+            self.scatter.scale = 1
+            self.scatter.pos = self.pos
+            for button in self.node_buttons.values():
+                button.background_color = button.base_color
+
+        def keyboard_move(self, dx=0, dy=0, zoom=0):
+            if zoom:
+                self.scatter.scale = min(
+                    self.scatter.scale_max,
+                    max(self.scatter.scale_min, self.scatter.scale + zoom),
+                )
+            if dx or dy:
+                self.scatter.pos = (
+                    self.scatter.x + dp(dx), self.scatter.y + dp(dy),
+                )
+
     def text(value="", *, size=16, muted=False, bold=False, fixed=None):
         widget = Label(
             text=value, bold=bold, markup=False,
@@ -133,6 +485,24 @@ def launch_advanced_kivy(controller) -> int:
         )
         button.theme_role = "accent"
         button.aprendix_base_font_size = 14
+        button.bind(on_release=callback)
+        return button
+
+    def tool_action(symbol, title, callback, *, primary=False, width=92):
+        """Compact, labelled IDE action that remains understandable without icons."""
+
+        button = Button(
+            text=f"{symbol}  {title}".strip(),
+            bold=True, size_hint_x=None, width=dp(width),
+            background_normal="",
+            background_color=colors["accent" if primary else "card_alt"],
+            color=colors["accent_text" if primary else "text"],
+        )
+        button.theme_role = "accent" if primary else "navigation"
+        button.aprendix_base_font_size = 13
+        button.command_title = title
+        button.accessible_name = title
+        button.tooltip_text = title
         button.bind(on_release=callback)
         return button
 
@@ -172,13 +542,506 @@ def launch_advanced_kivy(controller) -> int:
             scroll.bind(scroll_y=persist)
         return scroll, column
 
+    def render_pedagogical_blocks(column, blocks, *, compact=False):
+        """Render typed pedagogical blocks without flattening code or formulae."""
+
+        column.clear_widgets()
+        source_catalog = None
+
+        def source_for(source_id):
+            nonlocal source_catalog
+            if source_catalog is None:
+                try:
+                    source_catalog = {
+                        item.id: item for item in controller.curated_sources(limit=5_000)
+                    }
+                except Exception:
+                    source_catalog = {}
+            return source_catalog.get(source_id)
+
+        def open_source(target):
+            if not target:
+                return
+            if target.startswith("https://"):
+                webbrowser.open(target)
+            elif target.startswith("aprendix-library://"):
+                from aprendix.application.local_library import resolve_library_uri
+
+                path = resolve_library_uri(target)
+                if path is not None:
+                    webbrowser.open(path.as_uri())
+
+        for block in sorted(tuple(blocks or ()), key=lambda item: item.ordinal):
+            kind = str(getattr(block.kind, "value", block.kind))
+            if kind == "title":
+                level = max(1, min(6, int(getattr(block, "level", 2))))
+                column.add_widget(text(
+                    block.text, size=max(17, 27 - level * 2), bold=True,
+                    fixed=36 if compact else None,
+                ))
+            elif kind == "paragraph":
+                column.add_widget(text(block.text, size=14 if compact else 16))
+            elif kind == "list":
+                body = "\n".join(
+                    f"{index}. {item}" if block.ordered else f"• {item}"
+                    for index, item in enumerate(block.items, 1)
+                )
+                column.add_widget(text(body, size=14 if compact else 16))
+            elif kind in {"code", "signature"}:
+                source = block.code if kind == "code" else block.signature
+                caption = getattr(block, "caption", "") or getattr(block, "description", "")
+                if caption:
+                    column.add_widget(text(caption, muted=True, fixed=28))
+                rows = min(14, max(2, source.count("\n") + 1))
+                column.add_widget(CodeInput(
+                    text=source, readonly=True, size_hint_y=None,
+                    height=dp(20 + rows * 22), font_size=dp(14),
+                    background_color=colors["card_alt"], foreground_color=colors["text"],
+                ))
+            elif kind == "formula":
+                formula = Card()
+                formula.add_widget(text(block.spoken, size=16, bold=True))
+                formula.add_widget(CodeInput(
+                    text=block.latex, readonly=True, size_hint_y=None, height=dp(58),
+                    background_color=colors["card_alt"], foreground_color=colors["text"],
+                ))
+                if block.variables:
+                    formula.add_widget(text(
+                        " · ".join(f"{name}: {meaning}" for name, meaning in block.variables.items()),
+                        muted=True,
+                    ))
+                column.add_widget(formula)
+            elif kind == "table":
+                rows = (tuple(block.headers), *tuple(block.rows))
+                rendered = "\n".join("  |  ".join(row) for row in rows)
+                table_card = Card()
+                if block.caption:
+                    table_card.add_widget(text(block.caption, bold=True, fixed=30))
+                table_card.add_widget(TextInput(
+                    text=rendered, readonly=True, size_hint_y=None,
+                    height=dp(min(340, 38 + len(rows) * 28)),
+                    background_color=colors["card_alt"], foreground_color=colors["text"],
+                ))
+                column.add_widget(table_card)
+            elif kind in {"image", "diagram"}:
+                asset_path = None
+                try:
+                    asset_path = controller.pedagogical_asset_path(block.asset_id)
+                except Exception:
+                    asset_path = None
+                visual = Card()
+                visual.add_widget(text(
+                    getattr(block, "caption", "") or "Visual Aprendix original",
+                    bold=True, fixed=30,
+                ))
+                if asset_path and Path(asset_path).is_file():
+                    visual.add_widget(local_visual(
+                        asset_path, height=dp(220 if compact else 340),
+                    ))
+                visual.add_widget(text(block.alt_text, muted=True))
+                column.add_widget(visual)
+            elif kind == "callout":
+                callout = Card()
+                callout.add_widget(text(block.title, bold=True, fixed=30))
+                callout.add_widget(text(block.body, size=14 if compact else 16))
+                column.add_widget(callout)
+            elif kind == "references":
+                reference_card = Card()
+                reference_card.add_widget(text("Referências", size=18, bold=True, fixed=32))
+                for reference in block.references:
+                    source = source_for(reference.source_id)
+                    label = source.title if source is not None else reference.source_id
+                    target = source.canonical_url if source is not None else ""
+                    reference_card.add_widget(text(
+                        f"{label}" + (f" · {reference.locator}" if reference.locator else "")
+                        + f"\n{reference.rationale}",
+                        muted=True,
+                    ))
+                    if target:
+                        link = action(
+                            "Abrir fonte",
+                            lambda _button, url=target: open_source(url),
+                        )
+                        link.height = dp(36)
+                        reference_card.add_widget(link)
+                column.add_widget(reference_card)
+
+    def render_legacy_document(column, body, *, compact=False):
+        """Readable deterministic fallback for legacy material awaiting migration."""
+
+        column.clear_widgets()
+        headings = {
+            "contextualização", "objetivo", "especificação técnica", "contrato",
+            "entradas e parâmetros", "exemplo de comportamento", "exemplos",
+            "requisitos e casos-limite", "critérios de avaliação", "pré-requisitos",
+            "explicação", "verificação curta", "referências", "etapas sugeridas",
+        }
+        paragraphs = [item.strip() for item in re.split(r"\n\s*\n", body or "") if item.strip()]
+        for paragraph in paragraphs:
+            lines = paragraph.splitlines()
+            first = lines[0].strip().strip("#*: ")
+            if first.casefold() in headings:
+                column.add_widget(text(first, size=18, bold=True, fixed=34))
+                if len(lines) > 1:
+                    column.add_widget(text("\n".join(lines[1:]), size=14 if compact else 16))
+                continue
+            if all(
+                line.lstrip().startswith(("def ", "class ", "@", ">>>", "import ", "from "))
+                or not line.strip() for line in lines
+            ):
+                column.add_widget(CodeInput(
+                    text=paragraph, readonly=True, size_hint_y=None,
+                    height=dp(min(300, 28 + len(lines) * 22)),
+                    background_color=colors["card_alt"], foreground_color=colors["text"],
+                ))
+            else:
+                column.add_widget(text(paragraph, size=14 if compact else 16))
+
     class Dashboard(Screen):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.section = "Resumo"
+            self.period_days = 30
+            self.period_start = None
+            self.period_end = None
+            self.track_slug = None
+            self.include_eligible = False
+            self._analytics = None
+            self._graph_snapshot = None
+
         def on_pre_enter(self, *_args):
+            self.render()
+
+        def on_enter(self, *_args):
+            Window.bind(on_key_down=self._dashboard_key_down)
+
+        def on_leave(self, *_args):
+            Window.unbind(on_key_down=self._dashboard_key_down)
+
+        def render(self, *_args):
             self.clear_widgets()
-            scroll, column = scroll_column("dashboard")
-            column.add_widget(text("Dashboard de progresso", size=28, bold=True))
-            column.add_widget(text("Perfil local anónimo · sem login · sincronização de rede desativada", muted=True, fixed=30))
-            column.add_widget(action("Explorar grafo interativo", lambda _button: controller.open_graph()))
+            root = BoxLayout(orientation="vertical", padding=dp(10), spacing=dp(7))
+            top = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(8))
+            self.dashboard_tabs_scroll = ScrollView(
+                do_scroll_x=True, do_scroll_y=False,
+                scroll_type=["bars", "content"], bar_width=dp(4),
+                bar_margin=dp(2), bar_color=colors["accent"],
+                bar_inactive_color=(*colors["muted"][:3], .45),
+            )
+            self.dashboard_tabs = BoxLayout(
+                size_hint=(None, None), height=dp(46), spacing=dp(5),
+            )
+            self.dashboard_tabs.bind(
+                minimum_width=self.dashboard_tabs.setter("width")
+            )
+            for section in ("Resumo", "Atividade", "Competências", "Percursos", "Plano", "Grafo"):
+                tab_width = dashboard_tab_width(section, font_scale=font_scale)
+                button = ToggleButton(
+                    text=section, group="dashboard-section",
+                    state="down" if section == self.section else "normal",
+                    size_hint_x=None, width=dp(tab_width),
+                    font_size=dp(14 * font_scale),
+                    text_size=(dp(tab_width - 18), dp(42)),
+                    halign="center", valign="middle", shorten=True,
+                    shorten_from="right", max_lines=1,
+                    background_normal="", background_color=(
+                        colors["accent"] if section == self.section else colors["card_alt"]
+                    ), color=colors[
+                        "accent_text" if section == self.section else "text"
+                    ],
+                )
+                button.aprendix_base_font_size = 14
+                button.accessible_name = section
+                button.tooltip_text = section
+                button.bind(on_release=lambda _button, name=section: self._select_section(name))
+                self.dashboard_tabs.add_widget(button)
+            self.dashboard_tabs_scroll.add_widget(self.dashboard_tabs)
+            top.add_widget(self.dashboard_tabs_scroll)
+            self.dashboard_period_group = BoxLayout(
+                size_hint_x=None, width=dp(206), spacing=dp(6),
+            )
+            period_label = Label(
+                text="Período", size_hint_x=None, width=dp(58),
+                color=colors["muted"], halign="right", valign="middle",
+                font_size=dp(13 * font_scale), text_size=(dp(58), dp(46)),
+            )
+            period_label.theme_role = "muted"
+            period_label.aprendix_base_font_size = 13
+            self.dashboard_period_group.add_widget(period_label)
+            self.period_selector = Spinner(
+                text=("Personalizado" if self.period_start is not None else
+                      {7: "7 dias", 30: "30 dias", 90: "90 dias"}.get(
+                          self.period_days, "30 dias"
+                      )),
+                values=("7 dias", "30 dias", "90 dias", "Personalizado"),
+                size_hint_x=None, width=dp(142),
+            )
+            self.period_selector.bind(text=self._period_selected)
+            self.dashboard_period_group.add_widget(self.period_selector)
+            top.add_widget(self.dashboard_period_group)
+            root.add_widget(top)
+            self.dashboard_status = text(
+                "Perfil local anónimo · métricas calculadas no dispositivo",
+                muted=True, fixed=28,
+            )
+            root.add_widget(self.dashboard_status)
+            scroll, column = scroll_column(f"dashboard:{self.section.casefold()}")
+            self.dashboard_column = column
+            root.add_widget(scroll)
+            self.add_widget(root)
+            try:
+                self._analytics = (
+                    controller.dashboard_analytics(
+                        period_days=self.period_days, start=self.period_start,
+                        end=self.period_end, track_slug=self.track_slug,
+                    ) if hasattr(controller, "dashboard_analytics") else None
+                )
+                {
+                    "Resumo": self._render_summary,
+                    "Atividade": self._render_activity,
+                    "Competências": self._render_skills,
+                    "Percursos": self._render_courses,
+                    "Plano": self._render_plan,
+                    "Grafo": self._render_graph,
+                }[self.section](column)
+            except Exception as exc:
+                column.add_widget(text(f"Dashboard indisponível: {exc}", muted=True))
+
+        def _select_section(self, section):
+            self.section = section
+            self.render()
+
+        def _period_selected(self, _spinner, value):
+            if value == "Personalizado":
+                self._open_custom_period()
+                return
+            self.period_days = {"7 dias": 7, "30 dias": 30, "90 dias": 90}[value]
+            self.period_start = None
+            self.period_end = None
+            self.render()
+
+        def _open_custom_period(self):
+            content = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
+            content.add_widget(text(
+                "Escolhe um intervalo até 730 dias. As datas são inclusivas.",
+                muted=True, fixed=36,
+            ))
+            fields = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(6))
+            today = date.today()
+            current_start = (
+                self.period_start.date() if self.period_start else today - timedelta(days=29)
+            )
+            current_end = (
+                (self.period_end - timedelta(microseconds=1)).date()
+                if self.period_end else today
+            )
+            start_input = TextInput(
+                text=current_start.isoformat(), hint_text="Início AAAA-MM-DD",
+                multiline=False,
+            )
+            end_input = TextInput(
+                text=current_end.isoformat(), hint_text="Fim AAAA-MM-DD",
+                multiline=False,
+            )
+            fields.add_widget(start_input)
+            fields.add_widget(end_input)
+            content.add_widget(fields)
+            message = text("", muted=True, fixed=34)
+            content.add_widget(message)
+            buttons = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(6))
+            popup = Popup(
+                title="Período personalizado", content=content,
+                size_hint=(None, None), width=dp(min(520, Window.width * .72)),
+                height=dp(250), auto_dismiss=False,
+            )
+
+            def apply_period(*_args):
+                try:
+                    first = date.fromisoformat(start_input.text.strip())
+                    last = date.fromisoformat(end_input.text.strip())
+                    if last < first:
+                        raise ValueError("a data final antecede a data inicial")
+                    start = datetime.combine(first, datetime.min.time(), tzinfo=UTC)
+                    end = datetime.combine(last + timedelta(days=1), datetime.min.time(), tzinfo=UTC)
+                    if end - start > timedelta(days=730):
+                        raise ValueError("o intervalo excede 730 dias")
+                except ValueError as exc:
+                    message.text = f"Intervalo inválido: {exc}"
+                    return
+                self.period_start, self.period_end = start, end
+                popup.dismiss()
+                self.render()
+
+            buttons.add_widget(action("Cancelar", lambda *_: popup.dismiss()))
+            buttons.add_widget(action("Aplicar", apply_period, primary=True))
+            content.add_widget(buttons)
+            popup.open()
+
+        def _indicator_grid(self, column, analytics):
+            indicators = tuple(getattr(analytics, "indicators", ()) or ())
+            grid = GridLayout(
+                cols=3 if Window.width >= dp(1050) else 2,
+                spacing=dp(9), size_hint_y=None,
+            )
+            grid.bind(minimum_height=grid.setter("height"))
+            for indicator in indicators:
+                card = Card()
+                value = indicator.value
+                if indicator.unit == "%":
+                    rendered = f"{value:.0f}%"
+                elif indicator.unit in {"minutes", "min"}:
+                    rendered = f"{value:.0f} min"
+                else:
+                    rendered = f"{value:g}"
+                card.add_widget(text(rendered, size=27, bold=True, fixed=42))
+                card.add_widget(text(indicator.label, size=15, bold=True, fixed=28))
+                direction = {
+                    "improving": "a melhorar", "slowing": "a abrandar",
+                    "stable": "estável", "starting": "a iniciar",
+                }.get(str(indicator.trend), str(indicator.trend))
+                card.add_widget(text(
+                    f"{direction} · {indicator.detail}", muted=True, fixed=44,
+                ))
+                definition = tool_action(
+                    "i", "Definição",
+                    lambda _button, item=indicator: self._show_metric_definition(item),
+                    width=112,
+                )
+                card.add_widget(definition)
+                grid.add_widget(card)
+            column.add_widget(grid)
+
+        def _show_metric_definition(self, indicator):
+            content = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
+            content.add_widget(text(indicator.label, size=22, bold=True, fixed=40))
+            content.add_widget(text(indicator.definition, size=16))
+            content.add_widget(text(
+                "Denominador · " + indicator.denominator, muted=True,
+            ))
+            content.add_widget(text(
+                f"Período · {self._analytics.period.label}", muted=True, fixed=30,
+            ))
+            popup = Popup(
+                title="Como esta métrica é calculada", content=content,
+                size_hint=(None, None), width=dp(min(560, Window.width * .5)),
+                height=dp(min(420, Window.height * .5)),
+            )
+            popup.open()
+
+        def _render_summary(self, column):
+            column.add_widget(text("Resumo global", size=27, bold=True, fixed=48))
+            if self._analytics is not None:
+                self._indicator_grid(column, self._analytics)
+                chart = TrendChart()
+                chart.set_series((
+                    ("Domínio", [point.mastery * 100 for point in self._analytics.series]),
+                    ("Retenção", [point.retention * 100 for point in self._analytics.series]),
+                    ("Autonomia", [point.autonomy * 100 for point in self._analytics.series]),
+                    ("Consistência", [point.consistency * 100 for point in self._analytics.series]),
+                ))
+                column.add_widget(chart)
+            else:
+                model = controller.dashboard()
+                hero = Card()
+                hero.add_widget(text(f"{model.overall_mastery:.0%}", size=38, bold=True))
+                hero.add_widget(text("Domínio curricular global", muted=True, fixed=30))
+                hero.add_widget(ProgressBar(
+                    max=1, value=model.overall_mastery, size_hint_y=None, height=dp(16),
+                ))
+                column.add_widget(hero)
+            personal = controller.personal_progress()
+            if personal.next_action:
+                action_card = Card()
+                action_card.add_widget(text("Fazer agora", size=18, bold=True, fixed=32))
+                action_card.add_widget(text(personal.next_action.title, size=20, bold=True))
+                action_card.add_widget(text(personal.next_action.explanation, muted=True))
+                row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(5))
+                for minutes in (10, 25, 50, 90):
+                    row.add_widget(action(
+                        f"{minutes} min", lambda _button, value=minutes: self._time_action(value),
+                    ))
+                action_card.add_widget(row)
+                self.time_action_status = text("", muted=True, fixed=32)
+                action_card.add_widget(self.time_action_status)
+                column.add_widget(action_card)
+
+        def _render_activity(self, column):
+            column.add_widget(text("Atividade e esforço", size=27, bold=True, fixed=48))
+            analytics = self._analytics
+            if analytics is None:
+                column.add_widget(text("Ainda não existem séries temporais locais.", muted=True))
+                return
+            chart = TrendChart(height=dp(270))
+            chart.set_series((
+                ("Minutos ativos", [point.active_minutes for point in analytics.series]),
+                ("Minutos planeados", [point.planned_minutes for point in analytics.series]),
+                ("Tentativas", [point.attempts for point in analytics.series]),
+                ("Sucessos", [point.successes for point in analytics.series]),
+            ))
+            column.add_widget(chart)
+            totals = Card()
+            totals.add_widget(text(
+                f"{sum(point.active_minutes for point in analytics.series):.0f} min ativos · "
+                f"{sum(point.attempts for point in analytics.series)} tentativas · "
+                f"{sum(point.evidence_count for point in analytics.series)} evidências",
+                size=18, bold=True,
+            ))
+            column.add_widget(totals)
+
+        def _render_skills(self, column):
+            column.add_widget(text("Competências curriculares", size=27, bold=True, fixed=48))
+            if self._analytics is not None:
+                distribution = self._analytics.mastery_distribution
+                distribution_card = Card()
+                distribution_card.add_widget(text(
+                    f"Dominadas {distribution.mastered} · Consolidação {distribution.consolidating} · "
+                    f"Novas {distribution.new} · Em risco {distribution.at_risk} · "
+                    f"Intocadas {distribution.untouched}",
+                    size=17, bold=True,
+                ))
+                column.add_widget(distribution_card)
+            model = controller.dashboard()
+            visible_nodes = sorted(
+                model.nodes,
+                key=lambda node: (not node.recommended, -node.attempts, -node.mastery, node.title),
+            )[:30]
+            for node in visible_nodes:
+                card = Card()
+                card.add_widget(text(
+                    node.title + (" · recomendado" if node.recommended else ""),
+                    bold=True, fixed=34,
+                ))
+                card.add_widget(ProgressBar(
+                    max=1, value=node.mastery, size_hint_y=None, height=dp(12),
+                ))
+                card.add_widget(text(
+                    f"{node.mastery:.0%} · {node.attempts} tentativas",
+                    muted=True, fixed=28,
+                ))
+                column.add_widget(card)
+
+        def _render_courses(self, column):
+            column.add_widget(text("Percursos e cobertura", size=27, bold=True, fixed=48))
+            tracks = tuple(getattr(self._analytics, "tracks", ()) or ())
+            if not tracks:
+                column.add_widget(text("Sem métricas de percurso neste período.", muted=True))
+                return
+            for track in tracks:
+                card = Card()
+                card.add_widget(text(track.title, size=19, bold=True, fixed=34))
+                card.add_widget(ProgressBar(
+                    max=1, value=track.mastery, size_hint_y=None, height=dp(13),
+                ))
+                card.add_widget(text(
+                    f"{track.mastered_nodes}/{track.curriculum_nodes} dominadas · "
+                    f"{track.practiced_nodes} praticadas · domínio {track.mastery:.0%} · "
+                    f"retenção {track.retention:.0%} · autonomia {track.autonomy:.0%}",
+                    muted=True,
+                ))
+                column.add_widget(card)
+
+        def _render_plan(self, column):
+            column.add_widget(text("Plano e previsão", size=27, bold=True, fixed=48))
             try:
                 plan = controller.study_plan()
                 plan_card = Card()
@@ -192,51 +1055,44 @@ def launch_advanced_kivy(controller) -> int:
                 self.plan_status = text("Define o ritmo; a prática continua ilimitada.", muted=True, fixed=30)
                 plan_card.add_widget(action("Guardar plano", self._save_plan)); plan_card.add_widget(self.plan_status)
                 column.add_widget(plan_card)
-                model = controller.dashboard()
-                hero = Card(size_hint_y=None, height=dp(160))
-                hero.add_widget(text(f"{model.overall_mastery:.0%}", size=38, bold=True))
-                hero.add_widget(text("Proficiência global", muted=True, fixed=30))
-                hero.add_widget(ProgressBar(max=1, value=model.overall_mastery, size_hint_y=None, height=dp(16)))
-                hero.add_widget(text(
-                    f"{model.total_attempts} tentativas · {model.mastered_nodes} tópicos dominados",
-                    muted=True, fixed=32,
-                ))
-                column.add_widget(hero)
                 personal = controller.personal_progress()
-                evidence_card = Card()
-                evidence_card.add_widget(text("Progresso baseado em evidência", size=20, bold=True, fixed=36))
-                evidence_card.add_widget(text(
-                    f"Domínio {personal.mastery:.0%}  ·  Retenção {personal.retention:.0%}  ·  "
-                    f"Autonomia {personal.autonomy:.0%}", muted=True, fixed=30,
-                ))
-                evidence_card.add_widget(text(
-                    f"Velocidade {personal.velocity:.0%}  ·  Confiança {personal.confidence:.0%}  ·  "
-                    f"{personal.at_risk_nodes} em risco", muted=True, fixed=30,
-                ))
-                evidence_card.add_widget(text(
-                    f"Tempo ativo {personal.active_minutes} min / total {personal.total_minutes} min  ·  "
-                    f"habilidade IRT {personal.irt_ability:+.2f}", muted=True, fixed=30,
-                ))
-                if personal.next_action:
-                    next_item = personal.next_action
-                    evidence_card.add_widget(text(
-                        f"Fazer agora · {next_item.title} ({next_item.duration_minutes} min)",
-                        bold=True, fixed=34,
+                forecast = controller.progress_forecast()
+                weekly_report = controller.weekly_progress_report()
+                if forecast and weekly_report:
+                    outlook = Card()
+                    outlook.add_widget(text("Previsão e relatório semanal", size=20, bold=True, fixed=36))
+                    outlook.add_widget(text(
+                        f"{forecast.mastered_nodes}/{forecast.total_nodes} conceitos dominados · "
+                        f"capacidade estimada {forecast.weekly_capacity_nodes:.1f}/semana · "
+                        f"conclusão {forecast.estimated_completion.isoformat() if forecast.estimated_completion else 'por estimar'}",
+                        muted=True, fixed=34,
                     ))
-                    evidence_card.add_widget(text(next_item.explanation, muted=True))
-                time_row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(6))
-                for minutes in (10, 25, 50, 90):
-                    time_row.add_widget(action(
-                        f"Tenho {minutes} min",
-                        lambda _button, value=minutes: self._time_action(value),
+                    outlook.add_widget(text(
+                        f"Semana {weekly_report.week_start:%d/%m}–{weekly_report.week_end:%d/%m} · "
+                        f"{weekly_report.active_minutes} min ativos · {weekly_report.evidence_count} evidências · "
+                        f"tendência {weekly_report.trend}",
+                        muted=True, fixed=32,
                     ))
-                evidence_card.add_widget(time_row)
-                self.time_action_status = text(
-                    "Escolhe o tempo disponível para recalcular o melhor próximo passo.",
-                    muted=True, fixed=34,
-                )
-                evidence_card.add_widget(self.time_action_status)
-                column.add_widget(evidence_card)
+                    outlook.add_widget(text(
+                        "Próximo ajuste · " + weekly_report.recommendations[0],
+                        fixed=42,
+                    ))
+                    quality = controller.pedagogical_quality()
+                    if quality:
+                        outlook.add_widget(text(
+                            f"Qualidade pedagógica automática · {quality.accepted}/{quality.total} aceites · "
+                            f"média {quality.average_score:.0%}",
+                            muted=True, fixed=30,
+                        ))
+                    bibliography = controller.bibliography_coverage()
+                    if bibliography:
+                        outlook.add_widget(text(
+                            f"Bibliografia · {bibliography.triple_sourced_objectives}/"
+                            f"{bibliography.objective_count} objetivos com ≥3 fontes · "
+                            f"{bibliography.distinct_sources} fontes distintas em uso",
+                            muted=True, fixed=30,
+                        ))
+                    column.add_widget(outlook)
                 if personal.weekly_plan:
                     week_card = Card()
                     week_card.add_widget(text("Plano adaptativo desta semana", size=20, bold=True, fixed=36))
@@ -247,60 +1103,6 @@ def launch_advanced_kivy(controller) -> int:
                             muted=True, fixed=28,
                         ))
                     column.add_widget(week_card)
-                game = controller.gamification()
-                onboarding = game["onboarding"]
-                game_card = Card()
-                game_card.add_widget(text(
-                    f"{game['xp']} XP · sequência de {game['streak_days']} dia(s)",
-                    size=20, bold=True, fixed=36,
-                ))
-                if onboarding["status"] == "completed":
-                    game_card.add_widget(text(
-                        f"Avaliação inicial: {onboarding['assessed_level']}",
-                        muted=True, fixed=28,
-                    ))
-                else:
-                    remaining = max(0, 3 - int(onboarding["attempt_count"]))
-                    game_card.add_widget(text(
-                        f"Onboarding A1: completa {remaining} desafio(s) distintos para calibrar o nível.",
-                        muted=True, fixed=32,
-                    ))
-                    diagnostic = controller.diagnostic_exercises(limit=3)
-                    if diagnostic:
-                        game_card.add_widget(text(
-                            "Diagnóstico recomendado · " + " · ".join(
-                                item["title"] for item in diagnostic
-                            ), muted=True,
-                        ))
-                        game_card.add_widget(action(
-                            "Iniciar diagnóstico",
-                            lambda *_: setattr(self.manager, "current", "curriculum"),
-                        ))
-                achievements = game["achievements"]
-                if achievements:
-                    game_card.add_widget(text(
-                        "Emblemas e certificados · " + " · ".join(
-                            item["title"] for item in achievements[:4]
-                        ), muted=True,
-                    ))
-                column.add_widget(game_card)
-                column.add_widget(text(
-                    f"{len(model.nodes)} tópicos no grafo · destaques",
-                    size=18, bold=True,
-                ))
-                visible_nodes = sorted(
-                    model.nodes,
-                    key=lambda node: (
-                        not node.recommended, -node.attempts, -node.mastery, node.title
-                    ),
-                )[:30]
-                for node in visible_nodes:
-                    card = Card()
-                    suffix = " · recomendado" if node.recommended else ""
-                    card.add_widget(text(node.title + suffix, bold=True, fixed=34))
-                    card.add_widget(ProgressBar(max=1, value=node.mastery, size_hint_y=None, height=dp(14)))
-                    card.add_widget(text(f"{node.mastery:.0%} · {node.attempts} tentativas", muted=True, fixed=28))
-                    column.add_widget(card)
                 column.add_widget(text("Milestones fixos", size=20, bold=True))
                 for milestone in controller.milestones():
                     card = Card()
@@ -313,7 +1115,176 @@ def launch_advanced_kivy(controller) -> int:
                     column.add_widget(card)
             except Exception as exc:
                 column.add_widget(text(f"Dashboard indisponível: {exc}", muted=True))
-            self.add_widget(scroll)
+
+        def _render_graph(self, column):
+            column.add_widget(text("Grafo curricular navegável", size=27, bold=True, fixed=48))
+            column.add_widget(text(
+                "Arrasta para navegar, usa a roda do rato para ampliar e clica num nó para "
+                "abrir as suas métricas. Ligações sólidas são dependências; pontilhadas são relações.",
+                muted=True, fixed=52,
+            ))
+            controls = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(6))
+            self.graph_query = TextInput(
+                hint_text="Procurar competência", multiline=False,
+            )
+            self.graph_query.bind(on_text_validate=lambda *_: self._focus_graph_node())
+            controls.add_widget(self.graph_query)
+            controls.add_widget(action("Procurar", lambda *_: self._focus_graph_node()))
+            controls.add_widget(action("Repor vista", lambda *_: self.graph_canvas.reset_view()))
+            eligible = CheckBox(
+                active=self.include_eligible, size_hint_x=None, width=dp(42),
+            )
+            eligible.bind(active=self._eligible_graph_changed)
+            controls.add_widget(eligible)
+            controls.add_widget(text("Próximos elegíveis", muted=True, fixed=40))
+            column.add_widget(controls)
+            snapshot = controller.visible_graph(
+                period_days=self.period_days, start=self.period_start, end=self.period_end,
+                include_eligible=self.include_eligible,
+            )
+            self._graph_snapshot = snapshot
+            graph = SkillGraphCanvas(
+                on_node=self._show_node_analytics, on_edge=self._show_edge_detail,
+                size_hint_y=None, height=dp(610),
+            )
+            graph.set_snapshot(snapshot)
+            self.graph_canvas = graph
+            column.add_widget(graph)
+            column.add_widget(text(
+                "Legenda · violeta: pré-requisito dirigido · verde: progressão · "
+                "âmbar pontilhado: relacionado · cinzento pontilhado: coocorrência",
+                muted=True, fixed=30,
+            ))
+            visibility = getattr(snapshot, "visibility", None)
+            if visibility:
+                column.add_widget(text(
+                    f"{len(snapshot.nodes)} nós visíveis · {len(snapshot.edges)} ligações · "
+                    f"{visibility.omitted_nodes} nós omitidos pelo filtro · "
+                    f"{visibility.frontier_nodes} na fronteira recomendada",
+                    muted=True, fixed=30,
+                ))
+            self.node_detail = Card()
+            self.node_detail.add_widget(text(
+                "Seleciona um nó para ver tentativas, sucesso, tempo e retenção.", muted=True,
+            ))
+            column.add_widget(self.node_detail)
+
+        def _show_node_analytics(self, node_id):
+            try:
+                item = controller.node_analytics(
+                    node_id, period_days=self.period_days,
+                    start=self.period_start, end=self.period_end,
+                )
+            except Exception as exc:
+                self.dashboard_status.text = str(exc)
+                return
+            self.node_detail.clear_widgets()
+            self.node_detail.add_widget(text(item.title, size=21, bold=True, fixed=38))
+            self.node_detail.add_widget(text(
+                f"{item.distinct_exercises} exercícios · {item.attempts} tentativas · "
+                f"{item.successes} sucessos / {item.failures} falhas · "
+                f"{item.active_seconds // 60} min ativos · {item.hint_count} pistas",
+                size=16,
+            ))
+            self.node_detail.add_widget(text(
+                f"Domínio {item.mastery:.0%} · retenção {item.retention:.0%} · "
+                f"autonomia {item.autonomy:.0%} · sucesso {item.success_rate:.0%}",
+                muted=True, fixed=32,
+            ))
+            if item.recommended_action:
+                self.node_detail.add_widget(text(
+                    "Próxima ação · " + item.recommended_action, bold=True,
+                ))
+            exercise = next(
+                (candidate for candidate in controller.exercises()
+                 if str(candidate.graph_node_id) == str(node_id)),
+                None,
+            )
+            if exercise is not None:
+                track_slug = next(
+                    (path["track_slug"] for path in controller.learning_paths()
+                     if any(str(journey["exercise"].id) == str(exercise.id)
+                            for journey in controller.course_practice(path["track_slug"]))),
+                    None,
+                )
+                actions = BoxLayout(size_hint_y=None, height=dp(42), spacing=dp(6))
+                actions.add_widget(action(
+                    "Praticar no IDE",
+                    lambda *_args, identity=exercise.id, slug=track_slug:
+                    self._practice_graph_node(identity, slug),
+                ))
+                if track_slug:
+                    actions.add_widget(action(
+                        "Abrir curso",
+                        lambda *_args, slug=track_slug: self._open_graph_course(slug),
+                    ))
+                self.node_detail.add_widget(actions)
+
+        def _show_edge_detail(self, edge):
+            relation = str(getattr(edge.relation_type, "value", edge.relation_type))
+            self.node_detail.clear_widgets()
+            self.node_detail.add_widget(text(
+                f"Ligação · {relation.replace('_', ' ')}", size=20, bold=True, fixed=36,
+            ))
+            self.node_detail.add_widget(text(edge.reason, size=16))
+            self.node_detail.add_widget(text(
+                f"Origem: {edge.origin} · peso {edge.weight:.2f} · "
+                + ("dirigida" if edge.directed else "não dirigida"),
+                muted=True, fixed=30,
+            ))
+
+        def _practice_graph_node(self, exercise_id, track_slug):
+            learning = self.manager.get_screen("learning")
+            learning.load_exercise(exercise_id, track_slug)
+            self.manager.current = "learning"
+
+        def _open_graph_course(self, track_slug):
+            curriculum = self.manager.get_screen("curriculum")
+            title = next(
+                (title for title, slug in curriculum._tracks.items() if slug == track_slug),
+                None,
+            )
+            if title:
+                curriculum.track.text = title
+                curriculum.render()
+            self.manager.current = "curriculum"
+
+        def _eligible_graph_changed(self, _checkbox, active):
+            active = bool(active)
+            if active == self.include_eligible:
+                return
+            self.include_eligible = active
+            self.render()
+
+        def _focus_graph_node(self):
+            if not getattr(self, "graph_canvas", None):
+                return
+            found = self.graph_canvas.focus(self.graph_query.text)
+            self.dashboard_status.text = (
+                "Competência destacada no grafo." if found else
+                "Nenhuma competência visível coincide com a pesquisa."
+            )
+
+        def _dashboard_key_down(self, _window, key, _scancode, _codepoint, modifiers):
+            if self.section != "Grafo" or not getattr(self, "graph_canvas", None):
+                return False
+            if key == 276:
+                self.graph_canvas.keyboard_move(dx=45)
+            elif key == 275:
+                self.graph_canvas.keyboard_move(dx=-45)
+            elif key == 273:
+                self.graph_canvas.keyboard_move(dy=-45)
+            elif key == 274:
+                self.graph_canvas.keyboard_move(dy=45)
+            elif key in (43, 61, 270):
+                self.graph_canvas.keyboard_move(zoom=.15)
+            elif key in (45, 269):
+                self.graph_canvas.keyboard_move(zoom=-.15)
+            elif key in (48, 96):
+                self.graph_canvas.reset_view()
+            else:
+                return False
+            return True
 
         def _save_plan(self, *_args):
             try:
@@ -340,12 +1311,37 @@ def launch_advanced_kivy(controller) -> int:
         def __init__(self, **kwargs):
             super().__init__(**kwargs)
             self.catalogue = controller.exercises()
-            self.selected = self.catalogue[0] if self.catalogue else None
+            paths = tuple(controller.learning_paths())
+            self._course_titles = {
+                item["course_title"]: item["track_slug"] for item in paths
+            }
+            self._course_names = {
+                item["track_slug"]: item["course_title"] for item in paths
+            }
+            preferred_course = controller.load_preference("ide.course_slug", "")
+            self.course_slug = (
+                preferred_course if preferred_course in self._course_names
+                else next(iter(self._course_names), "")
+            )
+            self.course_items = list(controller.course_practice(self.course_slug))
+            first_pending = next(
+                (item for item in self.course_items if not item["completed"]),
+                self.course_items[0] if self.course_items else None,
+            )
+            self.selected = (
+                first_pending["exercise"] if first_pending
+                else self.catalogue[0] if self.catalogue else None
+            )
             self.started = time.monotonic()
-            self.previous_source = self.selected.starter_code if self.selected else ""
+            self.previous_source = ""
             self.last_copykate_source = self.previous_source
             self.typed = self.pasted = self.deleted = 0
             self.active_seconds = 0.0
+            self.hints_used = 0
+            self.learning_session_state = None
+            self.active_assessment = None
+            self.assessment_started = 0.0
+            self.transfer_context = False
             self.last_edit_at = time.monotonic()
             self.timer = PomodoroTimer(FocusMinutes.SHORT)
             self.focus_event = None
@@ -357,32 +1353,237 @@ def launch_advanced_kivy(controller) -> int:
             self._active_project_id = None
             self._active_project_name = ""
             self._active_project_path = "main.py"
+            self._active_project_template_id = ""
+            self.workspace_mode = "exercise"
+            self.compact_workspace = Window.width < dp(1080)
+            preferred_pane = controller.load_preference("ide.compact_pane", "editor")
+            self.compact_pane = preferred_pane if preferred_pane in {"editor", "brief"} else "editor"
+            initial_brief_expanded = controller.load_preference(
+                "ide.brief_expanded", "1"
+            ) != "0"
+            self.brief_expanded = True
+            # The terminal is a drawer: its tab strip remains visible but the
+            # body never occupies working space until an action produces data.
+            self.bottom_panel_expanded = False
+            self._active_panel = "Output"
+            self._panel_buffers = {
+                "Output": "Terminal local pronto.",
+                "Problemas": "Sem problemas detetados.",
+                "Tutor": "Escreve uma dúvida ou pede uma pista sem sair do IDE.",
+                "Testes": "Os resultados da correção aparecem aqui.",
+            }
             root = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(7))
-            titles = tuple(item.title for item in self.catalogue)
-            self.selector = Spinner(
-                text=titles[0] if titles else "Sem exercícios", values=titles,
-                size_hint_y=None, height=dp(48),
+            journey = Card()
+            self.journey = journey
+            self.journey_top = BoxLayout(
+                size_hint_y=None, height=dp(40), spacing=dp(6),
             )
+            journey_top = self.journey_top
+            self.previous_exercise_button = tool_action(
+                "<", "Anterior", self._previous_exercise, width=88,
+            )
+            self.next_exercise_button = tool_action(
+                ">", "Seguinte", self._next_exercise, width=88,
+            )
+            journey_top.add_widget(self.previous_exercise_button)
+            initial_title = self.selected.title if self.selected else "Sem exercícios"
+            self.exercise_title = Label(
+                text=initial_title, bold=True, markup=False,
+                color=colors["text"], font_size=dp(19 * font_scale),
+                size_hint=(None, 1), halign="left", valign="middle",
+                shorten=True, shorten_from="right", max_lines=1,
+            )
+            self.exercise_title.theme_role = "text"
+            self.exercise_title.aprendix_base_font_size = 19
+            self.exercise_title.bind(
+                size=lambda item, _value: setattr(
+                    item, "text_size", (max(0, item.width - dp(8)), item.height)
+                )
+            )
+            self._set_journey_title(initial_title)
+            selected_course_title = self._course_names.get(
+                self.course_slug, next(iter(self._course_titles), "Treino livre")
+            )
+            self.course_selector = Spinner(
+                text=selected_course_title,
+                values=tuple(self._course_titles) or ("Treino livre",),
+                size_hint_x=None, width=dp(230), background_normal="",
+                background_color=colors["card_alt"], color=colors["text"],
+                halign="center", valign="middle", shorten=True,
+                shorten_from="right", max_lines=1,
+            )
+            self.course_selector.bind(
+                size=lambda item, _value: setattr(
+                    item, "text_size", (max(0, item.width - dp(14)), item.height)
+                )
+            )
+            journey_top.add_widget(self.exercise_title)
+            self.workspace_pane_button = tool_action(
+                "[]", "Enunciado", self._toggle_workspace_pane, width=112,
+            )
+            self.workspace_pane_button.width = 0
+            self.workspace_pane_button.opacity = 0
+            self.workspace_pane_button.disabled = True
+            journey_top.add_widget(self.workspace_pane_button)
+            journey_top.add_widget(self.course_selector)
+            journey_top.add_widget(self.next_exercise_button)
+            self.journey_meta = text("Percurso orientado no IDE", muted=True, fixed=24)
+            self.journey_progress = ProgressBar(
+                max=1, value=0, size_hint_y=None, height=dp(7),
+            )
+            journey.add_widget(journey_top)
+            journey.add_widget(self.journey_meta)
+            journey.add_widget(self.journey_progress)
+            self.brief_cell = Card()
+            brief_header = BoxLayout(size_hint_y=None, height=dp(38), spacing=dp(5))
+            self.brief_toggle = tool_action("", "Enunciado [-]", self._toggle_brief, width=136)
+            brief_header.add_widget(self.brief_toggle)
+            self.theory_button = tool_action("", "Teoria", self._show_theory, width=72)
+            self.practice_button = tool_action("", "Prática", self._show_practice, width=76)
+            self.assessment_button = tool_action("", "Teste", self._show_assessment, width=68)
+            brief_header.add_widget(self.theory_button)
+            brief_header.add_widget(self.practice_button)
+            brief_header.add_widget(self.assessment_button)
+            self.brief_mode = Spinner(
+                text={"simple": "Simples", "guided": "Guiado", "technical": "Técnico"}.get(
+                    controller.load_preference("ide.brief_mode", "guided"), "Guiado"
+                ),
+                values=("Simples", "Guiado", "Técnico"), size_hint_x=None,
+                width=dp(104), background_normal="",
+                background_color=colors["card_alt"], color=colors["text"],
+            )
+            brief_header.add_widget(self.brief_mode)
+            brief_header.add_widget(tool_action("", "A-", lambda *_: self._resize_prompt(-dp(35)), width=48))
+            brief_header.add_widget(tool_action("", "A+", lambda *_: self._resize_prompt(dp(35)), width=48))
+            brief_header.add_widget(tool_action("", "Copiar", lambda *_: Clipboard.copy(self.prompt.text), width=76))
             self.prompt = TextInput(
-                text=self.selected.prompt if self.selected else "", readonly=True,
+                text=build_exercise_brief(self.selected).render() if self.selected else "",
+                readonly=True,
                 background_color=colors["card"], foreground_color=colors["text"],
-                size_hint_y=0.18, font_size=dp(15), padding=dp(10),
+                size_hint_y=None, height=0, opacity=0, disabled=True,
+                font_size=dp(15), padding=dp(14),
             )
-            saved_prompt_height = controller.load_preference("ide.prompt_height", "")
-            if saved_prompt_height:
+            self.document_scroll = ScrollView(
+                do_scroll_x=False, do_scroll_y=True, size_hint_y=1,
+                scroll_type=["bars", "content"], bar_width=dp(10),
+                bar_color=colors["accent"],
+                bar_inactive_color=(*colors["muted"][:3], .45),
+            )
+            self.document_column = BoxLayout(
+                orientation="vertical", size_hint_y=None, padding=dp(8), spacing=dp(8),
+            )
+            self.document_column.bind(minimum_height=self.document_column.setter("height"))
+            self.document_scroll.add_widget(self.document_column)
+            Clock.schedule_once(lambda _dt: self._reset_prompt_view(), 0)
+            try:
+                self.document_zoom = min(5, max(-3, int(
+                    controller.load_preference("ide.document_zoom", "0")
+                )))
+            except ValueError:
+                self.document_zoom = 0
+            self.brief_view = "practice"
+            self.brief_mode.bind(text=self._brief_mode_selected)
+            self.learning_note = TextInput(
+                hint_text="Antes de programar: como pensas transformar a entrada no resultado?",
+                multiline=False, size_hint_y=None, height=dp(38),
+                background_color=colors["card_alt"], foreground_color=colors["text"],
+                padding=(dp(10), dp(8)),
+            )
+            self.assessment_controls = BoxLayout(
+                size_hint_y=None, height=0, opacity=0, disabled=True, spacing=dp(5),
+            )
+            self.assessment_mode = Spinner(
+                text="Treino", values=("Treino", "Avaliação"),
+                size_hint_x=None, width=dp(120),
+            )
+            self.assessment_option = Spinner(
+                text="Seleciona uma resposta", values=(),
+            )
+            self.assessment_submit = action("Validar resposta", self._submit_assessment)
+            self.assessment_controls.add_widget(self.assessment_mode)
+            self.assessment_controls.add_widget(self.assessment_option)
+            self.assessment_controls.add_widget(self.assessment_submit)
+            self.brief_cell.add_widget(brief_header)
+            self.brief_cell.add_widget(self.document_scroll)
+            self.brief_cell.add_widget(self.prompt)
+            self.brief_cell.add_widget(self.learning_note)
+            self.brief_cell.add_widget(self.assessment_controls)
+            self.continue_practice_button = action(
+                "Continuar para a prática  >", self._show_practice,
+            )
+            self.continue_practice_button.height = 0
+            self.continue_practice_button.opacity = 0
+            self.continue_practice_button.disabled = True
+            self.brief_cell.add_widget(self.continue_practice_button)
+            self.editor = CodeInput(
+                text="", hint_text="Escreve a tua solução aqui…", font_size=dp(16),
+                background_color=colors["card_alt"], foreground_color=colors["text"],
+                size_hint_y=1,
+            )
+            saved_editor_font = controller.load_preference("ide.editor_font_size", "")
+            if saved_editor_font:
                 try:
-                    self.prompt.size_hint_y = None
-                    self.prompt.height = dp(min(420, max(90, float(saved_prompt_height))))
+                    self.editor.font_size = max(
+                        dp(12), min(dp(26), float(saved_editor_font))
+                    )
                 except ValueError:
                     pass
-            self.editor = CodeInput(
-                text=self.selected.starter_code if self.selected else "", font_size=dp(16),
-                background_color=colors["card"], foreground_color=colors["text"],
-                size_hint_y=0.42,
-            )
             self.editor.bind(text=self.track_edit)
             self.editor.bind(cursor=self._cursor_changed)
-            editor_wrap = BoxLayout(size_hint_y=0.42, spacing=dp(3))
+            self.editor.bind(on_touch_down=self._editor_double_click)
+            self.code_cell = BoxLayout(
+                orientation="vertical", size_hint_x=1, size_hint_y=1, spacing=dp(3),
+            )
+            code_header_scroll = ScrollView(
+                do_scroll_x=True, do_scroll_y=False, bar_width=dp(4),
+                size_hint_y=None, height=dp(42), scroll_type=["bars", "content"],
+            )
+            code_header = BoxLayout(
+                size_hint=(None, None), height=dp(40), spacing=dp(4),
+            )
+            code_header.bind(minimum_width=code_header.setter("width"))
+            self.file_label = text("[ ]  main.py", size=15, bold=True, fixed=40)
+            self.file_label.size_hint_x = None
+            self.file_label.width = dp(150)
+            code_header.add_widget(self.file_label)
+            self.run_button = tool_action(">", "Run", self.run_code, primary=True, width=78)
+            self.correct_button = tool_action("", "Corrigir", self.evaluate, width=88)
+            self.debug_button = tool_action("DBG", "Debug", self.debug_setup, width=82)
+            code_header.add_widget(self.run_button)
+            code_header.add_widget(self.correct_button)
+            code_header.add_widget(self.debug_button)
+            code_header.add_widget(tool_action("{}", "Formatar", lambda *_: self._execute_ide_command("format"), width=92))
+            code_header.add_widget(tool_action("/", "Procurar", lambda *_: self._execute_ide_command("find"), width=92))
+            code_header.add_widget(tool_action("S", "Guardar", lambda *_: self._execute_ide_command("save"), width=88))
+            code_header.add_widget(tool_action("?", "Tutor", self._open_inline_tutor, width=74))
+            code_header.add_widget(tool_action("CK", "CopyKate", self.copykate, width=98))
+            code_header.add_widget(tool_action("...", "Mais", self.engineering_tools, width=72))
+            code_header_scroll.add_widget(code_header)
+
+            self.find_bar = BoxLayout(
+                size_hint_y=None, height=0, opacity=0, disabled=True, spacing=dp(4),
+            )
+            self.find_query = TextInput(
+                hint_text="Procurar no ficheiro (Ctrl+F)", multiline=False,
+                size_hint_x=.9, padding=(dp(8), dp(7)),
+            )
+            self.replace_value = TextInput(
+                hint_text="Substituir por", multiline=False, size_hint_x=.8,
+                padding=(dp(8), dp(7)),
+            )
+            self.find_status = text("", muted=True, fixed=34)
+            self.find_status.size_hint_x = None
+            self.find_status.width = dp(86)
+            self.find_bar.add_widget(self.find_query)
+            self.find_bar.add_widget(self.replace_value)
+            self.find_bar.add_widget(tool_action("<", "Anterior", lambda *_: self._find_next(True), width=82))
+            self.find_bar.add_widget(tool_action(">", "Seguinte", lambda *_: self._find_next(False), width=84))
+            self.find_bar.add_widget(tool_action("=", "Substituir", self._replace_current, width=92))
+            self.find_bar.add_widget(tool_action("*", "Tudo", self._replace_all, width=70))
+            self.find_bar.add_widget(tool_action("X", "Fechar", self._close_find, width=72))
+            self.find_bar.add_widget(self.find_status)
+            self.find_query.bind(on_text_validate=lambda *_: self._find_next(False))
+            editor_wrap = BoxLayout(size_hint_y=1, spacing=dp(3))
             self.gutter = TextInput(
                 text=self._line_numbers(self.editor.text), readonly=True,
                 size_hint_x=None, width=dp(52), font_size=dp(14),
@@ -395,6 +1596,9 @@ def launch_advanced_kivy(controller) -> int:
             )
             editor_wrap.add_widget(self.gutter)
             editor_wrap.add_widget(self.editor)
+            self.code_cell.add_widget(code_header_scroll)
+            self.code_cell.add_widget(self.find_bar)
+            self.code_cell.add_widget(editor_wrap)
             self.glossary_tip = text(
                 "Dicionário: passa o rato sobre uma função ou conceito.",
                 muted=True, fixed=30,
@@ -403,50 +1607,86 @@ def launch_advanced_kivy(controller) -> int:
             self._hover_event = None
             Window.bind(mouse_pos=self._hover_dictionary)
             Window.bind(on_key_down=self._key_down)
-            row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(6))
-            for title, callback in (("Executar", self.run_code), ("Corrigir", self.evaluate),
-                                    ("Depurar", self.debug_setup),
-                                    ("Nova variação", self.variation), ("Completar", self.complete)):
-                row.add_widget(action(title, callback))
-            edit_tools = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(5))
-            for title, callback in (("Enunciado +", lambda *_: self._resize_prompt(dp(45))),
-                                    ("Enunciado −", lambda *_: self._resize_prompt(-dp(45))),
-                                    ("Copiar enunciado", lambda *_: Clipboard.copy(self.prompt.text)),
-                                    ("Copiar código", lambda *_: Clipboard.copy(self.editor.text)),
-                                    ("Copiar terminal", lambda *_: Clipboard.copy(self.output.text))):
-                edit_tools.add_widget(action(title, callback))
-            assists = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(6))
-            for title, callback in (("CopyKate", self.copykate), ("Guardar projeto", self.save_project),
-                                    ("Ferramentas", self.engineering_tools),
-                                    ("Ver grafo", self.open_graph)):
-                assists.add_widget(action(title, callback))
             self.focus_duration = Spinner(text="25", values=("25", "50", "90", "120"))
-            assists.add_widget(self.focus_duration)
             self.answer_confidence = Spinner(
                 text="Confiança média",
                 values=("Confiança baixa", "Confiança média", "Confiança alta"),
             )
-            assists.add_widget(self.answer_confidence)
-            assists.add_widget(action("Foco", self.toggle_focus))
             self.status = text("Pronto", muted=True, fixed=34)
-            diagnostics_row = BoxLayout(size_hint_y=None, height=dp(36), spacing=dp(6))
             self.diagnostics = text("Diagnóstico local: sem erros de sintaxe.", muted=True, fixed=32)
-            diagnostics_row.add_widget(self.diagnostics)
-            diagnostics_row.add_widget(action("Correções seguras", self._apply_quick_fixes))
             self.justification = TextInput(
                 hint_text="Justificação conceptual (pedida apenas após colagem extensa)",
-                multiline=False, size_hint_y=None, height=dp(38),
+                multiline=False, size_hint_y=None, height=0, opacity=0, disabled=True,
             )
+            self._bottom_panel_height = dp(140 if Window.height < dp(800) else 190)
+            self.terminal_shell = BoxLayout(
+                orientation="vertical", size_hint_y=None, height=dp(38), spacing=dp(2),
+            )
+            self.bottom_panel = BoxLayout(
+                orientation="vertical", size_hint_y=None,
+                height=0, spacing=dp(4), opacity=0, disabled=True,
+            )
+            tabs = BoxLayout(size_hint_y=None, height=dp(38), spacing=dp(4))
+            self.panel_tabs = {}
+            for panel_name in ("Output", "Problemas", "Tutor", "Testes"):
+                tab = ToggleButton(
+                    text=panel_name, group="ide-bottom-panel",
+                    state="down" if panel_name == "Output" else "normal",
+                    background_normal="", background_color=colors["card_alt"],
+                    color=colors["text"],
+                )
+                tab.bind(on_release=lambda _button, name=panel_name: self._show_panel(name))
+                self.panel_tabs[panel_name] = tab
+                tabs.add_widget(tab)
+            tabs.add_widget(tool_action("", "X", self._toggle_bottom_panel, width=42))
+            self.inline_tutor_controls = BoxLayout(
+                size_hint_y=None, height=0, opacity=0, spacing=dp(5),
+            )
+            self.inline_tutor_question = TextInput(
+                hint_text="Pergunta sobre o exercício ou erro atual…",
+                multiline=False,
+            )
+            self.inline_tutor_controls.add_widget(self.inline_tutor_question)
+            self.inline_tutor_controls.add_widget(tool_action(
+                "?", "Pista", lambda *_: self._ask_inline_tutor(TutorStrategy.SOCRATIC), width=82,
+            ))
+            self.inline_tutor_controls.add_widget(tool_action(
+                "!", "Erro", lambda *_: self._ask_inline_tutor(TutorStrategy.ANALYZE_ERROR), width=82,
+            ))
             self.output = TextInput(
-                text="Output e correção aparecem aqui.", readonly=True,
+                text=self._panel_buffers["Output"], readonly=True,
                 background_color=colors["card"], foreground_color=colors["text"],
-                size_hint_y=0.22,
+                size_hint_y=1, font_size=dp(14), padding=dp(10),
             )
-            self.selector.bind(text=self.select)
-            for widget in (self.selector, self.prompt, edit_tools, editor_wrap, self.glossary_tip,
-                           row, assists, self.status, diagnostics_row, self.justification, self.output):
+            self.bottom_panel.add_widget(self.inline_tutor_controls)
+            self.bottom_panel.add_widget(self.output)
+            self.terminal_shell.add_widget(tabs)
+            self.terminal_shell.add_widget(self.bottom_panel)
+
+            try:
+                brief_width = float(controller.load_preference("ide.brief_width", "430"))
+            except ValueError:
+                brief_width = 430
+            self.brief_cell.size_hint_x = None
+            self.brief_cell.size_hint_y = 1
+            self.brief_cell.width = dp(min(650, max(300, brief_width)))
+            self.workspace = BoxLayout(orientation="horizontal", size_hint_y=1, spacing=0)
+            self.workspace_divider = PaneDivider(target=self.brief_cell)
+            self.workspace.add_widget(self.code_cell)
+            self.workspace.add_widget(self.workspace_divider)
+            self.workspace.add_widget(self.brief_cell)
+            Window.bind(width=self._workspace_width_changed)
+            self._apply_journey_header(Window.width)
+            self.course_selector.bind(text=self._course_selected)
+            for widget in (
+                journey, self.workspace, self.justification, self.terminal_shell, self.status,
+            ):
                 root.add_widget(widget)
             self.add_widget(root)
+            self._render_brief_document("exercise", self.selected.id if self.selected else "", self.prompt.text)
+            if not initial_brief_expanded:
+                Clock.schedule_once(lambda _dt: self._toggle_brief(persist=False), 0)
+            Clock.schedule_once(lambda _dt: self._activate_exercise(self.selected), 0)
 
         @staticmethod
         def _line_numbers(source):
@@ -464,6 +1704,11 @@ def launch_advanced_kivy(controller) -> int:
             if match is not None:
                 line = self.editor.text.count("\n", 0, match) + 1
                 self.status.text = f"Delimitador correspondente na linha {line}."
+            elif hasattr(self, "status"):
+                self.status.text = (
+                    f"Python local  ·  sandbox  ·  Ln {cursor[1] + 1}, "
+                    f"Col {cursor[0] + 1}  ·  UTF-8"
+                )
 
         def track_edit(self, _editor, value):
             now = time.monotonic()
@@ -479,7 +1724,15 @@ def launch_advanced_kivy(controller) -> int:
             elif delta < 0:
                 self.deleted += -delta
             self.previous_source = value
-            if self.selected:
+            if self.pasted >= 200 and self.justification.height == 0:
+                self.justification.height = dp(38)
+                self.justification.opacity = 1
+                self.justification.disabled = False
+            if hasattr(self, "file_label"):
+                self.file_label.text = "[*]  " + (
+                    self._active_project_path if self.workspace_mode == "project" else "main.py"
+                )
+            if self.selected or self.workspace_mode == "project":
                 if self.draft_event is not None:
                     self.draft_event.cancel()
                 self.draft_event = Clock.schedule_once(
@@ -489,6 +1742,9 @@ def launch_advanced_kivy(controller) -> int:
             Clock.schedule_once(self._update_diagnostics, .35)
 
         def _persist_editor_state(self, *_args):
+            if self.workspace_mode == "project":
+                self.save_project(None)
+                return
             if not self.selected:
                 return
             controller.save_draft(self.selected.id, self.editor.text)
@@ -499,23 +1755,409 @@ def launch_advanced_kivy(controller) -> int:
                 watches=self._debug_watches,
             )
 
-        def _resize_prompt(self, delta):
-            self.prompt.size_hint_y = None
-            self.prompt.height = max(dp(90), min(dp(420), self.prompt.height + delta))
-            controller.save_preference(
-                "ide.prompt_height", f"{self.prompt.height / max(dp(1), .001):.2f}"
+        def _set_journey_title(self, title):
+            """Keep the full journey title while rendering one bounded line."""
+
+            full_title = str(title or "Sem exercícios")
+            self.exercise_title.text = full_title
+            self.exercise_title.full_title = full_title
+            self.exercise_title.accessible_name = full_title
+            self.exercise_title.tooltip_text = full_title
+
+        def _apply_journey_header(self, width):
+            profile = ide_journey_header_profile(
+                max(1, round(width)), density=max(1.0, dp(1)),
             )
+            self._journey_header_profile = profile
+            for button in (self.previous_exercise_button, self.next_exercise_button):
+                button.width = dp(profile.navigation_width_dp)
+            self.course_selector.width = dp(profile.course_width_dp)
+            if profile.compact:
+                self.exercise_title.size_hint_x = None
+                self.exercise_title.width = dp(profile.title_width_dp)
+            else:
+                self.exercise_title.size_hint_x = 1
+            return profile
+
+        def _brief_context_label(self):
+            return "Aula" if self.brief_view == "theory" else "Enunciado"
+
+        def _update_brief_toggle(self):
+            context = self._brief_context_label()
+            state = "[-]" if self.brief_expanded else "[+]"
+            action_name = "Recolher" if self.brief_expanded else "Expandir"
+            self.brief_toggle.text = f"{context} {state}"
+            self.brief_toggle.command_title = f"{action_name} {context.casefold()}"
+            self.brief_toggle.accessible_name = self.brief_toggle.command_title
+            self.brief_toggle.tooltip_text = self.brief_toggle.command_title
+
+        def _set_workspace_layout(self, mode):
+            """Switch between a full lesson canvas and the compact coding desk."""
+
+            self.workspace.clear_widgets()
+            if mode == "theory":
+                self.workspace_pane_button.width = 0
+                self.workspace_pane_button.opacity = 0
+                self.workspace_pane_button.disabled = True
+                self.brief_cell.size_hint_x = 1
+                self.continue_practice_button.height = dp(46)
+                self.continue_practice_button.opacity = 1
+                self.continue_practice_button.disabled = False
+                self.workspace.add_widget(self.brief_cell)
+            else:
+                self.continue_practice_button.height = 0
+                self.continue_practice_button.opacity = 0
+                self.continue_practice_button.disabled = True
+                self._compose_practice_workspace()
+
+        def _compose_practice_workspace(self):
+            """Use split panes on wide windows and one explicit pane on compact ones."""
+
+            self.workspace.clear_widgets()
+            profile = self._apply_journey_header(Window.width)
+            self.compact_workspace = profile.compact
+            if self.compact_workspace:
+                self.workspace_pane_button.width = dp(profile.pane_width_dp)
+                self.workspace_pane_button.opacity = 1
+                self.workspace_pane_button.disabled = False
+                if self.compact_pane == "brief":
+                    self.brief_cell.size_hint_x = 1
+                    self.workspace.add_widget(self.brief_cell)
+                    self.workspace_pane_button.text = "[]  Editor"
+                    self.workspace_pane_button.command_title = "Mostrar editor"
+                else:
+                    self.code_cell.size_hint_x = 1
+                    self.workspace.add_widget(self.code_cell)
+                    self.workspace_pane_button.text = "[]  Enunciado"
+                    self.workspace_pane_button.command_title = "Mostrar enunciado"
+                return
+            self.workspace_pane_button.width = 0
+            self.workspace_pane_button.opacity = 0
+            self.workspace_pane_button.disabled = True
+            self.brief_cell.size_hint_x = None
+            self.workspace.add_widget(self.code_cell)
+            self.workspace.add_widget(self.workspace_divider)
+            self.workspace.add_widget(self.brief_cell)
+
+        def _toggle_workspace_pane(self, *_args):
+            if not self.compact_workspace or self.brief_view == "theory":
+                return
+            self.compact_pane = "brief" if self.compact_pane == "editor" else "editor"
+            if self.compact_pane == "brief" and not self.brief_expanded:
+                self._toggle_brief(persist=False)
+            controller.save_preference("ide.compact_pane", self.compact_pane)
+            self._compose_practice_workspace()
+
+        def _workspace_width_changed(self, _window, width):
+            profile = self._apply_journey_header(width)
+            compact = profile.compact
+            if compact == self.compact_workspace:
+                return
+            self.compact_workspace = compact
+            if self.brief_view != "theory":
+                Clock.schedule_once(lambda _dt: self._compose_practice_workspace(), 0)
+
+        def _resize_prompt(self, delta):
+            if not self.brief_expanded:
+                self._toggle_brief()
+            self.document_zoom = min(5, max(-3, self.document_zoom + (1 if delta > 0 else -1)))
+            controller.save_preference("ide.document_zoom", str(self.document_zoom))
+            self._apply_document_zoom()
+
+        def _apply_document_zoom(self):
+            for widget in self.document_column.walk():
+                base = getattr(widget, "aprendix_base_font_size", None)
+                if base is not None:
+                    widget.font_size = dp(max(11, base + self.document_zoom) * font_scale)
+                elif isinstance(widget, CodeInput):
+                    widget.font_size = dp(max(11, 14 + self.document_zoom))
+
+        def _render_brief_document(self, owner_type, owner_id, fallback):
+            document = None
+            if owner_id and hasattr(controller, "pedagogical_document"):
+                try:
+                    document = controller.pedagogical_document(owner_type, str(owner_id))
+                except Exception:
+                    document = None
+            if document is not None and document.blocks:
+                render_pedagogical_blocks(self.document_column, document.blocks, compact=True)
+            else:
+                render_legacy_document(self.document_column, fallback, compact=True)
+            self._apply_document_zoom()
+            Clock.schedule_once(lambda _dt: self._reset_prompt_view(), 0)
+
+        def _reset_prompt_view(self):
+            """Open each exercise at the first line instead of the last cursor position."""
+
+            self.prompt.cursor = (0, 0)
+            self.prompt.scroll_x = 0
+            self.prompt.scroll_y = 0
+            self.document_scroll.scroll_y = 1
+
+        def _toggle_brief(self, *_args, persist=True):
+            if self.brief_expanded:
+                self.document_scroll.size_hint_y = None
+                self.document_scroll.height = 0
+                self.document_scroll.opacity = 0
+                self.document_scroll.disabled = True
+                self.brief_expanded = False
+            else:
+                self.document_scroll.size_hint_y = 1
+                self.document_scroll.opacity = 1
+                self.document_scroll.disabled = False
+                self.brief_expanded = True
+            self._update_brief_toggle()
+            if persist:
+                controller.save_preference(
+                    "ide.brief_expanded", "1" if self.brief_expanded else "0"
+                )
+
+        def _toggle_bottom_panel(self, *_args, persist=True):
+            if self.bottom_panel_expanded:
+                self.bottom_panel.height = 0
+                self.bottom_panel.opacity = 0
+                self.bottom_panel.disabled = True
+                self.terminal_shell.height = dp(38)
+                self.bottom_panel_expanded = False
+            else:
+                self.bottom_panel.height = self._bottom_panel_height
+                self.bottom_panel.opacity = 1
+                self.bottom_panel.disabled = False
+                self.terminal_shell.height = dp(38) + self._bottom_panel_height
+                self.bottom_panel_expanded = True
+            if persist:
+                controller.save_preference(
+                    "ide.bottom_panel_expanded",
+                    "1" if self.bottom_panel_expanded else "0",
+                )
+
+        def _show_panel(self, name):
+            if name not in self._panel_buffers:
+                return
+            self._panel_buffers[self._active_panel] = self.output.text
+            self._active_panel = name
+            self.output.text = self._panel_buffers[name]
+            for panel_name, tab in self.panel_tabs.items():
+                tab.state = "down" if panel_name == name else "normal"
+            tutor_open = name == "Tutor"
+            self.inline_tutor_controls.height = dp(40) if tutor_open else 0
+            self.inline_tutor_controls.opacity = 1 if tutor_open else 0
+            self.inline_tutor_controls.disabled = not tutor_open
+            if not self.bottom_panel_expanded:
+                if Window.height < dp(800) and self.brief_expanded:
+                    self._toggle_brief()
+                self._toggle_bottom_panel()
+
+        def _set_panel_text(self, name, value, *, activate=False):
+            self._panel_buffers[name] = value
+            if activate or self._active_panel == name:
+                if activate:
+                    self._show_panel(name)
+                self.output.text = value
+
+        def _zoom_editor(self, delta):
+            self.editor.font_size = max(dp(12), min(dp(26), self.editor.font_size + dp(delta)))
+            controller.save_preference("ide.editor_font_size", f"{self.editor.font_size:.2f}")
+            self.status.text = f"Editor: {round(self.editor.font_size / max(dp(1), .001))} pt."
+
+        def _format_editor(self):
+            try:
+                self.editor.text = format_python(self.editor.text)
+                self.status.text = "Formatação conservadora aplicada."
+            except SyntaxError as exc:
+                self.status.text = f"Formatação bloqueada: sintaxe inválida na linha {exc.lineno}."
+
+        def _set_execution_busy(self, busy):
+            for button in (self.run_button, self.correct_button, self.debug_button):
+                button.disabled = bool(busy)
+            self.editor.readonly = bool(busy)
+
+        def _execute_ide_command(self, command_id):
+            handlers = {
+                "run": lambda: self.run_code(None),
+                "correct": lambda: self.evaluate(None),
+                "debug": lambda: self.debug_setup(None),
+                "save": self._save_draft_now,
+                "find": lambda: self._open_find(False),
+                "replace": lambda: self._open_find(True),
+                "format": self._format_editor,
+                "copy": lambda: Clipboard.copy(self.editor.text),
+                "zoom_in": lambda: self._zoom_editor(1),
+                "zoom_out": lambda: self._zoom_editor(-1),
+                "toggle_brief": self._toggle_brief,
+                "toggle_panel": self._toggle_bottom_panel,
+                "tutor": self._open_inline_tutor,
+                "copykate": lambda: self.copykate(None),
+                "variation": lambda: self.variation(None),
+                "complete": lambda: self.complete(None),
+                "focus": lambda: self.toggle_focus(None),
+            }
+            handler = handlers.get(command_id)
+            if handler is not None:
+                handler()
+
+        def _save_draft_now(self):
+            if self.workspace_mode == "project":
+                self.save_project(None)
+                self.file_label.text = f"[ ]  {self._active_project_path}"
+                return
+            self._persist_editor_state()
+            self.file_label.text = "[ ]  main.py"
+            self.status.text = "Rascunho guardado localmente."
+
+        def _open_find(self, replace=False):
+            self.find_bar.height = dp(40)
+            self.find_bar.opacity = 1
+            self.find_bar.disabled = False
+            self.replace_value.opacity = 1 if replace else .45
+            self.replace_value.disabled = not replace
+            selection = self.editor.selection_text.strip()
+            if selection and "\n" not in selection:
+                self.find_query.text = selection
+            self.find_status.text = ""
+            Clock.schedule_once(lambda _dt: setattr(self.find_query, "focus", True), .04)
+
+        def _close_find(self, *_args):
+            self.find_bar.height = 0
+            self.find_bar.opacity = 0
+            self.find_bar.disabled = True
+            self.editor.focus = True
+
+        def _find_next(self, reverse=False):
+            needle = self.find_query.text
+            if not needle:
+                self.find_status.text = "0 resultados"
+                return
+            source = self.editor.text
+            start = self.editor.selection_from if reverse else self.editor.selection_to
+            if start is None:
+                start = self.editor.cursor_index()
+            position = source.rfind(needle, 0, max(0, start)) if reverse else source.find(
+                needle, min(len(source), start)
+            )
+            if position < 0:
+                position = source.rfind(needle) if reverse else source.find(needle)
+            if position < 0:
+                self.find_status.text = "0 resultados"
+                return
+            self.editor.select_text(position, position + len(needle))
+            self.editor.cursor = self.editor.get_cursor_from_index(position + len(needle))
+            total = source.count(needle)
+            ordinal = source[:position].count(needle) + 1
+            self.find_status.text = f"{ordinal}/{total}"
+            self.editor.focus = True
+
+        def _replace_current(self, *_args):
+            needle = self.find_query.text
+            if not needle:
+                self.find_status.text = "Indica texto"
+                return
+            if self.editor.selection_text == needle:
+                start = min(self.editor.selection_from, self.editor.selection_to)
+                end = max(self.editor.selection_from, self.editor.selection_to)
+                self.editor.text = (
+                    self.editor.text[:start] + self.replace_value.text + self.editor.text[end:]
+                )
+                self.editor.cursor = self.editor.get_cursor_from_index(
+                    start + len(self.replace_value.text)
+                )
+            self._find_next(False)
+
+        def _replace_all(self, *_args):
+            needle = self.find_query.text
+            if not needle:
+                self.find_status.text = "Indica texto"
+                return
+            count = self.editor.text.count(needle)
+            if count:
+                self.editor.text = self.editor.text.replace(needle, self.replace_value.text)
+            noun = "substituição" if count == 1 else "substituições"
+            self.find_status.text = f"{count} {noun}"
+            self.editor.focus = True
+
+        def _open_inline_tutor(self, *_args):
+            self._show_panel("Tutor")
+            Clock.schedule_once(
+                lambda _dt: setattr(self.inline_tutor_question, "focus", True), .05
+            )
+
+        def _ask_inline_tutor(self, strategy):
+            if not self.selected and self.workspace_mode != "project":
+                return
+            if self.brief_view == "assessment" and self.assessment_mode.text == "Avaliação":
+                self.status.text = "Tutor bloqueado durante a avaliação."
+                self._set_panel_text(
+                    "Tutor", "Conclui primeiro esta resposta de avaliação.", activate=True,
+                )
+                return
+            self.hints_used += 1
+            question = self.inline_tutor_question.text.strip()
+            if not question:
+                question = (
+                    "Orienta-me com uma pista curta e socrática. Não reveles a solução completa."
+                )
+            if self.workspace_mode == "project":
+                context = (
+                    f"Projeto: {self._active_project_name}.\n"
+                    f"Brief: {self.prompt.text[:1200]}\n"
+                    f"Diagnóstico atual: {self.diagnostics.text[:500]}\n"
+                    f"Código atual:\n{self.editor.text[:1600]}\n\nPergunta: {question}"
+                )[:3900]
+            else:
+                context = (
+                    f"Exercício: {self.selected.title}.\n"
+                    f"Objetivo: {self.selected.prompt[:900]}\n"
+                    f"Diagnóstico atual: {self.diagnostics.text[:500]}\n"
+                    f"Código atual:\n{self.editor.text[:1600]}\n\nPergunta: {question}"
+                )[:3900]
+            request = TutorRequestDTO(
+                question=context, strategy=strategy, evaluation_locked=True,
+            )
+            self._set_panel_text(
+                "Tutor", "A recuperar evidência local e a preparar uma orientação…",
+                activate=True,
+            )
+            threading.Thread(
+                target=self._inline_tutor_worker, args=(request,), daemon=True
+            ).start()
+
+        def _inline_tutor_worker(self, request):
+            try:
+                response = controller.ask_tutor(request)
+                Clock.schedule_once(lambda _dt: self._render_inline_tutor(response), 0)
+            except Exception as exc:
+                Clock.schedule_once(
+                    lambda _dt, message=str(exc): self._set_panel_text(
+                        "Tutor", "Tutor indisponível: " + message, activate=True,
+                    ), 0,
+                )
+
+        def _render_inline_tutor(self, response):
+            sources = "\n".join(
+                f"[{index}] {item.title}" for index, item in enumerate(response.evidence, 1)
+            )
+            heading = (
+                "Recusa segura" if response.declined else
+                f"Orientação fundamentada · confiança {response.confidence:.0%}"
+            )
+            body = f"{heading}\n\n{response.answer}"
+            if sources:
+                body += "\n\nFontes locais\n" + sources
+            self._set_panel_text("Tutor", body, activate=True)
 
         def _update_diagnostics(self, *_args):
             issues = diagnose_python(self.editor.text)
             if not issues:
                 self.diagnostics.text = "Diagnóstico local: sintaxe válida; sem alertas imediatos."
+                self._set_panel_text("Problemas", "Sem problemas detetados no código atual.")
                 return
-            self.diagnostics.text = "  ·  ".join(
+            messages = tuple(
                 f"L{item.line}:{item.column} {item.severity}: {item.message}"
                 + (f" Correção: {item.quick_fix}." if item.quick_fix else "")
                 for item in issues[:4]
             )
+            self.diagnostics.text = "  ·  ".join(messages)
+            self._set_panel_text("Problemas", "\n".join(messages))
 
         def _apply_quick_fixes(self, *_args):
             updated, count = apply_safe_quick_fixes(self.editor.text)
@@ -527,7 +2169,10 @@ def launch_advanced_kivy(controller) -> int:
             self._update_diagnostics()
 
         def debug_setup(self, *_args):
-            if not self.selected or not self.editor.text.strip():
+            if (
+                (self.workspace_mode == "exercise" and not self.selected)
+                or not self.editor.text.strip()
+            ):
                 self.status.text = "Escreve código antes de depurar."
                 return
             layout = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
@@ -581,6 +2226,7 @@ def launch_advanced_kivy(controller) -> int:
                 self._persist_editor_state()
                 popup.dismiss()
                 self.status.text = "A executar tracing no processo isolado…"
+                self._set_execution_busy(True)
                 threading.Thread(
                     target=self._debug_worker, args=(request,), daemon=True
                 ).start()
@@ -593,7 +2239,9 @@ def launch_advanced_kivy(controller) -> int:
 
         def _debug_worker(self, request):
             try:
-                result = controller.debug_code(request, self.selected.id)
+                result = controller.debug_code(
+                    request, self.selected.id if self.selected is not None else None,
+                )
                 Clock.schedule_once(lambda _dt: self._show_debugger(result), 0)
             except Exception as exc:
                 Clock.schedule_once(
@@ -601,6 +2249,7 @@ def launch_advanced_kivy(controller) -> int:
                 )
 
         def _show_debugger(self, result):
+            self._set_execution_busy(False)
             self._debug_session, self._debug_step = result, 0
             layout = BoxLayout(orientation="vertical", padding=dp(10), spacing=dp(7))
             controls = BoxLayout(size_hint_y=None, height=dp(42), spacing=dp(5))
@@ -612,6 +2261,7 @@ def launch_advanced_kivy(controller) -> int:
             analysis_controls = BoxLayout(size_hint_y=None, height=dp(42), spacing=dp(5))
             analysis_controls.add_widget(action("Perfil", self._show_execution_profile))
             analysis_controls.add_widget(action("Estruturas", self._show_structure_trace))
+            analysis_controls.add_widget(action("Histórico", self._show_debug_history))
             analysis_controls.add_widget(action("Voltar ao passo", lambda *_: self._render_debug_frame()))
             self.debug_view = TextInput(
                 readonly=True, background_color=colors["card"],
@@ -626,6 +2276,25 @@ def launch_advanced_kivy(controller) -> int:
             )
             self._render_debug_frame()
             self.debug_popup.open()
+
+        def _show_debug_history(self, *_args):
+            sessions = controller.debug_history(limit=20)
+            tests = controller.test_history(limit=20)
+            debug_lines = [
+                f"{item['created_at'][:19]} · {item['status']} · "
+                f"{item['coverage_percent']:.1f}% · {item['duration_ms']} ms"
+                for item in sessions
+            ] or ["Sem sessões de debug anteriores."]
+            test_lines = [
+                f"{item['created_at'][:19]} · públicos "
+                f"{item['public_passed']}/{item['public_total']} · ocultos "
+                f"{item['hidden_passed']}/{item['hidden_total']}"
+                for item in tests
+            ] or ["Sem correções anteriores."]
+            self.debug_view.text = (
+                "HISTÓRICO LOCAL DE DEBUG\n" + "\n".join(debug_lines)
+                + "\n\nHISTÓRICO DE TESTES\n" + "\n".join(test_lines)
+            )
 
         def _debug_move(self, mode):
             frames = self._debug_session.frames if self._debug_session else ()
@@ -660,7 +2329,7 @@ def launch_advanced_kivy(controller) -> int:
             source_lines = self.editor.text.splitlines()
             context = []
             for line_number in range(max(1, frame.line - 2), min(len(source_lines), frame.line + 2) + 1):
-                marker = "▶" if line_number == frame.line else " "
+                marker = ">" if line_number == frame.line else " "
                 context.append(f"{marker} {line_number:4} │ {source_lines[line_number - 1]}")
             def values(items):
                 return "\n".join(f"  {key} = {value}" for key, value in items.items()) or "  —"
@@ -761,7 +2430,7 @@ def launch_advanced_kivy(controller) -> int:
                             f"Alternativa: {comparison['right_complexity']['time']} / "
                             f"{comparison['right_complexity']['space']}."
                         )
-                    self.output.text = message
+                    self._set_panel_text("Output", message, activate=True)
                 except SyntaxError as exc:
                     self.status.text = f"Análise indisponível: {exc.msg}."
 
@@ -780,18 +2449,62 @@ def launch_advanced_kivy(controller) -> int:
             except Exception as exc:
                 self.status.text = f"Não foi possível abrir o grafo: {exc}"
 
-        def select(self, _spinner, title):
-            self.selected = next((item for item in self.catalogue if item.title == title), None)
+        def _course_selected(self, _spinner, title):
+            track_slug = self._course_titles.get(title)
+            if track_slug and track_slug != self.course_slug:
+                self.start_course(track_slug)
+
+        def start_course(self, track_slug, exercise_id=None):
+            items = list(controller.course_practice(track_slug))
+            if not items:
+                self.status.text = "Este percurso ainda não tem práticas disponíveis."
+                return
+            self.course_slug = track_slug
+            self.course_items = items
+            controller.save_preference("ide.course_slug", track_slug)
+            course_title = self._course_names.get(track_slug)
+            if course_title and self.course_selector.text != course_title:
+                self.course_selector.text = course_title
+            target = next(
+                (item for item in items if str(item["exercise"].id) == str(exercise_id)),
+                None,
+            )
+            if target is None:
+                target = next(
+                    (item for item in items if not item["completed"]), items[0]
+                )
+            self._activate_exercise(target["exercise"])
+
+        def _activate_exercise(self, exercise, transition_message=""):
+            if self.workspace_mode == "project" and self._active_project_id is not None:
+                self.save_project(None)
+            if (
+                exercise is not None and self.selected is not None
+                and exercise.id != self.selected.id and hasattr(self, "editor")
+            ):
+                if self.draft_event is not None:
+                    self.draft_event.cancel()
+                    self.draft_event = None
+                self._persist_learning_note()
+                self._persist_editor_state()
+            self.selected = exercise
             if self.selected:
+                self.workspace_mode = "exercise"
+                self.course_selector.disabled = False
                 self._active_project_id = None
                 self._active_project_name = ""
                 self._active_project_path = "main.py"
+                self._active_project_template_id = ""
+                self.learning_session_state = controller.learning_session(self.selected.id)
+                self.transfer_context = False
                 draft = controller.load_draft(self.selected.id)
                 recovery = controller.load_debug_recovery(self.selected.id)
-                self.prompt.text = self.selected.prompt
+                self._set_journey_title(self.selected.title)
+                self.prompt.text = build_exercise_brief(self.selected).render()
+                Clock.schedule_once(lambda _dt: self._reset_prompt_view(), 0)
                 self.editor.text = (
                     recovery["source"] if recovery is not None else
-                    draft if draft is not None else self.selected.starter_code
+                    draft if draft is not None else ""
                 )
                 self._debug_breakpoints = tuple(
                     DebugBreakpointDTO(**item) for item in recovery["breakpoints"]
@@ -811,17 +2524,269 @@ def launch_advanced_kivy(controller) -> int:
                 self.last_copykate_source = self.editor.text
                 self.typed = self.pasted = self.deleted = 0
                 self.active_seconds = 0.0
+                self.hints_used = 0
                 self.last_edit_at = self.started
+                self.justification.text = ""
+                self.file_label.text = "[ ]  main.py"
+                if self.bottom_panel_expanded:
+                    self._toggle_bottom_panel(persist=False)
+                self._set_panel_text(
+                    "Output", transition_message or (
+                        "Terminal local pronto. Executa para observar o resultado; "
+                        "usa Corrigir quando quiseres validar o contrato."
+                    ),
+                    activate=False,
+                )
+                self._update_journey()
+                theory_seen = self.learning_session_state.theory_viewed
+                saved_phase = str(getattr(
+                    self.learning_session_state.phase, "value", self.learning_session_state.phase
+                ))
+                if self._current_journey_item() and (
+                    not theory_seen or saved_phase == "microtheory"
+                ):
+                    self._show_theory()
+                    self.status.text = "Começa pela microteoria e depois entra na prática."
+                else:
+                    self._show_practice()
+                    self.status.text = "Pronto para resolver de raiz."
 
-        def load_exercise(self, exercise_id):
+        def select(self, _spinner, title):
+            exercise = next((item for item in self.catalogue if item.title == title), None)
+            if exercise is not None:
+                self._activate_exercise(exercise)
+
+        def load_exercise(self, exercise_id, track_slug=None):
+            if track_slug:
+                self.start_course(track_slug, exercise_id)
+                return
+            for slug in self._course_names:
+                items = controller.course_practice(slug)
+                if any(str(item["exercise"].id) == str(exercise_id) for item in items):
+                    self.start_course(slug, exercise_id)
+                    return
             exercise = next(
-                (item for item in self.catalogue if str(item.id) == str(exercise_id)),
-                None,
+                (item for item in self.catalogue if str(item.id) == str(exercise_id)), None
             )
             if exercise is not None:
-                self.selector.text = exercise.title
+                self.course_slug, self.course_items = "", []
+                self._activate_exercise(exercise)
+
+        def _update_journey(self):
+            if not self.selected or not self.course_items:
+                self.journey_meta.text = "Treino livre"
+                self.journey_progress.value = 0
+                self.previous_exercise_button.disabled = True
+                self.next_exercise_button.disabled = True
+                return
+            index = next(
+                (position for position, item in enumerate(self.course_items)
+                 if item["exercise"].id == self.selected.id), 0,
+            )
+            completed = sum(bool(item["completed"]) for item in self.course_items)
+            chapter = self.course_items[index]["chapter_title"]
+            self.journey_meta.text = (
+                f"{chapter}  ·  exercício {index + 1} de {len(self.course_items)}  ·  "
+                f"{completed} concluídos"
+            )
+            self.journey_progress.value = completed / max(1, len(self.course_items))
+            self.previous_exercise_button.disabled = index == 0
+            self.next_exercise_button.disabled = index >= len(self.course_items) - 1
+
+        def _current_journey_item(self):
+            if not self.selected:
+                return None
+            return next(
+                (item for item in self.course_items
+                 if item["exercise"].id == self.selected.id), None,
+            )
+
+        def _selected_brief_mode(self):
+            return {"Simples": "simple", "Guiado": "guided", "Técnico": "technical"}.get(
+                self.brief_mode.text, "guided"
+            )
+
+        def _brief_mode_selected(self, _spinner, _value):
+            controller.save_preference("ide.brief_mode", self._selected_brief_mode())
+            if self.selected and self.brief_view == "practice":
+                self.prompt.text = build_exercise_brief(self.selected).render(
+                    self._selected_brief_mode()
+                )
+                self._render_brief_document("exercise", self.selected.id, self.prompt.text)
+
+        def _show_theory(self, *_args):
+            if not self.selected:
+                return
+            from aprendix.application.learning_session import render_microtheory
+
+            item = self._current_journey_item() or {}
+            self._hide_assessment_controls()
+            self.brief_view = "theory"
+            self._update_brief_toggle()
+            self._set_workspace_layout("theory")
+            self.learning_session_state = controller.update_learning_session(
+                self.selected.id, phase="microtheory", theory_viewed=True,
+                hint_count=self.hints_used,
+                active_seconds=max(0, round(self.active_seconds)),
+            )
+            self.prompt.text = render_microtheory(
+                str(item.get("theory_title", "")),
+                str(item.get("theory_body", "")),
+                str(item.get("theory_example", "")),
+            )
+            self._render_brief_document(
+                "lesson", item.get("theory_unit_id", ""), self.prompt.text,
+            )
+            self.theory_button.disabled = True
+            self.practice_button.disabled = False
+            self.learning_note.hint_text = (
+                "Previsão: que passos, validações e casos-limite vais usar?"
+            )
+            self.learning_note.text = self.learning_session_state.prediction
+            self.status.text = "Aula ativa · continua para a prática quando estiveres preparado."
+            Clock.schedule_once(lambda _dt: self._reset_prompt_view(), 0)
+
+        def _show_practice(self, *_args):
+            if not self.selected:
+                return
+            prediction = None
+            if self.brief_view == "theory":
+                prediction = self.learning_note.text
+            self.brief_view = "practice"
+            self._update_brief_toggle()
+            self._set_workspace_layout("practice")
+            self._hide_assessment_controls()
+            self.learning_session_state = controller.update_learning_session(
+                self.selected.id,
+                phase="guided_practice" if self.hints_used else "independent_practice",
+                theory_viewed=True, prediction=prediction,
+                hint_count=self.hints_used,
+                active_seconds=max(0, round(self.active_seconds)),
+            )
+            self.prompt.text = build_exercise_brief(self.selected).render(
+                self._selected_brief_mode()
+            )
+            self._render_brief_document("exercise", self.selected.id, self.prompt.text)
+            self.theory_button.disabled = False
+            self.practice_button.disabled = True
+            self.learning_note.hint_text = (
+                "Notas de raciocínio; após aprovação, regista o que aprendeste."
+            )
+            self.learning_note.text = self.learning_session_state.reflection
+            self.status.text = "Prática ativa · resolve de raiz e executa quando estiveres pronto."
+            Clock.schedule_once(lambda _dt: self._reset_prompt_view(), 0)
+
+        def _hide_assessment_controls(self):
+            self.assessment_controls.height = 0
+            self.assessment_controls.opacity = 0
+            self.assessment_controls.disabled = True
+            self.learning_note.height = dp(38)
+            self.learning_note.opacity = 1
+            self.learning_note.disabled = False
+            self.assessment_button.disabled = not bool(
+                (self._current_journey_item() or {}).get("assessments")
+            )
+
+        def _show_assessment(self, *_args):
+            item = self._current_journey_item() or {}
+            candidates = tuple(item.get("assessments", ()))
+            selected = next(
+                (candidate for candidate in candidates
+                 if candidate["unlocked"] and not candidate["completed"]),
+                next((candidate for candidate in candidates if candidate["unlocked"]), None),
+            )
+            if selected is None:
+                self.status.text = (
+                    "Conclui a prática e a microteoria deste capítulo para desbloquear o teste."
+                )
+                return
+            try:
+                assessment = controller.assessment(selected["assessment_id"])
+            except (KeyError, RuntimeError, ValueError) as exc:
+                self.status.text = f"Teste indisponível: {exc}"
+                return
+            self.active_assessment = {**selected, **assessment}
+            self.assessment_started = time.monotonic()
+            self.brief_view = "assessment"
+            self._update_brief_toggle()
+            self._set_workspace_layout("practice")
+            self.prompt.text = (
+                f"Teste de etapa · {selected['title']}\n\n{assessment['prompt']}\n\n"
+                "Em Treino recebes explicação imediata. Em Avaliação a resposta é "
+                "registada sem revelar a solução durante a tentativa."
+            )
+            self._render_brief_document("lesson", selected.get("unit_id", ""), self.prompt.text)
+            self._assessment_options = {
+                f"{option['id'].upper()}. {option['text']}": option["id"]
+                for option in assessment["options"]
+            }
+            self.assessment_option.values = tuple(self._assessment_options)
+            self.assessment_option.text = "Seleciona uma resposta"
+            self.assessment_controls.height = dp(42)
+            self.assessment_controls.opacity = 1
+            self.assessment_controls.disabled = False
+            self.learning_note.height = 0
+            self.learning_note.opacity = 0
+            self.learning_note.disabled = True
+            self.theory_button.disabled = False
+            self.practice_button.disabled = False
+            self.assessment_button.disabled = True
+            self.status.text = "Teste pronto · escolhe o modo e uma resposta."
+            Clock.schedule_once(lambda _dt: self._reset_prompt_view(), 0)
+
+        def _submit_assessment(self, *_args):
+            if not self.active_assessment:
+                return
+            answer = self._assessment_options.get(self.assessment_option.text)
+            if answer is None:
+                self.status.text = "Seleciona primeiro uma resposta."
+                return
+            mode = "evaluation" if self.assessment_mode.text == "Avaliação" else "training"
+            duration = max(0, round(time.monotonic() - self.assessment_started))
+            try:
+                result = controller.answer_assessment(
+                    self.active_assessment["assessment_id"], answer,
+                    duration_seconds=duration, mode=mode,
+                )
+            except (KeyError, RuntimeError, ValueError) as exc:
+                self.status.text = f"Não foi possível avaliar: {exc}"
+                return
+            heading = "Resposta correta" if result["passed"] else "Resposta incorreta"
+            message = result.get("feedback") or result.get("explanation") or "Resposta registada."
+            self._set_panel_text(
+                "Testes",
+                f"{heading} · {duration}s · modo {self.assessment_mode.text}\n\n{message}",
+                activate=True,
+            )
+            self.status.text = heading
+            refreshed = list(controller.course_practice(self.course_slug))
+            if refreshed:
+                self.course_items = refreshed
+            if result["passed"]:
+                self.active_assessment = None
+                self._update_journey()
+
+        def _persist_learning_note(self):
+            if (
+                self.workspace_mode != "exercise" or not self.selected
+                or self.learning_session_state is None
+            ):
+                return
+            changes = {
+                "hint_count": self.hints_used,
+                "active_seconds": max(0, round(self.active_seconds)),
+            }
+            if self.brief_view == "theory":
+                changes["prediction"] = self.learning_note.text
+            elif self.learning_session_state.phase.value == "reflection":
+                changes["reflection"] = self.learning_note.text
+            self.learning_session_state = controller.update_learning_session(
+                self.selected.id, **changes
+            )
 
         def _hover_dictionary(self, _window, position):
+            if self.manager is not None and self.manager.current != self.name:
+                return
             if not self.editor.collide_point(*position):
                 return
             local_x, local_y = self.editor.to_widget(*position)
@@ -850,31 +2815,191 @@ def launch_advanced_kivy(controller) -> int:
                 self.glossary_tip.text = (
                     f"{entry['term']}: {entry['definition']}  ·  {entry['signature']}"
                 )
+                self.status.text = self.glossary_tip.text
 
-        def _key_down(self, _window, key, _scancode, _codepoint, _modifiers):
-            if key != 282 or not self.editor.focus:  # F1
-                return False
-            column, row = self.editor.cursor
+        def _editor_term_at(self, column, row):
             lines = self.editor.text.splitlines()
             line = lines[row] if 0 <= row < len(lines) else ""
-            match = next(
-                (item for item in re.finditer(r"[A-Za-z_][A-Za-z0-9_]*", line)
+            return next(
+                (item.group(0) for item in re.finditer(r"[A-Za-z_][A-Za-z0-9_]*", line)
                  if item.start() <= column <= item.end()),
-                None,
+                "",
             )
-            if match:
-                reference = self.manager.get_screen("reference")
-                reference.query.text = match.group(0)
-                reference.search()
-                self.manager.current = "reference"
+
+        def _editor_double_click(self, widget, touch):
+            if (
+                not getattr(touch, "is_double_tap", False)
+                or not widget.collide_point(*touch.pos)
+            ):
+                return False
+            local_x, local_y = widget.to_widget(*touch.pos)
+            try:
+                column, row = widget.get_cursor_from_xy(local_x, local_y)
+            except (AttributeError, ValueError):
+                return False
+            term = self._editor_term_at(column, row)
+            if term:
+                self._open_dictionary_peek(term)
+                return True
+            return False
+
+        def _open_dictionary_peek(self, term):
+            """Show dictionary evidence without removing the learner from the IDE."""
+
+            try:
+                entries = tuple(controller.glossary(term, limit=5))
+            except Exception as exc:
+                self.status.text = f"Dicionário indisponível: {exc}"
+                return
+            content = BoxLayout(orientation="vertical", padding=dp(10), spacing=dp(7))
+            scroll, column = scroll_column()
+            if not entries:
+                column.add_widget(text(
+                    f"Não existe ainda uma definição local para “{term}”.",
+                    muted=True,
+                ))
+            for entry in entries:
+                card = Card()
+                card.add_widget(text(entry.get("term", term), size=18, bold=True, fixed=30))
+                signature = entry.get("signature", "")
+                if signature:
+                    card.add_widget(CodeInput(
+                        text=signature, readonly=True, size_hint_y=None, height=dp(52),
+                        background_color=colors["card_alt"], foreground_color=colors["text"],
+                    ))
+                card.add_widget(text(entry.get("definition", ""), size=14))
+                examples = entry.get("examples") or (
+                    (entry.get("example"),) if entry.get("example") else ()
+                )
+                for example in tuple(examples)[:3]:
+                    example_text = (
+                        example.get("example", "") if isinstance(example, dict) else str(example)
+                    )
+                    explanation = (
+                        example.get("explanation", "") if isinstance(example, dict) else ""
+                    )
+                    context = example.get("context", "") if isinstance(example, dict) else ""
+                    difficulty = example.get("difficulty", "") if isinstance(example, dict) else ""
+                    card.add_widget(CodeInput(
+                        text=example_text, readonly=True, size_hint_y=None,
+                        height=dp(min(120, max(48, 32 + example_text.count("\n") * 20))),
+                        background_color=colors["card_alt"], foreground_color=colors["text"],
+                    ))
+                    if explanation or context:
+                        detail = " · ".join(part for part in (difficulty, context) if part)
+                        card.add_widget(text(
+                            (f"{detail}\n" if detail else "") + explanation,
+                            muted=True, fixed=42 if explanation else 28,
+                        ))
+                related = tuple(entry.get("related_terms") or ())
+                if related:
+                    card.add_widget(text(
+                        "Relacionados · " + ", ".join(str(item) for item in related[:8]),
+                        muted=True, fixed=30,
+                    ))
+                references = tuple(entry.get("references") or entry.get("sources") or ())
+                for reference in references[:3]:
+                    label, target = (
+                        reference if isinstance(reference, (tuple, list)) and len(reference) >= 2
+                        else (str(reference), "")
+                    )
+                    if target:
+                        source_button = action(
+                            str(label)[:44],
+                            lambda _button, url=str(target): self._open_dictionary_source(url),
+                        )
+                        source_button.height = dp(38)
+                        card.add_widget(source_button)
+                source_count = len(references)
+                card.add_widget(text(
+                    f"{source_count} referência(s) local(is)" if source_count else
+                    "Definição local curada", muted=True, fixed=26,
+                ))
+                column.add_widget(card)
+            content.add_widget(scroll)
+            close = action("Fechar e continuar no IDE", lambda *_: popup.dismiss())
+            content.add_widget(close)
+            popup = Popup(
+                title=f"Dicionário rápido · {term}", content=content,
+                size_hint=(None, None), width=dp(min(420, max(340, Window.width * .36))),
+                height=dp(min(400, max(280, Window.height * .46))), auto_dismiss=True,
+                background_color=(1, 1, 1, .92),
+            )
+            self.dictionary_popup = popup
+            popup.open()
+
+        @staticmethod
+        def _open_dictionary_source(target):
+            if target.startswith("https://"):
+                webbrowser.open(target)
+            elif target.startswith("aprendix-library://"):
+                from aprendix.application.local_library import resolve_library_uri
+
+                path = resolve_library_uri(target)
+                if path is not None:
+                    webbrowser.open(path.as_uri())
+
+        def _key_down(self, _window, key, _scancode, _codepoint, modifiers):
+            if self.manager is not None and self.manager.current != self.name:
+                return False
+            modifiers = set(modifiers)
+            control = "ctrl" in modifiers
+            shift = "shift" in modifiers
+            alt = "alt" in modifiers
+            command_id = None
+            if self.find_bar.height > 0 and self.find_query.focus and key in (13, 271):
+                self._find_next(reverse=shift)
+                return True
+            if self.editor.focus:
+                if control and key in (13, 271):
+                    command_id = "correct" if shift else "run"
+                elif key == 286:  # F5
+                    command_id = "run"
+                elif key == 287:  # F6
+                    command_id = "debug"
+                elif control and key in (83, 115):
+                    command_id = "save"
+                elif control and key in (70, 102):
+                    command_id = "find"
+                elif control and key in (72, 104):
+                    command_id = "replace"
+                elif shift and alt and key in (70, 102):
+                    command_id = "format"
+                elif control and shift and key in (67, 99):
+                    command_id = "copy"
+                elif control and key in (43, 61, 270):
+                    command_id = "zoom_in"
+                elif control and key in (45, 269):
+                    command_id = "zoom_out"
+                elif control and key in (66, 98):
+                    command_id = "toggle_brief"
+                elif control and key in (74, 106):
+                    command_id = "toggle_panel"
+                elif control and key in (73, 105):
+                    command_id = "tutor"
+            if command_id:
+                self._execute_ide_command(command_id)
+                return True
+            if key == 27 and self.find_bar.height > 0:
+                self._close_find()
+                return True
+            if key != 282 or not self.editor.focus:  # F1
+                return False
+            term = self._editor_term_at(*self.editor.cursor)
+            if term:
+                self._open_dictionary_peek(term)
                 return True
             return False
 
         def run_code(self, _button):
-            if not self.selected or not self.editor.text.strip():
+            if (
+                (self.workspace_mode == "exercise" and not self.selected)
+                or not self.editor.text.strip()
+            ):
                 self.status.text = "Escreve código antes de executar."
                 return
             self.status.text = "A executar no subprocesso isolado…"
+            self._set_execution_busy(True)
             threading.Thread(target=self._run_worker, daemon=True).start()
 
         def _run_worker(self):
@@ -885,17 +3010,83 @@ def launch_advanced_kivy(controller) -> int:
                 Clock.schedule_once(lambda _dt, message=str(exc): self._show_error(message), 0)
 
         def _show_run(self, result):
+            from aprendix.application.editor_support import explain_runtime_error
+
+            self._set_execution_busy(False)
             self.status.text = f"Execução: {result.status} · {result.duration_ms} ms"
-            self.output.text = result.stdout or result.error_message or "Sem output."
+            if result.stdout:
+                rendered = result.stdout
+            elif result.error_type or result.error_message:
+                rendered = explain_runtime_error(
+                    result.error_type, result.error_message
+                )
+            else:
+                rendered = "Sem output."
+            self._set_panel_text("Output", rendered, activate=True)
 
         def evaluate(self, _button):
-            if not self.selected or not self.editor.text.strip():
+            if not self.editor.text.strip():
                 self.status.text = "Escreve código antes de corrigir."
+                return
+            if self.workspace_mode == "project":
+                if self._active_project_id is None:
+                    self.status.text = "Guarda primeiro o projeto local."
+                    return
+                self.save_project(None)
+                self.status.text = "A avaliar o projeto pela rubrica local…"
+                self._set_execution_busy(True)
+                threading.Thread(target=self._evaluate_project_worker, daemon=True).start()
+                return
+            if not self.selected:
+                self.status.text = "Seleciona um exercício antes de corrigir."
                 return
             elapsed = max(0, round((time.monotonic() - self.started) * 1000))
             telemetry = EditTelemetry(self.typed, self.pasted, self.deleted)
             self.status.text = "A corrigir e persistir localmente…"
+            self._set_execution_busy(True)
             threading.Thread(target=self._evaluate_worker, args=(elapsed, telemetry), daemon=True).start()
+
+        def _evaluate_project_worker(self):
+            try:
+                result = controller.evaluate_project(self._active_project_id)
+                Clock.schedule_once(lambda _dt: self._show_project_evaluation(result), 0)
+            except Exception as exc:
+                Clock.schedule_once(
+                    lambda _dt, message=str(exc): self._show_error(message), 0,
+                )
+
+        def _show_project_evaluation(self, result):
+            self._set_execution_busy(False)
+            rubric = "\n".join(
+                f"{name.title()}: {score:.0%}"
+                for name, score in result.rubric_scores.items()
+            )
+            findings = "\n".join(f"- {item}" for item in result.findings) or (
+                "- Sem problemas estruturais detetados."
+            )
+            access = getattr(result, "access", None)
+            credit_awarded = bool(getattr(result, "credit_awarded", result.passed))
+            reason = getattr(getattr(access, "reason_code", ""), "value", "")
+            missing = tuple(getattr(access, "missing_prerequisite_ids", ()) or ())
+            eligibility_note = (
+                "Crédito curricular atribuído ao capstone correto."
+                if credit_awarded else
+                "Avaliação guardada sem crédito curricular"
+                + (f" · {reason}" if reason else "")
+                + (" · dependências: " + ", ".join(missing) if missing else "")
+            )
+            rendered = (
+                f"Projeto {'aprovado' if result.passed else 'a rever'} · {result.score:.0%}\n\n"
+                f"Rubrica\n{rubric}\n\nObservações\n{findings}"
+            )
+            if eligibility_note:
+                rendered += f"\n\nPercurso\n{eligibility_note}"
+            self.status.text = (
+                "Projeto aprovado e creditado" if result.passed and credit_awarded else
+                "Projeto aprovado em exploração · sem crédito" if result.passed else
+                "Projeto a rever"
+            )
+            self._set_panel_text("Testes", rendered, activate=True)
 
         def _evaluate_worker(self, elapsed, telemetry):
             try:
@@ -909,40 +3100,162 @@ def launch_advanced_kivy(controller) -> int:
                         "Confiança média": .5,
                         "Confiança alta": .9,
                     }[self.answer_confidence.text],
+                    hint_count=self.hints_used,
+                    theory_title=str((self._current_journey_item() or {}).get("theory_title", "")),
+                    theory_example=str((self._current_journey_item() or {}).get("theory_example", "")),
+                    transfer_context=self.transfer_context,
                 )
                 Clock.schedule_once(lambda _dt: self._show_evaluation(receipt), 0)
             except Exception as exc:
                 Clock.schedule_once(lambda _dt, message=str(exc): self._show_error(message), 0)
 
         def _show_evaluation(self, receipt):
-            self.status.text = "Aprovado" if receipt.passed else "Ainda não aprovado"
+            self._set_execution_busy(False)
+            credit_awarded = bool(getattr(receipt, "credit_awarded", receipt.passed))
+            self.status.text = (
+                "Aprovado e creditado" if receipt.passed and credit_awarded else
+                "Aprovado em exploração · sem crédito" if receipt.passed else
+                "Ainda não aprovado"
+            )
             lines = list(receipt.feedback)
+            lines.insert(0, f"Tentativa {receipt.attempt_number} · score {receipt.score:.0%}")
+            if receipt.passed and not credit_awarded:
+                access = getattr(receipt, "access", None)
+                missing = tuple(getattr(access, "missing_prerequisite_ids", ()) or ())
+                reason = getattr(getattr(access, "reason_code", ""), "value", "")
+                lines.insert(1, (
+                    "Exploração guardada sem XP, milestone ou progresso curricular. "
+                    f"Motivo: {reason or 'pré-requisitos incompletos'}."
+                    + (" Dependências: " + ", ".join(missing) if missing else "")
+                ))
+            if receipt.diagnosis_title:
+                lines.extend((
+                    "", f"Diagnóstico · {receipt.diagnosis_title}",
+                    receipt.diagnosis, receipt.improvement,
+                ))
             if receipt.milestone:
                 lines.append(f"Milestone {receipt.milestone.rank_to.value}: {receipt.milestone.completed}/{receipt.milestone.required}")
-            self.output.text = "\n".join(lines) or f"Score: {receipt.score:.0%}"
+            rendered = "\n".join(lines) or f"Score: {receipt.score:.0%}"
+            self._set_panel_text("Testes", rendered, activate=True)
+            self.learning_session_state = controller.learning_session(self.selected.id)
+            if not receipt.passed and receipt.assistance_title:
+                help_text = "Remediação focada\n\n"
+                if receipt.prerequisite_terms:
+                    help_text += "Pré-requisitos: " + ", ".join(receipt.prerequisite_terms) + "\n\n"
+                help_text += "\n".join(
+                    f"{index}. {item}" for index, item in enumerate(
+                        receipt.remediation_actions, 1
+                    )
+                )
+                if receipt.mini_exercise:
+                    help_text += "\n\n" + receipt.mini_exercise
+                help_text += "\n\n" + receipt.assistance_title + "\n\n"
+                help_text += "\n".join(
+                    f"{index}. {item}" for index, item in enumerate(receipt.assistance, 1)
+                )
+                if receipt.worked_example:
+                    help_text += "\n\n" + receipt.worked_example
+                if receipt.reference_available:
+                    help_text += (
+                        "\n\nSolução de referência validada (treino)\n"
+                        + receipt.reference_solution
+                        + "\n\nExplicação estrutural\n"
+                        + receipt.reference_explanation
+                        + "\n\nValidação: "
+                        + receipt.reference_validation_hash[:12]
+                    )
+                if receipt.next_action:
+                    help_text += "\n\nPróximo passo\n" + receipt.next_action
+                help_text += "\n\nUsa Teoria no topo do enunciado para rever a explicação."
+                self._set_panel_text("Tutor", help_text)
+                self.hints_used += 1
             if receipt.passed and self.catalogue:
-                Clock.schedule_once(lambda _dt: self._next_exercise(), 1.2)
+                item = self._current_journey_item() or {}
+                if credit_awarded and item.get("theory_unit_id"):
+                    try:
+                        controller.complete_unit(item["theory_unit_id"])
+                    except ValueError:
+                        pass
+                refreshed = list(controller.course_practice(self.course_slug))
+                if refreshed:
+                    self.course_items = refreshed
+                self.learning_note.text = self.learning_session_state.reflection
+                self.learning_note.hint_text = (
+                    "Reflexão opcional: o que aprendeste e que erro evitarás? Depois usa Seguinte."
+                )
+                self.status.text = (
+                    "Aprovado e creditado · regista uma reflexão ou seleciona Seguinte."
+                    if credit_awarded else
+                    "Aprovado em exploração; repete depois de cumprires os pré-requisitos para obter crédito."
+                )
 
-        def _next_exercise(self):
-            if not self.selected or not self.catalogue:
+        def _next_exercise(self, *_args, transition_message=""):
+            if not self.selected or not self.course_items:
                 return
-            index = self.catalogue.index(self.selected)
-            self.selector.text = self.catalogue[(index + 1) % len(self.catalogue)].title
+            self._persist_learning_note()
+            if self.learning_session_state.phase.value == "reflection":
+                self.learning_session_state = controller.update_learning_session(
+                    self.selected.id, phase="completed",
+                    reflection=self.learning_note.text,
+                )
+            refreshed = list(controller.course_practice(self.course_slug))
+            if refreshed:
+                self.course_items = refreshed
+            index = next(
+                (position for position, item in enumerate(self.course_items)
+                 if item["exercise"].id == self.selected.id), -1,
+            )
+            if index + 1 >= len(self.course_items):
+                self.status.text = "Percurso prático concluído. Podes rever qualquer exercício."
+                self._update_journey()
+                return
+            self._activate_exercise(
+                self.course_items[index + 1]["exercise"], transition_message
+            )
+
+        def _previous_exercise(self, *_args):
+            if not self.selected or not self.course_items:
+                return
+            self._persist_learning_note()
+            if self.learning_session_state.phase.value == "reflection":
+                self.learning_session_state = controller.update_learning_session(
+                    self.selected.id, phase="completed",
+                    reflection=self.learning_note.text,
+                )
+            index = next(
+                (position for position, item in enumerate(self.course_items)
+                 if item["exercise"].id == self.selected.id), 0,
+            )
+            if index > 0:
+                self._activate_exercise(self.course_items[index - 1]["exercise"])
 
         def variation(self, _button):
             if not self.selected:
+                return
+            if self.brief_view == "assessment" and self.assessment_mode.text == "Avaliação":
+                self.status.text = "Variações bloqueadas durante a avaliação."
                 return
             try:
                 generated = controller.variation(
                     self.selected, proficiency=self._proficiency()
                 )
-                self.prompt.text, self.editor.text = generated.prompt, generated.starter_code
-                self.output.text = "Dicas graduais:\n" + "\n".join(f"• {hint.text}" for hint in generated.hints)
-                self.status.text = "Variação A2 criada no mesmo nível."
+                self.prompt.text = build_exercise_brief(generated).render()
+                self._render_brief_document("", "", self.prompt.text)
+                Clock.schedule_once(lambda _dt: self._reset_prompt_view(), 0)
+                self.editor.text = ""
+                self.transfer_context = True
+                self._set_panel_text(
+                    "Tutor",
+                    "Dicas graduais:\n" + "\n".join(f"• {hint.text}" for hint in generated.hints),
+                )
+                self.status.text = "Variação A2 criada no mesmo nível; editor limpo."
             except Exception as exc:
                 self._show_error(str(exc))
 
         def complete(self, _button):
+            if self.brief_view == "assessment" and self.assessment_mode.text == "Avaliação":
+                self.status.text = "Autocomplete bloqueado durante a avaliação."
+                return
             try:
                 suggestions = controller.autocomplete(
                     self.editor.text, self.editor.cursor_index(),
@@ -959,6 +3272,9 @@ def launch_advanced_kivy(controller) -> int:
                 self._show_error(str(exc))
 
         def copykate(self, _button):
+            if self.brief_view == "assessment" and self.assessment_mode.text == "Avaliação":
+                self.status.text = "CopyKate bloqueado durante a avaliação."
+                return
             if self.editor.text.strip():
                 self.status.text = "CopyKate local a analisar o teu estilo…"
                 threading.Thread(target=self._copykate_worker, daemon=True).start()
@@ -974,10 +3290,10 @@ def launch_advanced_kivy(controller) -> int:
 
         def _show_copykate(self, response):
             self.status.text = "CopyKate criou 3 alternativas; nenhuma foi inserida automaticamente."
-            self.output.text = "\n\n".join(
+            self._set_panel_text("Tutor", "\n\n".join(
                 f"{index}. {item.strategy}: {item.justification}\nAlterações AST: {len(item.ast_changes)}\n{item.source_code[:700]}"
                 for index, item in enumerate(response.alternatives, start=1)
-            )
+            ), activate=True)
 
         def save_project(self, _button):
             try:
@@ -1001,7 +3317,58 @@ def launch_advanced_kivy(controller) -> int:
             self._active_project_id = project.id
             self._active_project_name = project.name
             self._active_project_path = project.relative_path
+            self.workspace_mode = "project"
+            self.selected = None
+            self.learning_session_state = None
+            entry = next(
+                (item for item in controller.portfolio_entries()
+                 if str(item.project_id) == str(project.id)),
+                None,
+            )
+            self._active_project_template_id = entry.template_id if entry else ""
+            template = next(
+                (item for item in controller.project_templates()
+                 if entry and item.id == entry.template_id),
+                None,
+            )
             self.editor.text = project.source_code
+            self._set_journey_title(f"Projeto · {project.name}")
+            self.journey_meta.text = (
+                "Portefólio guiado · a avaliação usa exclusivamente este projeto"
+            )
+            self.journey_progress.value = float(entry.score or 0) if entry else 0
+            self.previous_exercise_button.disabled = True
+            self.next_exercise_button.disabled = True
+            self.course_selector.text = "Projeto local"
+            self.course_selector.disabled = True
+            self.file_label.text = f"[ ]  {project.relative_path}"
+            if template is None:
+                self.prompt.text = (
+                    f"Projeto local\n\nObjetivo\nDesenvolve e testa {project.name}.\n\n"
+                    "Usa Guardar para persistir e Corrigir para aplicar a rubrica local."
+                )
+            else:
+                self.prompt.text = (
+                    f"Contextualização\n{template.brief}\n\n"
+                    "Requisitos\n" + "\n".join(
+                        f"- {item}" for item in template.requirements
+                    ) + "\n\nEtapas sugeridas\n" + "\n".join(
+                        f"{index}. {item}" for index, item in enumerate(template.milestones, 1)
+                    ) + "\n\nCritérios de avaliação\n" + "\n".join(
+                        f"- {item}" for item in template.rubric
+                    )
+                )
+            self._render_brief_document(
+                "project", self._active_project_template_id, self.prompt.text,
+            )
+            self.brief_view = "project"
+            self._update_brief_toggle()
+            self.theory_button.disabled = True
+            self.practice_button.disabled = True
+            self.assessment_button.disabled = True
+            self._set_workspace_layout("practice")
+            if self.bottom_panel_expanded:
+                self._toggle_bottom_panel(persist=False)
             self.status.text = f"A editar {project.name} · {project.relative_path}"
 
         def toggle_focus(self, _button):
@@ -1047,8 +3414,9 @@ def launch_advanced_kivy(controller) -> int:
                 return 0.0
 
         def _show_error(self, message):
+            self._set_execution_busy(False)
             self.status.text = "Operação indisponível."
-            self.output.text = message
+            self._set_panel_text("Output", message, activate=True)
 
     class TheoryCards(Screen):
         def __init__(self, **kwargs):
@@ -1180,21 +3548,41 @@ def launch_advanced_kivy(controller) -> int:
         def on_pre_enter(self, *_args):
             self.render()
 
+        def on_enter(self, *_args):
+            Window.bind(on_key_down=self._deck_key_down)
+
+        def on_leave(self, *_args):
+            Window.unbind(on_key_down=self._deck_key_down)
+
         def render(self, *_args):
             self.clear_widgets()
             root = BoxLayout(orientation="vertical", padding=dp(14), spacing=dp(9))
             areas = tuple(controller.knowledge_areas())
             leaves = tuple(item for item in areas if item.depth > 0)
             filters = BoxLayout(size_hint_y=None, height=dp(46), spacing=dp(6))
-            filters.add_widget(action("Filtros", self.toggle_filters))
+            filters.add_widget(action(
+                "Fechar filtros" if self.filters_visible else "Filtros",
+                self.toggle_filters,
+            ))
             self._area_names = {item.title: item.id for item in leaves}
             self.area = Spinner(
                 text=next((name for name, identity in self._area_names.items() if identity == self.area_id), "Todos os temas"),
                 values=("Todos os temas",) + tuple(self._area_names),
             )
             self.area.bind(text=self.apply_area)
-            filters.add_widget(self.area)
-            filters.add_widget(text("PC: < > para avaliar · ^ v para temas", muted=True, fixed=40))
+            if self.filters_visible:
+                filters.add_widget(self.area)
+            else:
+                selected_area = next(
+                    (name for name, identity in self._area_names.items()
+                     if identity == self.area_id),
+                    "Todos os temas",
+                )
+                filters.add_widget(text(selected_area, muted=True, fixed=40))
+            filters.add_widget(text(
+                "PC: esquerda = confuso · direita = útil · cima/baixo = tema · Enter = virar",
+                muted=True, fixed=40,
+            ))
             root.add_widget(filters)
             self.cards = list(controller.theory_cards(area_id=self.area_id)) if self.area_id else list(controller.theory_cards())
             due = {card_id: index for index, card_id in enumerate(controller.daily_card_ids(limit=100))}
@@ -1211,6 +3599,8 @@ def launch_advanced_kivy(controller) -> int:
             root.add_widget(text(f"Sabias que? · {self.index + 1}/{len(self.cards)}", size=26, bold=True, fixed=48))
             root.add_widget(text("Porque apareceu: " + reason, muted=True, fixed=30))
             body = item.body if not self.flipped else self.reference_text(item)
+            if not self.flipped and item.code_example:
+                body += "\n\nExemplo\n" + item.code_example
             face = Button(
                 text=body, halign="left", valign="middle", font_size=dp(20),
                 background_normal="", background_color=colors["card"], color=colors["text"],
@@ -1218,29 +3608,75 @@ def launch_advanced_kivy(controller) -> int:
             face.bind(size=lambda widget, _value: setattr(widget, "text_size", (widget.width - dp(48), widget.height - dp(48))))
             face.bind(on_release=self.flip)
             root.add_widget(face)
+            asset_path = None
+            if getattr(item, "asset_id", None) and hasattr(controller, "pedagogical_asset_path"):
+                try:
+                    asset_path = controller.pedagogical_asset_path(item.asset_id)
+                except Exception:
+                    asset_path = None
+            if asset_path is None and item.image_path and Path(item.image_path).is_file():
+                asset_path = item.image_path
+            if not self.flipped and asset_path and Path(asset_path).is_file():
+                root.add_widget(local_visual(asset_path, height=dp(240)))
+                alt_text = getattr(item, "asset_alt_text", "")
+                if alt_text:
+                    root.add_widget(text(alt_text, muted=True, fixed=32))
             if self.flipped:
                 links = BoxLayout(size_hint_y=None, height=dp(46), spacing=dp(5))
-                for source in controller.curated_sources(item.area_ids, limit=4):
-                    links.add_widget(action(source.title[:25], lambda _b, url=source.canonical_url: webbrowser.open(url)))
+                for source in self._sources(item)[:4]:
+                    links.add_widget(action(
+                        source.title[:25],
+                        lambda _b, url=source.canonical_url: self._open_card_source(url),
+                    ))
                 root.add_widget(links)
             arrows = BoxLayout(size_hint_y=None, height=dp(52), spacing=dp(7))
-            arrows.add_widget(action("Já sabia", lambda *_: self.navigate(-1, "already_knew")))
-            arrows.add_widget(action("Útil", lambda *_: self.navigate(1, "useful")))
-            arrows.add_widget(action("Confuso", lambda *_: self.navigate(-1, "confusing")))
-            arrows.add_widget(action("Rever", lambda *_: self.navigate(1, "review")))
+            arrows.add_widget(action("<  Confuso", lambda *_: self.navigate(-1, "confusing")))
+            arrows.add_widget(action("Virar card", self.flip))
+            arrows.add_widget(action("Útil  >", lambda *_: self.navigate(1, "useful")))
             root.add_widget(arrows)
-            themes = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(7))
-            themes.add_widget(action("^ tema", lambda *_: self.step_area(-1)))
-            themes.add_widget(action("tema v", lambda *_: self.step_area(1)))
-            root.add_widget(themes)
-            root.add_widget(text("Toca no card para o virar e abrir as referências.", muted=True, fixed=32))
+            root.add_widget(text(
+                "Clica no card ou pressiona Enter para consultar as referências exatas.",
+                muted=True, fixed=32,
+            ))
             self.add_widget(root)
 
+        def _sources(self, item):
+            exact_on_card = tuple(getattr(item, "sources", ()) or ())
+            if exact_on_card:
+                return exact_on_card
+            if hasattr(controller, "card_sources"):
+                try:
+                    exact = tuple(controller.card_sources(item.id))
+                    if exact:
+                        return exact
+                except Exception:
+                    pass
+            # Never infer a reference from the broad area: a card without an
+            # explicit link is shown as unsourced and is rejected by the audit.
+            return ()
+
+        @staticmethod
+        def _open_card_source(target):
+            if target.startswith(("https://", "http://")):
+                webbrowser.open(target)
+            elif target.startswith("aprendix-library://"):
+                from aprendix.application.local_library import resolve_library_uri
+
+                path = resolve_library_uri(target)
+                if path is not None:
+                    webbrowser.open(path.as_uri())
+
         def reference_text(self, item):
-            sources = controller.curated_sources(item.area_ids, limit=5)
+            sources = self._sources(item)
             if not sources:
                 return "Referências não disponíveis para este tema."
-            return "Referências\n\n" + "\n".join(f"• {source.title} — {', '.join(source.authors)}" for source in sources)
+            return "Referências\n\n" + "\n".join(
+                f"• {source.title}"
+                + (f" — {', '.join(source.authors)}" if getattr(source, "authors", ()) else "")
+                + (f" · {source.locator}" if getattr(source, "locator", "") else "")
+                + (f"\n  {source.rationale}" if getattr(source, "rationale", "") else "")
+                for source in sources
+            )
 
         def flip(self, *_args):
             self.flipped = not self.flipped
@@ -1268,9 +3704,25 @@ def launch_advanced_kivy(controller) -> int:
             self.render()
 
         def toggle_filters(self, *_args):
-            self.area_id = None
-            self.index, self.flipped = 0, False
+            self.filters_visible = not self.filters_visible
             self.render()
+
+        def _deck_key_down(self, _window, key, _scancode, _codepoint, modifiers):
+            if self.manager is None or self.manager.current != self.name or not self.cards:
+                return False
+            if key == 276:  # esquerda: informação confusa
+                self.navigate(-1, "confusing")
+            elif key == 275:  # direita: informação útil
+                self.navigate(1, "useful")
+            elif key == 273:  # cima: tema anterior
+                self.step_area(-1)
+            elif key == 274:  # baixo: tema seguinte
+                self.step_area(1)
+            elif key in (13, 271):
+                self.flip()
+            else:
+                return False
+            return True
 
     class Curriculum(Screen):
         def __init__(self, **kwargs):
@@ -1323,20 +3775,29 @@ def launch_advanced_kivy(controller) -> int:
                 ))
             for unit in units:
                 card = Card()
+                viewable = bool(unit.get("viewable", True))
+                credit_eligible = bool(unit.get(
+                    "credit_eligible", unit.get("unlocked", False)
+                ))
                 state = "concluído" if unit["completed"] else (
-                    "disponível" if unit["unlocked"] else "bloqueado"
+                    "elegível para crédito" if credit_eligible else "exploração livre"
                 )
                 card.add_widget(text(
                     f"{unit['chapter_title']} · {unit['kind']} · {state}",
                     muted=True, fixed=28,
                 ))
                 card.add_widget(text(unit["title"], size=20, bold=True))
-                if not unit["unlocked"]:
+                if not credit_eligible:
+                    reason_code = str(unit.get("reason_code", "prerequisites_incomplete"))
+                    missing = tuple(unit.get("missing_prerequisite_ids", ()) or ())
                     card.add_widget(text(
-                        "Conclui a etapa anterior para abrir este conteúdo.",
+                        "Podes estudar e experimentar já. A atividade só contará para o "
+                        "percurso depois de concluíres as dependências indicadas. "
+                        f"Estado: {reason_code}."
+                        + (" Dependências: " + ", ".join(missing) if missing else ""),
                         muted=True,
                     ))
-                else:
+                if viewable:
                     card.add_widget(text(unit["body"], size=15))
                     if unit["example"]:
                         card.add_widget(CodeInput(
@@ -1344,26 +3805,31 @@ def launch_advanced_kivy(controller) -> int:
                             height=dp(120), background_color=colors["card"],
                             foreground_color=colors["text"],
                         ))
-                    if unit["kind"] == "practice" and unit["exercise_id"]:
-                        card.add_widget(action(
-                            "Abrir exercício no IDE",
-                            lambda _button, exercise_id=unit["exercise_id"]: self._practice(exercise_id),
-                        ))
-                    elif unit["assessment_id"] and unit["kind"] in {"quiz", "hybrid"}:
-                        card.add_widget(action(
-                            "Responder teste",
-                            lambda _button, item_id=unit["assessment_id"]: self._assessment(item_id),
-                        ))
-                    elif not unit["completed"]:
-                        card.add_widget(action(
-                            "Marcar etapa concluída",
-                            lambda _button, unit_id=unit["id"]: self._complete(unit_id),
-                        ))
+                if unit["kind"] == "practice" and unit["exercise_id"]:
+                    label = (
+                        "Realizar no percurso  >" if credit_eligible else
+                        "Explorar no IDE · sem crédito por agora  >"
+                    )
+                    card.add_widget(action(
+                        label,
+                        lambda _button, exercise_id=unit["exercise_id"]: self._practice(exercise_id),
+                    ))
+                elif unit["assessment_id"] and unit["kind"] in {"quiz", "hybrid"}:
+                    card.add_widget(action(
+                        "Responder teste" if credit_eligible else
+                        "Explorar teste · sem crédito por agora",
+                        lambda _button, item_id=unit["assessment_id"]: self._assessment(item_id),
+                    ))
+                elif not unit["completed"] and credit_eligible:
+                    card.add_widget(action(
+                        "Marcar etapa concluída",
+                        lambda _button, unit_id=unit["id"]: self._complete(unit_id),
+                    ))
                 self.column.add_widget(card)
 
         def _practice(self, exercise_id):
             learning = self.manager.get_screen("learning")
-            learning.load_exercise(exercise_id)
+            learning.load_exercise(exercise_id, self._tracks.get(self.track.text))
             self.manager.current = "learning"
 
         def _complete(self, unit_id):
@@ -1478,15 +3944,34 @@ def launch_advanced_kivy(controller) -> int:
                 card.add_widget(text(f"{entry['term']} · {entry['technology']}", size=23, bold=True))
                 card.add_widget(text(entry["definition"], size=16))
                 card.add_widget(text(entry["signature"], muted=True))
-                if entry["example"]:
+                examples = tuple(entry.get("examples", ()) or ())
+                if not examples and entry.get("example"):
+                    examples = ({
+                        "example": entry["example"], "explanation": "Exemplo essencial",
+                        "difficulty": "beginner", "context": "general",
+                    },)
+                for position, example in enumerate(examples[:5]):
+                    source = example.get("example", "") if isinstance(example, dict) else str(example)
+                    explanation = example.get("explanation", "") if isinstance(example, dict) else ""
+                    difficulty = example.get("difficulty", "") if isinstance(example, dict) else ""
+                    context = example.get("context", "") if isinstance(example, dict) else ""
+                    if not source:
+                        continue
+                    card.add_widget(text(
+                        f"Exemplo {position + 1} · {difficulty} · {context}".strip(" ·"),
+                        muted=True, fixed=26,
+                    ))
                     card.add_widget(CodeInput(
-                        text=entry["example"], readonly=True,
-                        size_hint_y=None, height=dp(100),
+                        text=source, readonly=True,
+                        size_hint_y=None, height=dp(min(180, max(72, 48 + source.count("\n") * 22))),
                         background_color=colors["card"], foreground_color=colors["text"],
                     ))
+                    if explanation:
+                        card.add_widget(text(explanation, muted=True, fixed=30))
+                if examples:
                     card.add_widget(action(
                         "Experimentar no IDE",
-                        lambda _button, code=entry["example"]: self._try_in_ide(code),
+                        lambda _button, code=(examples[0].get("example", "") if isinstance(examples[0], dict) else str(examples[0])): self._try_in_ide(code),
                     ))
                 if entry["related_terms"]:
                     card.add_widget(text(
@@ -1685,6 +4170,24 @@ def launch_advanced_kivy(controller) -> int:
                 card = Card()
                 card.add_widget(text(template.title, size=19, bold=True))
                 card.add_widget(text(template.brief, size=15))
+                detail = GridLayout(
+                    cols=3 if Window.width >= dp(1100) else 1,
+                    spacing=dp(8), size_hint_y=None,
+                )
+                detail.bind(minimum_height=detail.setter("height"))
+                for heading, items in (
+                    ("Entregáveis e requisitos", template.requirements),
+                    ("Milestones", template.milestones),
+                    ("Critérios e rubrica", template.rubric),
+                ):
+                    section = Card()
+                    section.add_widget(text(heading, size=16, bold=True, fixed=30))
+                    section.add_widget(text(
+                        "\n".join(f"{index}. {item}" for index, item in enumerate(items, 1)),
+                        size=14,
+                    ))
+                    detail.add_widget(section)
+                card.add_widget(detail)
                 card.add_widget(text(
                     f"{template.level} · {len(template.milestones)} milestones · "
                     + ("briefing profissional" if template.professional_briefing else "briefing guiado"),
@@ -1692,16 +4195,20 @@ def launch_advanced_kivy(controller) -> int:
                 ))
                 actions = BoxLayout(size_hint_y=None, height=dp(42), spacing=dp(6))
                 actions.add_widget(action(
-                    "Começar guiado", lambda _b, tid=template.id: self.start(tid, "guided"),
+                    "Usar esqueleto guiado", lambda _b, tid=template.id: self.start(tid, "guided"),
                 ))
                 actions.add_widget(action(
-                    "Começar autónomo", lambda _b, tid=template.id: self.start(tid, "autonomous"),
+                    "Começar vazio", lambda _b, tid=template.id: self.start(tid, "autonomous", blank=True),
                 ))
                 card.add_widget(actions); column.add_widget(card)
             root.add_widget(scroll); self.add_widget(root)
 
-        def start(self, template_id, mode):
+        def start(self, template_id, mode, blank=False):
             project = controller.start_guided_project(template_id, mode=mode)
+            if blank:
+                project = controller.save_project(
+                    project.name, "", project.id, relative_path=project.relative_path,
+                )
             self.open_file(project)
 
         def open_file(self, project):
@@ -1989,7 +4496,12 @@ def launch_advanced_kivy(controller) -> int:
                 answer_text = answer_text[:2_400].rstrip() + "…"
             answer = Card()
             answer.add_widget(text("Resposta", size=19, bold=True))
-            answer.add_widget(text(answer_text))
+            answer_body = BoxLayout(
+                orientation="vertical", size_hint_y=None, spacing=dp(6),
+            )
+            answer_body.bind(minimum_height=answer_body.setter("height"))
+            render_legacy_document(answer_body, answer_text, compact=True)
+            answer.add_widget(answer_body)
             self.results.add_widget(answer)
             if response.similar_topics:
                 topic_card = Card()
@@ -2006,7 +4518,12 @@ def launch_advanced_kivy(controller) -> int:
                 excerpt = hit.excerpt.strip()
                 if len(excerpt) > 900:
                     excerpt = excerpt[:900].rstrip() + "…"
-                card.add_widget(text(excerpt, size=14))
+                excerpt_body = BoxLayout(
+                    orientation="vertical", size_hint_y=None, spacing=dp(5),
+                )
+                excerpt_body.bind(minimum_height=excerpt_body.setter("height"))
+                render_legacy_document(excerpt_body, excerpt, compact=True)
+                card.add_widget(excerpt_body)
                 card.add_widget(text(f"{hit.content_type.value} · {hit.complexity.value} · {hit.relevance:.0%}", muted=True, fixed=28))
                 if hit.why_shown:
                     card.add_widget(text(
@@ -2067,7 +4584,7 @@ def launch_advanced_kivy(controller) -> int:
             self.comparison = ()
             root = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(7))
             top = BoxLayout(size_hint_y=None, height=dp(46), spacing=dp(6))
-            top.add_widget(action("‹ Pesquisa", lambda *_: setattr(self.manager, "current", "search")))
+            top.add_widget(action("Voltar à pesquisa", lambda *_: setattr(self.manager, "current", "search")))
             for label, mode in (("Resumo", "summary"), ("Versão simples", "simplified"), ("Conteúdo normal", "original")):
                 top.add_widget(action(label, lambda _button, value=mode: self.show(value)))
             self.open_source = action("Abrir fonte", self._open_source)
@@ -2149,21 +4666,36 @@ def launch_advanced_kivy(controller) -> int:
             self.column.add_widget(text(detail.title, size=26, bold=True))
             labels = {"summary": "Resumo essencial", "simplified": "Versão simplificada com rigor", "original": "Conteúdo normal"}
             body = {"summary": detail.summary, "simplified": detail.simplified, "original": detail.original_content}[mode]
-            card = Card(); card.add_widget(text(labels[mode], size=20, bold=True))
-            reading = TextInput(
-                text=body, readonly=True, font_size=dp(15),
-                background_color=colors["card"], foreground_color=colors["text"],
-                size_hint_y=None, height=dp(min(680, max(220, 80 + len(body) // 3))),
-                padding=dp(10),
+            self.column.add_widget(text(labels[mode], size=20, bold=True, fixed=36))
+            block_attribute = {
+                "summary": "summary_blocks", "simplified": "simplified_blocks",
+                "original": "original_blocks",
+            }[mode]
+            blocks = tuple(getattr(detail, block_attribute, ()) or ())
+            reading_card = Card()
+            reading_scroll = ScrollView(
+                do_scroll_x=False, do_scroll_y=True, size_hint_y=None,
+                height=dp(min(720, max(260, Window.height * .68))),
+                scroll_type=["bars", "content"], bar_width=dp(10),
             )
-            reading.bind(on_touch_down=self._concept_double_click)
-            card.add_widget(reading); self.column.add_widget(card)
+            reading_column = BoxLayout(
+                orientation="vertical", size_hint_y=None, padding=dp(8), spacing=dp(8),
+            )
+            reading_column.bind(minimum_height=reading_column.setter("height"))
+            if blocks:
+                render_pedagogical_blocks(reading_column, blocks)
+            else:
+                render_legacy_document(reading_column, body)
+            reading_scroll.add_widget(reading_column)
+            reading_card.add_widget(reading_scroll)
+            reading_card.bind(on_touch_down=self._concept_double_click)
+            self.column.add_widget(reading_card)
             if mode == "original":
                 for asset in detail.visual_assets:
                     if Path(asset).is_file():
                         visual = Card()
                         visual.add_widget(text("Visualização extraída da fonte", muted=True, fixed=30))
-                        visual.add_widget(AsyncImage(source=asset, size_hint_y=None, height=dp(360)))
+                        visual.add_widget(local_visual(asset, height=dp(360)))
                         self.column.add_widget(visual)
             self.column.add_widget(text(
                 "Tutor: faz duplo clique numa palavra para a consultar no dicionário.",
@@ -2187,21 +4719,50 @@ def launch_advanced_kivy(controller) -> int:
         def _concept_double_click(self, widget, touch):
             if not getattr(touch, "is_double_tap", False) or not widget.collide_point(*touch.pos):
                 return False
-            local_x, local_y = widget.to_widget(*touch.pos)
-            try:
-                column, row = widget.get_cursor_from_xy(local_x, local_y)
-                line = widget.text.splitlines()[row]
-                match = next((item for item in re.finditer(r"[A-Za-zÀ-ÿ_][A-Za-zÀ-ÿ0-9_-]*", line)
-                              if item.start() <= column <= item.end()), None)
-            except (IndexError, AttributeError):
-                match = None
-            if match:
+            # Rich blocks do not expose a stable text cursor. Use the current
+            # selection when a TextInput originated the event; otherwise open a
+            # compact concept chooser drawn from the document itself.
+            match = None
+            if isinstance(widget, TextInput):
+                local_x, local_y = widget.to_widget(*touch.pos)
+                try:
+                    column, row = widget.get_cursor_from_xy(local_x, local_y)
+                    line = widget.text.splitlines()[row]
+                    match = next((item for item in re.finditer(r"[A-Za-zÀ-ÿ_][A-Za-zÀ-ÿ0-9_-]*", line)
+                                  if item.start() <= column <= item.end()), None)
+                except (IndexError, AttributeError):
+                    match = None
+            if match is not None:
                 reference = self.manager.get_screen("reference")
                 reference.query.text = match.group(0)
                 reference.search()
                 self.manager.current = "reference"
                 return True
+            concepts = tuple(getattr(self.detail, "concepts", ()) or ())
+            if concepts:
+                self._concept_picker(concepts)
+                return True
             return False
+
+        def _concept_picker(self, concepts):
+            body = BoxLayout(orientation="vertical", padding=dp(10), spacing=dp(6))
+            popup = Popup(
+                title="Tutor de conceitos", content=body,
+                size_hint=(None, None), width=dp(min(520, Window.width * .44)),
+                height=dp(min(480, Window.height * .55)),
+            )
+            for concept in concepts[:8]:
+                button = action(concept.term, lambda _button, term=concept.term: open_term(term))
+                body.add_widget(button)
+
+            def open_term(term):
+                popup.dismiss()
+                reference = self.manager.get_screen("reference")
+                reference.query.text = term
+                reference.search()
+                self.manager.current = "reference"
+
+            popup.open()
 
         def _open_source(self, *_args):
             if self.detail is None:
@@ -2329,6 +4890,7 @@ def launch_advanced_kivy(controller) -> int:
                 multiline=False, hint_text="pack-id@1.2.3",
                 size_hint_y=None, height=dp(46),
             )
+            self._previewed_remote = ""
             policy_row = BoxLayout(size_hint_y=None, height=dp(42), spacing=dp(6))
             self.weekly_enabled = CheckBox(
                 active=controller.load_preference("updates.weekly_enabled", "0") == "1",
@@ -2353,6 +4915,7 @@ def launch_advanced_kivy(controller) -> int:
             remote.add_widget(self.remote_identity)
             remote_buttons = BoxLayout(size_hint_y=None, height=dp(46), spacing=dp(6))
             remote_buttons.add_widget(action("Ver novidades", lambda *_: self._check_remote()))
+            remote_buttons.add_widget(action("Antever seleção", lambda *_: self._preview_remote()))
             remote_buttons.add_widget(action("Instalar seleção", lambda *_: self._install_remote()))
             remote.add_widget(remote_buttons)
             self.remote_list = text("Nenhuma consulta de rede efetuada.", muted=True)
@@ -2406,6 +4969,7 @@ def launch_advanced_kivy(controller) -> int:
                 self.status.text = "Indica o URL HTTPS do registo assinado."
                 return
             self.status.text = "A consultar o registo por ação explícita…"
+            self._previewed_remote = ""
             def worker():
                 try:
                     result = controller.check_content_updates(
@@ -2455,7 +5019,47 @@ def launch_advanced_kivy(controller) -> int:
             if not registry or not identity:
                 self.status.text = "Indica o registo e a seleção pack-id@versão."
                 return
+            if self._previewed_remote != f"{registry}|{identity}":
+                self.status.text = "Antes de instalar, usa ‘Antever seleção’ e confirma fontes, tamanho e rollback."
+                return
             self._background(lambda: controller.install_remote_content_pack(identity, registry))
+            self._previewed_remote = ""
+
+        def _preview_remote(self):
+            registry, identity = self.registry_url.text.strip(), self.remote_identity.text.strip()
+            if not registry or not identity:
+                self.status.text = "Indica o registo e a seleção pack-id@versão."
+                return
+            self.status.text = "A validar a antevisão sem descarregar…"
+            def worker():
+                try:
+                    result = controller.preview_remote_content_pack(identity, registry)
+                    sources = ", ".join(result["sources"]) or "não declaradas"
+                    tracks = ", ".join(result["affected_tracks"]) or "transversal"
+                    previous = result["replaces"] or "nenhuma"
+                    message = (
+                        f"{result['title']} · {result['total_bytes'] / 1048576:.1f} MB\n"
+                        f"{result['summary']}\nFontes: {sources}\nPercursos: {tracks}\n"
+                        f"Substitui: {previous} · rollback: "
+                        f"{'disponível' if result['rollback_available'] else 'não aplicável'}\n"
+                        "Privacidade: nenhum dado do utilizador é enviado. "
+                        "Se concordares, usa agora ‘Instalar seleção’."
+                    )
+                    Clock.schedule_once(
+                        lambda _dt: self._preview_done(registry, identity, message), 0,
+                    )
+                except Exception as exc:
+                    Clock.schedule_once(
+                        lambda _dt, error=str(exc): self._remote_done(
+                            f"Antevisão recusada sem alterar conteúdo: {error}"
+                        ), 0,
+                    )
+            threading.Thread(target=worker, daemon=True).start()
+
+        def _preview_done(self, registry, identity, message):
+            self._previewed_remote = f"{registry}|{identity}"
+            self.remote_list.text = message
+            self.status.text = "Antevisão validada; a instalação continua a exigir ação explícita."
 
         def refresh_packs(self):
             rows = controller.installed_content_packs()
@@ -2733,17 +5337,17 @@ def launch_advanced_kivy(controller) -> int:
                 minimum_height=self.navigation_column.setter("height")
             )
             navigation = (
-                (Route.DASHBOARD, "Painel", "P"),
-                (Route.CURRICULUM, "Curso", "C"),
-                (Route.IDE, "IDE", "IDE"),
-                (Route.SEARCH, "Pesquisa", "?"),
-                (Route.CARDS, "Cards", "Card"),
+                (Route.DASHBOARD, "Painel", "01"),
+                (Route.CURRICULUM, "Curso", "02"),
+                (Route.IDE, "IDE", "{}"),
+                (Route.SEARCH, "Pesquisa", "/"),
+                (Route.CARDS, "Cards", "[]"),
                 (Route.DICTIONARY, "Dicionário", "Aa"),
-                (Route.TUTOR, "Tutor", "T"),
-                (Route.PROJECTS, "Projetos", "Pj"),
+                (Route.TUTOR, "Tutor", "?"),
+                (Route.PROJECTS, "Projetos", "PJ"),
                 (Route.ANALYZER, "Analisar", "<>"),
-                (Route.GAMES, "Games", "G"),
-                (Route.DATA, "Dados", "D"),
+                (Route.GAMES, "Games", "#"),
+                (Route.DATA, "Dados", "DB"),
             )
             for route, title, icon in navigation:
                 button = Button(
@@ -2754,6 +5358,8 @@ def launch_advanced_kivy(controller) -> int:
                 button.theme_role = "navigation"
                 button.full_title = title
                 button.compact_title = icon
+                button.accessible_name = title
+                button.tooltip_text = title
                 button.route = route
                 button.bind(
                     on_release=lambda _button, target=route: self.go(target)
@@ -2768,22 +5374,27 @@ def launch_advanced_kivy(controller) -> int:
             )
             self.sidebar.add_widget(self.local_status)
             font_row = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(4))
-            smaller = Button(text="A−")
+            smaller = Button(text="A-")
             smaller.bind(on_release=lambda *_: self.change_font(-0.1))
             larger = Button(text="A+")
             larger.bind(on_release=lambda *_: self.change_font(0.1))
             font_row.add_widget(smaller)
             font_row.add_widget(larger)
             self.sidebar.add_widget(font_row)
+            theme_title = {
+                "dark": "Tema: escuro", "light": "Tema: claro",
+                "contrast": "Alto contraste",
+            }[theme_name]
             self.theme_button = Button(
-                text={
-                    "dark": "Tema: escuro", "light": "Tema: claro",
-                    "contrast": "Alto contraste",
-                }[theme_name],
+                text=theme_title,
                 size_hint_y=None, height=dp(44), background_normal="",
                 background_color=colors["accent"], color=colors["accent_text"],
             )
             self.theme_button.theme_role = "accent"
+            self.theme_button.full_title = theme_title
+            self.theme_button.compact_title = "Tema"
+            self.theme_button.accessible_name = theme_title
+            self.theme_button.tooltip_text = theme_title
             self.theme_button.bind(
                 on_release=lambda button: self.toggle_theme(root, button)
             )
@@ -2794,9 +5405,9 @@ def launch_advanced_kivy(controller) -> int:
                 size_hint_y=None, height=dp(52),
                 padding=(dp(8), dp(5)), spacing=dp(6),
             )
-            back = Button(text="‹", size_hint_x=None, width=dp(48))
+            back = Button(text="Voltar", size_hint_x=None, width=dp(76))
             back.bind(on_release=lambda *_: self.go_back())
-            forward = Button(text="›", size_hint_x=None, width=dp(48))
+            forward = Button(text="Avançar", size_hint_x=None, width=dp(82))
             forward.bind(on_release=lambda *_: self.go_forward())
             self.page_title = Label(
                 text=self._route_titles[initial_route], color=colors["text"],
@@ -2808,6 +5419,7 @@ def launch_advanced_kivy(controller) -> int:
             commands = Button(
                 text="Ctrl+K  Comandos", size_hint_x=None, width=dp(170)
             )
+            self.commands_button = commands
             commands.bind(on_release=lambda *_: self.open_palette())
             topbar.add_widget(back)
             topbar.add_widget(forward)
@@ -2844,6 +5456,7 @@ def launch_advanced_kivy(controller) -> int:
             Window.bind(
                 on_key_down=self._key_down, width=self._responsive_sidebar
             )
+            self._responsive_sidebar(Window, Window.width)
             return root
 
         def _set_current(self, route):
@@ -2884,14 +5497,27 @@ def launch_advanced_kivy(controller) -> int:
                     button.compact_title
                     if self.sidebar_collapsed else button.full_title
                 )
+            self.theme_button.text = (
+                self.theme_button.compact_title
+                if self.sidebar_collapsed else self.theme_button.full_title
+            )
             if persist:
                 controller.save_preference(
                     "sidebar_collapsed", "1" if self.sidebar_collapsed else "0"
                 )
 
         def _responsive_sidebar(self, _window, width):
-            if width < dp(920) and not self.sidebar_collapsed:
+            from aprendix.presentation.responsive import layout_profile
+
+            profile = layout_profile(
+                max(1, round(width)), max(1, round(Window.height)), density=max(1.0, dp(1))
+            )
+            if profile.navigation != "sidebar" and not self.sidebar_collapsed:
                 self.set_sidebar_collapsed(True)
+            self.commands_button.width = dp(profile.command_width_dp)
+            self.commands_button.text = (
+                "Comandos" if profile.compact_labels else "Ctrl+K  Comandos"
+            )
 
         def _key_down(self, _window, key, _scancode, _codepoint, modifiers):
             if "ctrl" in modifiers and key in (75, 107):
@@ -2924,11 +5550,17 @@ def launch_advanced_kivy(controller) -> int:
                 popup.dismiss()
                 self.go(route)
 
+            def select_ide(command_id):
+                popup.dismiss()
+                learning = self.manager.get_screen(Route.IDE.value)
+                learning._execute_ide_command(command_id)
+
             def refresh(_widget=None, value=""):
                 results.clear_widgets()
-                for command in self.palette_index.search(value, limit=7):
+                in_ide = self.manager.current == Route.IDE.value
+                for command in self.palette_index.search(value, limit=3 if in_ide else 7):
                     button = Button(
-                        text=command.title, size_hint_y=None, height=dp(46),
+                        text=f"Abrir: {command.title}", size_hint_y=None, height=dp(46),
                         background_normal="",
                         background_color=colors["card_alt"], color=colors["text"],
                     )
@@ -2936,6 +5568,20 @@ def launch_advanced_kivy(controller) -> int:
                         on_release=lambda _button, route=command.route: select(route)
                     )
                     results.add_widget(button)
+                if in_ide:
+                    for command in search_ide_commands(value, limit=6):
+                        label = command.title
+                        if command.shortcut:
+                            label += f"    {command.shortcut}"
+                        button = Button(
+                            text=label, size_hint_y=None, height=dp(46),
+                            background_normal="", background_color=colors["card"],
+                            color=colors["text"],
+                        )
+                        button.bind(
+                            on_release=lambda _button, identity=command.id: select_ide(identity)
+                        )
+                        results.add_widget(button)
 
             query.bind(text=refresh)
             refresh(value="")
@@ -2961,13 +5607,26 @@ def launch_advanced_kivy(controller) -> int:
             root.theme_color.rgba = colors["bg"]
             self.sidebar_color.rgba = colors["card"]
             self.local_status.color = colors["success"]
-            button.text = {
+            theme_title = {
                 "dark": "Tema: escuro", "light": "Tema: claro",
                 "contrast": "Alto contraste",
             }[theme_name]
-            for widget in root.walk():
+            button.full_title = theme_title
+            button.accessible_name = theme_title
+            button.tooltip_text = theme_title
+            button.text = button.compact_title if self.sidebar_collapsed else theme_title
+            # ScreenManager keeps inactive lazy screens outside the currently
+            # rendered widget branch.  Walking only ``root`` therefore left a
+            # previously opened IDE with its old palette.  Include every
+            # instantiated screen and de-duplicate the active branch.
+            branches = (root, *self.manager.screens)
+            for widget in _walk_theme_widgets(branches):
                 if isinstance(widget, Card):
                     widget.refresh_theme()
+                elif isinstance(widget, (TrendChart, SkillGraphCanvas)):
+                    widget.refresh_theme()
+                elif isinstance(widget, PaneDivider):
+                    widget.divider_color.rgba = colors["accent"]
                 role = getattr(widget, "theme_role", None)
                 if isinstance(widget, Label) and role in {"text", "muted"}:
                     widget.color = colors[role]
@@ -2980,6 +5639,9 @@ def launch_advanced_kivy(controller) -> int:
                 elif isinstance(widget, TextInput):
                     widget.background_color = colors["card"]
                     widget.foreground_color = colors["text"]
+                if isinstance(widget, ScrollView):
+                    widget.bar_color = colors["accent"]
+                    widget.bar_inactive_color = (*colors["muted"][:3], .45)
 
         def on_stop(self):
             Window.unbind(

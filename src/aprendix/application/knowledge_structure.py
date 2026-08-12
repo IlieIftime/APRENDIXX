@@ -7,6 +7,8 @@ was explicitly ingested from a local file by the user.
 
 from __future__ import annotations
 
+import importlib
+import inspect
 import json
 import re
 import unicodedata
@@ -199,7 +201,97 @@ def _local_library_sources() -> tuple[SourceDefinition, ...]:
 
 
 LOCAL_LIBRARY_SOURCES = _local_library_sources()
-SOURCES: tuple[SourceDefinition, ...] = (*PRIMARY_SOURCES, *LOCAL_LIBRARY_SOURCES)
+
+
+_OFFICIAL_STDLIB_MODULES = (
+    "abc", "argparse", "array", "ast", "asyncio", "bisect", "calendar",
+    "collections", "concurrent.futures", "contextlib", "csv", "dataclasses",
+    "datetime", "decimal", "difflib", "email", "enum", "fractions",
+    "functools", "hashlib", "heapq", "html", "http", "inspect", "io",
+    "itertools", "json", "logging", "math", "operator", "os.path", "pathlib",
+    "queue", "random", "re", "secrets", "shlex", "sqlite3", "statistics",
+    "string", "subprocess", "tempfile", "textwrap", "threading", "time",
+    "timeit", "tokenize", "traceback", "typing", "unittest", "urllib.parse",
+    "uuid", "warnings", "weakref",
+)
+
+
+def _official_python_api_sources() -> tuple[SourceDefinition, ...]:
+    """Catalogue real public APIs from the installed Python documentation set.
+
+    Each record points to an official PSF documentation anchor. Import failures
+    are tolerated for reduced mobile runtimes; no network request occurs here.
+    """
+
+    area_overrides = {
+        "ast": ("python", "classic-algorithms"),
+        "asyncio": ("python", "systems"),
+        "concurrent.futures": ("python", "systems"),
+        "threading": ("python", "systems"),
+        "subprocess": ("python", "systems"),
+        "sqlite3": ("python", "databases"),
+        "math": ("python", "math-data"),
+        "statistics": ("python", "probability"),
+        "decimal": ("python", "math-data"),
+        "fractions": ("python", "math-data"),
+        "unittest": ("python", "software-engineering"),
+        "logging": ("python", "software-engineering"),
+        "traceback": ("python", "software-engineering"),
+    }
+    records: list[SourceDefinition] = []
+    for module_name in _OFFICIAL_STDLIB_MODULES:
+        try:
+            module = importlib.import_module(module_name)
+        except (ImportError, OSError, RuntimeError):
+            continue
+        for name, value in inspect.getmembers(module):
+            if name.startswith("_"):
+                continue
+            owner = getattr(value, "__module__", "") or ""
+            is_public_api = (
+                inspect.isfunction(value) or inspect.isclass(value) or inspect.isbuiltin(value)
+            )
+            if not is_public_api or not (
+                owner == module_name or owner.startswith(module_name + ".")
+            ):
+                continue
+            identity = re.sub(r"[^a-z0-9]+", "-", f"{module_name}-{name}".casefold()).strip("-")
+            qualified = f"{module_name}.{name}"
+            kind = "classe" if inspect.isclass(value) else "função"
+            records.append(SourceDefinition(
+                id=f"src-pydoc-{identity}"[:160],
+                area_ids=area_overrides.get(module_name, ("python",)),
+                title=f"{qualified} — Python 3 Documentation",
+                authors=("Python Software Foundation",),
+                year=2026,
+                source_type="documentation",
+                url=(
+                    f"https://docs.python.org/3/library/{module_name}.html"
+                    f"#{qualified}"
+                ),
+                doi=None,
+                overview=(
+                    f"Entrada oficial da biblioteca padrão para a {kind} pública "
+                    f"{qualified}; define o contrato e o comportamento suportado."
+                ),
+                why=(
+                    "Permite confirmar assinatura, semântica e limitações numa fonte "
+                    "normativa, sem depender de exemplos não verificados."
+                ),
+                access_note="Consultar a documentação oficial da versão Python 3 instalada.",
+                license_note="Metadados e ligação para documentação oficial da Python Software Foundation.",
+                provenance="python-public-api-official-docs-2026-08",
+            ))
+    unique = {item.id: item for item in records}
+    return tuple(unique[key] for key in sorted(unique))
+
+
+OFFICIAL_PYTHON_API_SOURCES = _official_python_api_sources()
+SOURCES: tuple[SourceDefinition, ...] = (
+    *PRIMARY_SOURCES,
+    *LOCAL_LIBRARY_SOURCES,
+    *OFFICIAL_PYTHON_API_SOURCES,
+)
 
 
 def fold(text: str) -> str:
