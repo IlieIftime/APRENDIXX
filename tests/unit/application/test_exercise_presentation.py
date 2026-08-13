@@ -70,6 +70,31 @@ def test_brief_supports_simple_guided_and_technical_reading_modes() -> None:
     assert len(simple) < len(technical)
 
 
+def test_brief_preserves_structured_formula_but_keeps_simple_mode_readable() -> None:
+    exercise = _exercise(
+        "def capital_acumulado(inicial, taxa, anos):\n    pass\n"
+    ).model_copy(update={
+        "title": "Capital acumulado",
+        "prompt": (
+            "Calcula o capital ao fim do número de anos indicado.\n\n"
+            "$$Capital = Inicial \\cdot (1 + Taxa / 100)^{Anos}$$\n\n"
+            "Contexto: comparação local de taxas anuais."
+        ),
+        "tests": (
+            "assert capital_acumulado(1500, 2, 1) == 1530.0",
+        ),
+    })
+
+    brief = build_exercise_brief(exercise)
+
+    assert brief.formula_latex == r"Capital = Inicial \cdot (1 + Taxa / 100)^{Anos}"
+    assert "capital inicial" in brief.formula_spoken.casefold()
+    assert any("fórmula" in step.casefold() for step in brief.top_down)
+    assert "\\cdot" not in brief.render("simple")
+    assert "\\cdot" not in brief.render("guided")
+    assert "Notação para copiar" in brief.render("technical")
+
+
 def test_course_practice_preserves_curriculum_order_and_metadata() -> None:
     first = _exercise("def primeiro(valor):\n    pass\n")
     second = _exercise("def segundo(valor):\n    pass\n").model_copy(

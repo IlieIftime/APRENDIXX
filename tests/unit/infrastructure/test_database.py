@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 
 from aprendix.infrastructure.db import Database
+from aprendix.infrastructure.db.database import DatabaseSchemaTooNewError
 from aprendix.infrastructure.db.schema import SCHEMA_VERSION
 
 EXPECTED_TABLES = {
@@ -121,7 +122,18 @@ EXPECTED_TABLES = {
     "pedagogical_document_sources",
     "card_source_links",
     "card_presentation",
+    "card_formula_details",
     "glossary_examples",
+    "content_catalog_releases",
+    "content_catalog_items",
+    "career_roles",
+    "career_nodes",
+    "career_node_dependencies",
+    "career_node_tracks",
+    "career_role_areas",
+    "career_role_projects",
+    "exercise_guidance_policies",
+    "exercise_catalog_provenance",
     "catalog_search_entries",
     "catalog_search_fts",
     "catalog_search_fts_data",
@@ -164,6 +176,39 @@ def test_initialize_is_idempotent(database: Database) -> None:
         ).fetchone()[0]
 
     assert count == SCHEMA_VERSION
+
+
+def test_initialize_raises_for_newer_schema_versions(database: Database) -> None:
+    with database.transaction() as connection:
+        connection.execute(
+            "INSERT INTO schema_migrations(version) VALUES (?)",
+            (SCHEMA_VERSION + 1,),
+        )
+
+    with pytest.raises(DatabaseSchemaTooNewError) as raised:
+        database.initialize()
+
+    assert raised.value.unknown_versions == (SCHEMA_VERSION + 1,)
+    assert raised.value.supported_version == SCHEMA_VERSION
+
+
+def test_read_connection_uses_lightweight_sqlite_path(
+    database: Database, monkeypatch,
+) -> None:
+    """Interactive reads do not renegotiate persistent write PRAGMAs."""
+
+    original = database.connect
+    modes: list[bool] = []
+
+    def observed_connect(*, write_capable: bool = True):
+        modes.append(write_capable)
+        return original(write_capable=write_capable)
+
+    monkeypatch.setattr(database, "connect", observed_connect)
+    with database.read_connection() as connection:
+        assert connection.execute("SELECT 42").fetchone()[0] == 42
+
+    assert modes == [False]
 
 
 def test_migration_30_exposes_detailed_evidence_and_2pl_state(database: Database) -> None:

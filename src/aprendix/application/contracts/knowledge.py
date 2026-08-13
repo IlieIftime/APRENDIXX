@@ -198,6 +198,10 @@ class TheoryCardDTO(ContractModel):
     cluster_id: str | None = Field(default=None, max_length=160)
     area_ids: tuple[str, ...] = Field(default=(), max_length=20)
     format: CardFormat = CardFormat.CONCEPT
+    formula_latex: str = Field(default="", max_length=2_000)
+    formula_spoken: str = Field(default="", max_length=2_000)
+    formula_variables: dict[str, str] = Field(default_factory=dict)
+    formula_worked_example: str = Field(default="", max_length=4_000)
     asset_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     asset_alt_text: str = Field(default="", max_length=1_000)
     asset_uri: str = Field(default="", max_length=200)

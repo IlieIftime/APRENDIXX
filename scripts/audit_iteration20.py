@@ -30,8 +30,10 @@ from aprendix.application.contracts import (
 )
 from aprendix.application.knowledge_structure import AREAS
 from aprendix.application.learning_catalog import ALL_FACTS
+from aprendix.application.official_catalog import OFFICIAL_CONCEPTS
 from aprendix.application.search_holdout import CatalogSearchBenchmark
 from aprendix.bootstrap import build_runtime
+from aprendix.infrastructure.db.schema import SCHEMA_VERSION
 from aprendix.presentation.responsive import responsive_matrix
 
 OUTPUT = ROOT / "ITERATION-20-AUDIT-1.0.0.json"
@@ -90,8 +92,8 @@ def audit(data_directory: Path) -> dict[str, object]:
     with runtime.database.read_connection() as connection:
         integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
         foreign_keys = len(connection.execute("PRAGMA foreign_key_check").fetchall())
-    check("schema_37_integrity", lambda: (
-        health.status.value == "healthy" and health.schema_version == 37
+    check("schema_integrity", lambda: (
+        health.status.value == "healthy" and health.schema_version == SCHEMA_VERSION
         and integrity == "ok" and foreign_keys == 0,
         f"schema={health.schema_version}; integrity={integrity}; foreign_keys={foreign_keys}",
     ))
@@ -315,6 +317,13 @@ def audit(data_directory: Path) -> dict[str, object]:
         card_formats[fact.area_id].add(fact.card_format)
     with runtime.database.read_connection() as connection:
         stored_cards = int(connection.execute("SELECT count(*) FROM theory_cards").fetchone()[0])
+        iteration20_cards = int(connection.execute(
+            """SELECT count(*) FROM theory_cards tc
+               JOIN document_chunks dc ON dc.id=tc.chunk_id
+               JOIN documents d ON d.id=dc.document_id
+               WHERE d.source_path='aprendix://authored-facts/v1'
+                 AND dc.section NOT LIKE 'official-%'"""
+        ).fetchone()[0])
         missing_card_sources = int(connection.execute(
             """SELECT count(*) FROM theory_cards c WHERE NOT EXISTS(
                    SELECT 1 FROM card_source_links l WHERE l.card_id=c.id)"""
@@ -342,18 +351,22 @@ def audit(data_directory: Path) -> dict[str, object]:
             materialized = runtime.pedagogical_assets.materialize(runtime.pedagogy.get_asset(row["id"]))
             assets_valid &= materialized.is_file() and materialized.read_bytes() == payload
     metrics.update({
-        "authored_cards": stored_cards, "visual_cards": visual_cards,
+        "authored_cards": stored_cards, "iteration20_cards": iteration20_cards,
+        "visual_cards": visual_cards,
         "pedagogical_assets": len(asset_rows),
     })
     check("cards_are_balanced_sourced_and_visual", lambda: (
-        stored_cards == len(ALL_FACTS) and missing_card_sources == 0
+        iteration20_cards == len(ALL_FACTS) - len(OFFICIAL_CONCEPTS)
+        and stored_cards >= iteration20_cards
+        and missing_card_sources == 0
         and all(card_counts[area_id] >= 12 for area_id in leaf_ids)
         and all(len(card_formats[area_id]) >= 4 for area_id in leaf_ids)
         and all(card_counts[area_id] >= 24 for area_id in PRIORITY_AREAS)
         and visual_cards >= 100 and len(asset_rows) >= 100
         and broken_asset_links == 0 and assets_valid,
         (
-            f"{stored_cards} exact-sourced cards; {visual_cards} visual cards; "
+            f"{iteration20_cards} Iteration-20/{stored_cards} total sourced cards; "
+            f"{visual_cards} visual cards; "
             f"{len(asset_rows)} content-addressed assets"
         ),
     ))

@@ -16,7 +16,9 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
+
+from aprendix.application.official_catalog import OFFICIAL_SOURCES
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +47,31 @@ class SourceDefinition:
     access_note: str = "Consultar a fonte oficial; o Aprendix guarda apenas metadados e síntese original."
     license_note: str = "Direitos pertencem aos respetivos autores/editora; não é armazenada uma cópia integral."
     provenance: str = "curated-primary-source-2026-08"
+
+
+def canonical_source_key(*, url: str, doi: str | None = None) -> str:
+    """Return one stable identity for bibliographic de-duplication.
+
+    DOI wins when present.  Documentation anchors remain significant because
+    they identify different public APIs; volatile tracking parameters do not.
+    """
+
+    normalized_doi = (doi or "").strip().casefold()
+    normalized_doi = re.sub(
+        r"^https?://(?:dx\.)?doi\.org/", "", normalized_doi,
+    ).strip().rstrip("/")
+    if normalized_doi:
+        return f"doi:{normalized_doi}"
+    parts = urlsplit(url.strip())
+    query = urlencode(tuple(
+        (key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        if not key.casefold().startswith(("utm_", "ref", "source"))
+    ))
+    path = parts.path.rstrip("/") or "/"
+    normalized_url = urlunsplit((
+        parts.scheme.casefold(), parts.netloc.casefold(), path, query, parts.fragment,
+    ))
+    return "url:" + normalized_url
 
 
 AREAS: tuple[AreaDefinition, ...] = (
@@ -135,6 +162,7 @@ PRIMARY_SOURCES: tuple[SourceDefinition, ...] = (
     SourceDefinition("src-docker", ("systems", "software-engineering"), "Docker — Get Started", ("Docker documentation team",), 2026, "documentation", "https://docs.docker.com/get-started/", None, "Percurso oficial sobre contentores, imagens, registries, Dockerfiles e execução isolada.", "Distingue processo isolado de máquina virtual e relaciona empacotamento com reprodução de ambientes."),
     SourceDefinition("src-python-packaging", ("python", "software-engineering"), "Python Packaging User Guide", ("Python Packaging Authority",), 2026, "documentation", "https://packaging.python.org/en/latest/", None, "Guia oficial para ambientes virtuais, dependências, pyproject.toml, builds, formatos e especificações de distribuição.", "Ajuda a transformar código local num projeto reproduzível sem misturar import packages e distribution packages."),
     SourceDefinition("src-python-asyncio", ("python", "systems", "web"), "asyncio — Asynchronous I/O", ("Python Software Foundation",), 2026, "documentation", "https://docs.python.org/3/library/asyncio.html", None, "Referência oficial para coroutines, tasks, event loops, streams, filas e sincronização assíncrona.", "Enquadra async/await como concorrência cooperativa indicada sobretudo para I/O, não como aceleração automática de CPU."),
+    SourceDefinition("src-nist-cybersecurity-framework", ("cybersecurity-app", "systems", "responsible-ai"), "Cybersecurity Framework | NIST", ("National Institute of Standards and Technology",), 2024, "report", "https://www.nist.gov/cyberframework", None, "Referência institucional para organizar resultados de governação, identificação, proteção, deteção, resposta e recuperação do risco cibernético.", "Oferece uma segunda âncora transversal para relacionar técnicas defensivas com gestão de risco e evidência verificável."),
 )
 
 
@@ -184,6 +212,12 @@ def _local_library_sources() -> tuple[SourceDefinition, ...]:
             f"{', '.join(area_ids)}. O catálogo regista {page_count} páginas, sem "
             "copiar o texto integral nem enunciados da obra."
         )
+        if str(item["id"]) == "local-d3e11ab782d92acd919e":
+            overview += (
+                " Inclui práticas de algoritmia em Python sobre ciclos, tabelas, "
+                "capital acumulado e juros compostos; o exercício Aprendix associado "
+                "é uma adaptação original, não uma reprodução."
+            )
         result.append(SourceDefinition(
             id=str(item["id"]), area_ids=area_ids, title=title,
             authors=tuple(str(author)[:160] for author in item.get("authors", ())),
@@ -287,10 +321,30 @@ def _official_python_api_sources() -> tuple[SourceDefinition, ...]:
 
 
 OFFICIAL_PYTHON_API_SOURCES = _official_python_api_sources()
+OFFICIAL_DOCUMENTATION_SOURCES = tuple(
+    SourceDefinition(
+        id=item.id, area_ids=(item.area_id,), title=item.title,
+        authors=(item.author,), year=2026, source_type="documentation",
+        url=item.url, doi=None,
+        overview=(
+            f"Página oficial sobre {item.title}; o catálogo guarda apenas o título, "
+            "o URL canónico e headings curtos publicados no índice oficial."
+        ),
+        why=(
+            "Permite confirmar contratos, opções e limites na documentação primária "
+            "sem copiar o respetivo corpo para a base local."
+        ),
+        access_note="Abrir a página oficial quando existir ligação à rede.",
+        license_note="Metadados e ligação canónica; conteúdo pertence ao projeto responsável.",
+        provenance=f"official-sitemap-metadata-2026-08:{item.sitemap_url}",
+    )
+    for item in OFFICIAL_SOURCES
+)
 SOURCES: tuple[SourceDefinition, ...] = (
     *PRIMARY_SOURCES,
     *LOCAL_LIBRARY_SOURCES,
     *OFFICIAL_PYTHON_API_SOURCES,
+    *OFFICIAL_DOCUMENTATION_SOURCES,
 )
 
 

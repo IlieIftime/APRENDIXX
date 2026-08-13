@@ -19,8 +19,15 @@ from aprendix.application.contracts import (
     ContentKind,
     IngestionSummaryDTO,
 )
-from aprendix.infrastructure.db import IndexedChunk, IndexedDocument, KnowledgeRepository
-
+from aprendix.application.text_normalization import (
+    TextNormalizationService,
+    TextProfile,
+)
+from aprendix.infrastructure.db import (
+    IndexedChunk,
+    IndexedDocument,
+    KnowledgeRepository,
+)
 
 DEFAULT_SOURCE_PATHS: tuple[Path, ...] = (
     Path(r"C:\Users\iliei\OneDrive\Ambiente de Trabalho\ebooks e pappers"),
@@ -143,9 +150,10 @@ class SpecialistPythonBookParser:
 
 
 class LocalDocumentExtractor:
-    def __init__(self) -> None:
+    def __init__(self, *, normalizer: TextNormalizationService | None = None) -> None:
         self._specialist = SpecialistPythonBookParser()
         self._ocr = None
+        self._normalizer = normalizer or TextNormalizationService()
 
     def extract(self, path: Path) -> ExtractedDocument:
         suffix = path.suffix.casefold()
@@ -168,16 +176,23 @@ class LocalDocumentExtractor:
         if reader.is_encrypted and not reader.decrypt(""):
             raise ValueError("encrypted PDF cannot be read")
         metadata = reader.metadata or {}
-        title = str(metadata.get("/Title") or path.stem).strip()[:500]
-        author = str(metadata.get("/Author") or "").strip()[:160] or None
+        title = self._normalizer.normalize(
+            str(metadata.get("/Title") or path.stem), TextProfile.PROSE
+        ).text.strip()[:500]
+        author_text = self._normalizer.normalize(
+            str(metadata.get("/Author") or ""), TextProfile.PROSE
+        ).text.strip()[:160]
+        author = author_text or None
         published = self._pdf_date(metadata.get("/CreationDate"))
         specialist = self._is_specialist(path)
         sections: list[ExtractedSection] = []
         for page_index, page in enumerate(reader.pages, start=1):
             try:
                 text = (page.extract_text() or "")[:500_000]
-            except Exception as exc:
-                text = f""
+            except Exception:  # noqa: BLE001 - third-party PDF page isolation boundary
+                text = ""
+            if text:
+                text = self._normalizer.normalize(text, TextProfile.PROSE).text
             if specialist:
                 sections.extend(self._specialist.split(text, page_number=page_index))
             elif text.strip():
@@ -206,10 +221,7 @@ class LocalDocumentExtractor:
                 inter_op_num_threads=1,
             )
         result, _elapsed = self._ocr(str(path), use_cls=False)
-        text = "\n".join(
-            str(item[1]) for item in (result or ())
-            if isinstance(item, (list, tuple)) and len(item) >= 2
-        )
+        text = self._normalize_ocr_result(result)
         sections = self._specialist.split(
             text, page_number=self._page_number(path), image_path=str(path.resolve())
         )
@@ -218,16 +230,35 @@ class LocalDocumentExtractor:
             page_count=1, sections=sections,
         )
 
+    def _normalize_ocr_result(self, result: object) -> str:
+        valid_items = tuple(
+            item for item in (result or ())
+            if isinstance(item, (list, tuple)) and len(item) >= 2
+        )
+        text = "\n".join(str(item[1]) for item in valid_items)
+        confidences = []
+        for item in valid_items:
+            if len(item) >= 3:
+                try:
+                    confidences.append(float(item[2]))
+                except (TypeError, ValueError):
+                    pass
+        confidence = sum(confidences) / len(confidences) if confidences else 0.0
+        return self._normalizer.normalize_ocr(text, confidence=confidence).text
+
     def _extract_notebook(self, path: Path) -> ExtractedDocument:
         if path.stat().st_size > 50 * 1024 * 1024:
             raise ValueError("notebook exceeds 50 MB parsing limit")
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        decoded = self._normalizer.decode_notebook(path.read_bytes())
+        payload = json.loads(decoded.text)
         sections: list[ExtractedSection] = []
         for index, cell in enumerate(payload.get("cells", ())):
             if not isinstance(cell, dict) or cell.get("cell_type") not in {"markdown", "code"}:
                 continue
             source = cell.get("source", "")
             text = "".join(source) if isinstance(source, list) else str(source)
+            profile = TextProfile.PYTHON if cell.get("cell_type") == "code" else TextProfile.PROSE
+            text = self._normalizer.normalize(text, profile).text
             text = self._specialist._clean(text)
             if text:
                 sections.append(
@@ -241,7 +272,7 @@ class LocalDocumentExtractor:
     def _extract_python(self, path: Path) -> ExtractedDocument:
         if path.stat().st_size > 2 * 1024 * 1024:
             raise ValueError("Python source exceeds 2 MB parsing limit")
-        text = path.read_text(encoding="utf-8", errors="replace")
+        text = self._normalizer.decode_python(path.read_bytes()).text
         ast.parse(text)
         return ExtractedDocument(
             path.stem, None, None, 0,
@@ -388,13 +419,13 @@ class ContentIngestionPipeline:
                     exercise_count += exercises
                 else:
                     skipped += 1
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - per-file ingestion isolation boundary
                 failed += 1
                 errors.append(f"{path.name}: {type(exc).__name__}: {str(exc)[:300]}")
         if indexed and not dry_run:
             try:
                 self._repository.audit_content_quality()
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - validation failure is recorded in the run
                 errors.append(f"validation: {type(exc).__name__}: {str(exc)[:300]}")
         summary = IngestionSummaryDTO(
             started_at=started, completed_at=datetime.now(UTC),
@@ -415,7 +446,6 @@ class ContentIngestionPipeline:
     ) -> tuple[IndexedChunk, ...]:
         chunks: list[IndexedChunk] = []
         ordinal = 0
-        specialist = self._extractor._is_specialist(path)
         for section in extracted.sections:
             for text in self._chunk_text(section.text):
                 chunk_id = uuid5(

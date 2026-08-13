@@ -1,8 +1,8 @@
-# Aprendix 1.0.0
+# Aprendix 1.0.1
 
 Validated release artefacts and the full sprint audit are recorded in
-[`VALIDATION-1.0.0.md`](VALIDATION-1.0.0.md). O pacote Android desta release é
-`dist/mobile/Aprendix-1.0.0-android-arm64-release.apk`.
+[`VALIDATION-1.0.1.md`](VALIDATION-1.0.1.md). O pacote Android desta release é
+`dist/mobile/Aprendix-1.0.1-android-arm64-release.apk`.
 
 Aprendix is a local-first, privacy-by-design programming learning MVP for
 desktop, Android, and iOS. Practice is stored on-device, the adaptive engine is
@@ -169,11 +169,11 @@ CLI source entry is multiline and ends with a line containing only `END`.
 
 Executa `Instalar-Aprendix.bat`. O instalador:
 
-1. cria uma venv dedicada em `%LOCALAPPDATA%\AprendixBuild\venv-desktop-1.0.0`;
+1. cria uma venv dedicada em `%LOCALAPPDATA%\AprendixBuild\venv-desktop-1.0.1`;
 2. instala Kivy, OCR, clustering, PyInstaller e as dependências do projeto;
 3. executa a suite de testes;
 4. produz os EXE e copia a instalação autónoma para
-   `%LOCALAPPDATA%\Programs\Aprendix\1.0.0`;
+  `%LOCALAPPDATA%\Programs\Aprendix\1.0.1`;
 5. executa o self-test do EXE já instalado e cria `Aprendix.lnk` no Ambiente de Trabalho;
 6. abre a aplicação após uma instalação bem-sucedida.
 

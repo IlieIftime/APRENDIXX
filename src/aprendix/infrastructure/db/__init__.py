@@ -30,6 +30,7 @@ from aprendix.infrastructure.db.pedagogical_repository import (
     CatalogSearchHit,
     PedagogicalRepository,
 )
+from aprendix.infrastructure.db.catalog_repository import EditorialCatalogRepository
 
 __all__ = [
     "AttemptRepository",
@@ -57,4 +58,5 @@ __all__ = [
     "PedagogicalQualityRepository",
     "CatalogSearchHit",
     "PedagogicalRepository",
+    "EditorialCatalogRepository",
 ]

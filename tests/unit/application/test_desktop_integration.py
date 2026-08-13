@@ -152,10 +152,13 @@ def test_failed_attempts_drive_persisted_help_ladder_and_hint_evidence(tmp_path)
             "SELECT count(*) FROM exercise_reference_solutions"
         ).fetchone()[0]
         encrypted_reference = bytes(connection.execute(
-            "SELECT solution_encrypted FROM exercise_reference_solutions"
+            "SELECT solution_encrypted FROM exercise_reference_solutions WHERE exercise_id=?",
+            (str(exercise.id),),
         ).fetchone()[0])
     assert hint_counts == [0, 1, 2, 3]
-    assert stored_references == 1
+    # Iteration 21 materializes 500 governed reference solutions at bootstrap;
+    # this legacy exercise adds one more without replacing that catalogue.
+    assert stored_references >= 501
     assert receipts[-1].reference_solution.encode("utf-8") not in encrypted_reference
 
 
@@ -336,10 +339,11 @@ def test_a2_variations_are_persisted_encrypted(tmp_path):
 
 def test_daily_cards_and_four_feedback_actions_are_persisted(tmp_path):
     runtime = build_runtime(tmp_path / "profile")
-    cards = runtime.knowledge.list_theory_cards(authored_only=True)
+    cards = runtime.knowledge.list_theory_cards(limit=100, authored_only=True)
     assert cards
     daily = set(runtime.desktop.daily_card_ids(limit=100))
     assert len(daily) == 100
+    assert daily <= {item.id for item in cards}
     card = next(item for item in cards if item.id in daily)
 
     for feedback in ("already_knew", "useful", "confusing", "review"):

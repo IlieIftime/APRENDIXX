@@ -1,0 +1,79 @@
+{
+  "audit_version": "1",
+  "dpi_profiles": [
+    {
+      "desktop_action_px": 46,
+      "desktop_navigation_px": 50,
+      "minimum_touch_target_px": 44,
+      "mobile_action_px": 44,
+      "scale_percent": 100
+    },
+    {
+      "desktop_action_px": 58,
+      "desktop_navigation_px": 62,
+      "minimum_touch_target_px": 55,
+      "mobile_action_px": 55,
+      "scale_percent": 125
+    },
+    {
+      "desktop_action_px": 69,
+      "desktop_navigation_px": 75,
+      "minimum_touch_target_px": 66,
+      "mobile_action_px": 66,
+      "scale_percent": 150
+    },
+    {
+      "desktop_action_px": 80,
+      "desktop_navigation_px": 88,
+      "minimum_touch_target_px": 77,
+      "mobile_action_px": 77,
+      "scale_percent": 175
+    },
+    {
+      "desktop_action_px": 92,
+      "desktop_navigation_px": 100,
+      "minimum_touch_target_px": 88,
+      "mobile_action_px": 88,
+      "scale_percent": 200
+    }
+  ],
+  "manual_gates": {
+    "mixed_monitor_dpi": "requires-multi-monitor-hardware",
+    "physical_touch": "requires-android-and-ios-devices",
+    "screen_reader": "requires-supported-screen-reader-and-toolkit"
+  },
+  "minimum_touch_target_dp": 44,
+  "passed": true,
+  "privacy": {
+    "contains_user_data": false
+  },
+  "scope": "automated-token-and-logical-layout",
+  "themes": {
+    "contrast": {
+      "accent_button": 14.382,
+      "body_background": 21.0,
+      "body_surface": 19.776,
+      "focus_background": 14.282,
+      "muted_background": 15.968,
+      "passed": true
+    },
+    "dark": {
+      "accent_button": 5.263,
+      "body_background": 18.348,
+      "body_surface": 16.459,
+      "focus_background": 11.325,
+      "muted_background": 10.286,
+      "passed": true
+    },
+    "light": {
+      "accent_button": 8.63,
+      "body_background": 16.31,
+      "body_surface": 17.907,
+      "focus_background": 5.251,
+      "muted_background": 6.163,
+      "passed": true
+    }
+  },
+  "wcag_non_text_focus_ratio": 3.0,
+  "wcag_normal_text_ratio": 4.5
+}

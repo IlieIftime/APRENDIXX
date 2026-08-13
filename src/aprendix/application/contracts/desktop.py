@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from aprendix.domain.enums import StrEnum
 from uuid import UUID, uuid4
 
 from pydantic import Field, field_validator
 
-from aprendix.application.contracts.models import ContractModel, NonBlankText, utc_now
-from aprendix.application.contracts.knowledge import LearningTheme, Technology
-from aprendix.application.contracts.progress import ErrorCategory
 from aprendix.application.contracts.access import LearningAccessDTO
+from aprendix.application.contracts.knowledge import LearningTheme, Technology
+from aprendix.application.contracts.models import ContractModel, NonBlankText, utc_now
+from aprendix.application.contracts.progress import ErrorCategory
+from aprendix.domain.enums import StrEnum
 
 
 class LearnerRank(StrEnum):
@@ -81,6 +81,8 @@ class EvaluationReceiptDTO(ContractModel):
     reference_available: bool = False
     reference_solution: str = Field(default="", max_length=100_000)
     reference_explanation: str = Field(default="", max_length=20_000)
+    reference_trace: tuple[str, ...] = Field(default=(), max_length=100)
+    reference_expected_output: tuple[str, ...] = Field(default=(), max_length=20)
     reference_validation_hash: str = Field(default="", max_length=64)
     access: LearningAccessDTO = Field(default_factory=LearningAccessDTO)
     credit_awarded: bool = False

@@ -17,6 +17,11 @@ from aprendix.application.academy_catalog import (
     VERTICAL_CORE_MODULES,
 )
 from aprendix.application.learning_catalog import EXTRA_GLOSSARY, GLOSSARY_ALIASES
+from aprendix.application.official_catalog import (
+    OFFICIAL_GLOSSARY,
+    OFFICIAL_GLOSSARY_ALIASES,
+    OFFICIAL_GLOSSARY_SOURCE_IDS,
+)
 from aprendix.application.stdlib_glossary import STDLIB_GLOSSARY
 from aprendix.application.vertical_practice import CORE_PRACTICE_VARIANTS, TRACK_SOURCE_IDS
 from aprendix.infrastructure.db.access_policy import (
@@ -580,14 +585,37 @@ class CurriculumRepository:
             glossary_nodes: dict[str, str] = {}
             glossary_relations: list[tuple[str, tuple[str, ...]]] = []
             glossary_specs = (
-                *GLOSSARY, *EXTRA_GLOSSARY, *CORE_GLOSSARY, *STDLIB_GLOSSARY_ENTRIES
+                *GLOSSARY, *EXTRA_GLOSSARY, *CORE_GLOSSARY, *STDLIB_GLOSSARY_ENTRIES,
+                *OFFICIAL_GLOSSARY,
             )
-            expected_glossary_entries = len({
-                _normalize(spec[0]) for spec in glossary_specs
-            })
-            glossary_examples_complete = int(connection.execute(
-                "SELECT count(*) FROM glossary_examples"
-            ).fetchone()[0]) >= 2 * expected_glossary_entries
+            current_official_entry_ids = {
+                _id("glossary", _normalize(spec[0])) for spec in OFFICIAL_GLOSSARY
+            }
+            # Official headings can change between curated releases.  Remove
+            # only superseded generated dictionary rows; local/user content and
+            # graph mastery remain untouched.  Without this upgrade path an
+            # installed profile accumulated every previous release and falsely
+            # exceeded the exact editorial delta.
+            stale_official_entry_ids = {
+                row["id"] for row in connection.execute(
+                    """SELECT DISTINCT e.id FROM glossary_entries e
+                       JOIN glossary_source_links l ON l.entry_id=e.id
+                       WHERE l.source_id LIKE 'src-official-%'"""
+                )
+                if row["id"] not in current_official_entry_ids
+            }
+            if stale_official_entry_ids:
+                connection.executemany(
+                    "DELETE FROM glossary_entries WHERE id=?",
+                    ((entry_id,) for entry_id in sorted(stale_official_entry_ids)),
+                )
+            glossary_example_counts = {
+                row["entry_id"]: int(row["total"])
+                for row in connection.execute(
+                    """SELECT entry_id,count(*) total FROM glossary_examples
+                       GROUP BY entry_id"""
+                )
+            }
             source_catalog = {
                 row["id"]: row["title"]
                 for row in connection.execute("SELECT id,title FROM curated_sources")
@@ -612,17 +640,30 @@ class CurriculumRepository:
                 node_slug = "concept-" + re.sub(r"[^a-z0-9]+", "-", normalized_term).strip("-")
                 if node_slug == "concept-":
                     node_slug += hashlib.sha256(term.encode("utf-8")).hexdigest()[:12]
+                elif len(node_slug) > 80:
+                    suffix = hashlib.sha256(node_slug.encode("utf-8")).hexdigest()[:12]
+                    node_slug = f"{node_slug[:67].rstrip('-')}-{suffix}"
+                collision = connection.execute(
+                    "SELECT id FROM graph_nodes WHERE slug=? AND id<>?",
+                    (node_slug, node_id),
+                ).fetchone()
+                if collision is not None:
+                    suffix = hashlib.sha256(normalized_term.encode("utf-8")).hexdigest()[:12]
+                    node_slug = f"{node_slug[:67].rstrip('-')}-{suffix}"
                 connection.execute(
-                    """INSERT OR IGNORE INTO graph_nodes(
+                    """INSERT INTO graph_nodes(
                        id,slug,title,description,difficulty,created_at,updated_at)
-                       VALUES(?,?,?,?,0.0,?,?)""",
-                    (node_id, node_slug[:120], term,
+                       VALUES(?,?,?,?,0.0,?,?) ON CONFLICT(id) DO UPDATE SET
+                       slug=excluded.slug,title=excluded.title,
+                       description=excluded.description,updated_at=excluded.updated_at""",
+                    (node_id, node_slug, term,
                      f"Conceito local de {technology}; abre o dicionário para definição, exemplo e fontes.",
                      now, now),
                 )
                 glossary_nodes[normalized_term] = node_id
                 glossary_relations.append((normalized_term, related))
                 linked_source_ids = tuple(dict.fromkeys((
+                    *OFFICIAL_GLOSSARY_SOURCE_IDS.get(term, ()),
                     *GLOSSARY_SOURCE_IDS.get(term, ()),
                     *((detailed_python_source.get(normalized_term),)
                       if detailed_python_source.get(normalized_term) else ()),
@@ -648,7 +689,7 @@ class CurriculumRepository:
                     )
                 example_source_id = linked_source_ids[0] if linked_source_ids else None
                 generated_examples = (
-                    () if glossary_examples_complete else
+                    () if glossary_example_counts.get(identity, 0) >= 2 else
                     _glossary_examples(term, definition, signature, example)
                 )
                 for ordinal, (example_text, explanation, difficulty, context) in enumerate(
@@ -672,7 +713,11 @@ class CurriculumRepository:
                             difficulty, context, example_source_id,
                         ),
                     )
-            for canonical, aliases in (*GLOSSARY_ALIASES, *GENERATED_GLOSSARY_ALIASES):
+            for canonical, aliases in (
+                *GLOSSARY_ALIASES,
+                *GENERATED_GLOSSARY_ALIASES,
+                *OFFICIAL_GLOSSARY_ALIASES,
+            ):
                 entry = connection.execute(
                     "SELECT id FROM glossary_entries WHERE normalized_term=?",
                     (_normalize(canonical),),

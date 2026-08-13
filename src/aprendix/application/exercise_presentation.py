@@ -22,6 +22,10 @@ class ExerciseBrief:
     constraints: tuple[str, ...]
     public_examples: tuple[str, ...] = ()
     result_contract: str = ""
+    formula_latex: str = ""
+    formula_spoken: str = ""
+    variables: tuple[str, ...] = ()
+    top_down: tuple[str, ...] = ()
 
     def render(self, mode: BriefMode | str = BriefMode.GUIDED) -> str:
         """Render plain UTF-8 text without icon-font or Markdown dependencies."""
@@ -33,12 +37,11 @@ class ExerciseBrief:
 
         if selected_mode is BriefMode.SIMPLE:
             signature = self.required_names[0] if self.required_names else "Mantém o contrato indicado."
-            steps = [
-                "Lê os dados de entrada e valida-os.",
-                "Implementa a transformação pedida sem alterar os argumentos.",
-                "Devolve o resultado com o tipo definido no contrato.",
-                "Executa exemplos simples e depois usa Corrigir.",
-            ]
+            steps = self.top_down[:4] or (
+                "Lê e valida os dados de entrada.",
+                "Calcula o resultado pedido.",
+                "Executa um exemplo e usa Corrigir.",
+            )
             sections = [
                 self.title,
                 f"Em poucas palavras\n{self.task}",
@@ -47,6 +50,8 @@ class ExerciseBrief:
                     f"{index}. {item}" for index, item in enumerate(steps, 1)
                 ),
             ]
+            if self.formula_spoken:
+                sections.append("Fórmula\n" + self.formula_spoken)
             if self.public_examples:
                 sections.append("Exemplos\n" + "\n".join(self.public_examples[:3]))
             sections.append(
@@ -66,15 +71,25 @@ class ExerciseBrief:
                 sections.append("Contrato a respeitar\n" + "\n".join(details))
             if self.parameters:
                 sections.append("Entradas e parâmetros\n" + "\n\n".join(self.parameters))
+            if self.formula_spoken:
+                sections.append("Fórmula a aplicar\n" + self.formula_spoken)
+            if self.variables:
+                sections.append("Variáveis e significado\n" + "\n".join(self.variables))
             if self.public_examples:
                 sections.append("Exemplos de comportamento\n" + "\n\n".join(self.public_examples))
             priority_constraints = self.constraints[:6]
             sections.append(
-                "Plano de resolução\n"
-                "1. Valida as entradas sem as modificar.\n"
-                "2. Resolve primeiro o caso normal mais simples.\n"
-                "3. Acrescenta os casos inválidos e de fronteira.\n"
-                "4. Executa, interpreta os erros e só depois usa Corrigir."
+                "Plano de resolução\n" + "\n".join(
+                    f"{index}. {item}" for index, item in enumerate(
+                        self.top_down or (
+                            "Valida as entradas sem as modificar.",
+                            "Resolve primeiro o caso normal mais simples.",
+                            "Acrescenta os casos inválidos e de fronteira.",
+                            "Executa, interpreta o resultado e usa Corrigir.",
+                        ),
+                        1,
+                    )
+                )
             )
             sections.append("Requisitos importantes\n" + "\n".join(f"- {item}" for item in priority_constraints))
             sections.append(
@@ -93,8 +108,19 @@ class ExerciseBrief:
             sections.append("Especificação técnica\n" + "\n".join(details))
         if self.parameters:
             sections.append("Entradas e parâmetros\n" + "\n\n".join(self.parameters))
+        if self.formula_spoken:
+            formula = self.formula_spoken
+            if self.formula_latex:
+                formula += "\nNotação para copiar: " + self.formula_latex
+            sections.append("Fórmula\n" + formula)
+        if self.variables:
+            sections.append("Constantes e variáveis\n" + "\n".join(self.variables))
         if self.public_examples:
             sections.append("Exemplos de comportamento\n" + "\n\n".join(self.public_examples))
+        if self.top_down:
+            sections.append("Decomposição top-down\n" + "\n".join(
+                f"{index}. {item}" for index, item in enumerate(self.top_down, 1)
+            ))
         sections.extend((
             "Requisitos e casos-limite\n" + "\n".join(f"- {item}" for item in self.constraints),
             (
@@ -269,13 +295,59 @@ def _domain_constraints(starter_code: str) -> tuple[str, ...]:
     return ()
 
 
+_DISPLAY_FORMULA = re.compile(r"\$\$(?P<formula>.+?)\$\$", re.DOTALL)
+
+
+def _extract_formula(text: str) -> tuple[str, str]:
+    match = _DISPLAY_FORMULA.search(text)
+    if match is None:
+        return "", ""
+    latex = " ".join(match.group("formula").strip().split())[:4_000]
+    folded = latex.casefold().replace(" ", "")
+    if "capital" in folded or "(1+" in folded and ("taxa" in folded or "juro" in folded):
+        spoken = (
+            "O capital acumulado é o capital inicial multiplicado por um mais "
+            "a taxa anual, elevado ao número de anos."
+        )
+    elif "\\sum" in latex:
+        spoken = "Calcula o somatório dos termos indicados entre os limites apresentados."
+    else:
+        spoken = "Aplica a expressão matemática apresentada, respeitando a ordem das operações."
+    return latex, spoken
+
+
+def _brief_variables(parameters: tuple[str, ...], formula: str) -> tuple[str, ...]:
+    result = [item for item in parameters[:12]]
+    if formula and not result:
+        result.append("Símbolos: usa os significados definidos junto da fórmula.")
+    return tuple(dict.fromkeys(result))
+
+
+def _top_down_steps(
+    *, has_formula: bool, has_parameters: bool, has_examples: bool,
+) -> tuple[str, ...]:
+    steps: list[str] = []
+    if has_parameters:
+        steps.append("Confirma os nomes, tipos e domínio das entradas.")
+    if has_formula:
+        steps.append("Implementa a fórmula isolando o cálculo numa operação verificável.")
+    else:
+        steps.append("Implementa a transformação principal com passos observáveis.")
+    if has_examples:
+        steps.append("Compara o resultado com os exemplos públicos.")
+    steps.append("Trata os casos-limite e executa o corretor local.")
+    return tuple(steps)
+
+
 def build_exercise_brief(exercise) -> ExerciseBrief:
     """Turn stored content into a consistent brief without inventing an answer."""
 
     cleaned = sanitize_exercise_prompt(exercise.prompt)
+    formula_latex, formula_spoken = _extract_formula(cleaned)
+    prose = _DISPLAY_FORMULA.sub("", cleaned)
     paragraphs = tuple(
         re.sub(r"\s+", " ", part).strip()
-        for part in re.split(r"\n\s*\n", cleaned)
+        for part in re.split(r"\n\s*\n", prose)
         if part.strip()
     )
     task = paragraphs[0] if paragraphs else f"Resolve o desafio {exercise.title}."
@@ -305,6 +377,7 @@ def build_exercise_brief(exercise) -> ExerciseBrief:
         "A solução corre num sandbox local sem rede, processos ou ficheiros externos.",
     )
     examples = _safe_public_examples(tuple(exercise.tests))
+    variables = _brief_variables(parameters, formula_latex)
     return ExerciseBrief(
         title=str(exercise.title),
         context=scenario,
@@ -314,4 +387,11 @@ def build_exercise_brief(exercise) -> ExerciseBrief:
         constraints=constraints,
         public_examples=examples,
         result_contract=_result_contract(examples),
+        formula_latex=formula_latex,
+        formula_spoken=formula_spoken,
+        variables=variables,
+        top_down=_top_down_steps(
+            has_formula=bool(formula_latex), has_parameters=bool(parameters),
+            has_examples=bool(examples),
+        ),
     )

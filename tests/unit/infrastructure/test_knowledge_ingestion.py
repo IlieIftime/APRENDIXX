@@ -1,13 +1,23 @@
 """Encrypted vector store and deterministic ingestion component tests."""
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
+import pytest
+
 from aprendix.application.contracts import Complexity, ContentKind, SearchFiltersDTO
-from aprendix.infrastructure.db import IndexedChunk, IndexedDocument, KnowledgeRepository
+from aprendix.application.text_normalization import TextDecodingError
+from aprendix.infrastructure.db import (
+    IndexedChunk,
+    IndexedDocument,
+    KnowledgeRepository,
+)
 from aprendix.infrastructure.ingestion import (
+    ContentIngestionPipeline,
     FeatureHashEmbedding,
+    LocalDocumentExtractor,
     SpecialistPythonBookParser,
     discover_sources,
 )
@@ -39,6 +49,62 @@ def test_discovery_deduplicates_nested_roots_and_ignores_pickle(tmp_path: Path) 
     pdf = folder / "book.pdf"; pdf.write_bytes(b"pdf")
     (folder / "unsafe.pkl").write_bytes(b"pickle")
     assert discover_sources((tmp_path, folder, pdf)) == (pdf.resolve(),)
+
+
+def test_python_ingestion_honours_declared_encoding_without_replacement(tmp_path: Path) -> None:
+    source = tmp_path / "legacy.py"
+    source.write_bytes("# coding: cp1252\nnome = 'João'\n".encode("cp1252"))
+    document = LocalDocumentExtractor().extract(source)
+    assert "João" in document.sections[0].text
+    assert "\ufffd" not in document.sections[0].text
+
+
+def test_python_ingestion_rejects_irrecoverable_declared_encoding(tmp_path: Path) -> None:
+    source = tmp_path / "damaged.py"
+    source.write_bytes(b"# coding: utf-8\nname = '\xff'\n")
+    with pytest.raises(TextDecodingError, match="declared Python encoding"):
+        LocalDocumentExtractor().extract(source)
+
+
+def test_notebook_ingestion_accepts_utf8_sig_and_rejects_cp1252(tmp_path: Path) -> None:
+    notebook = tmp_path / "lesson.ipynb"
+    notebook.write_bytes(
+        b"\xef\xbb\xbf" + json.dumps({
+            "cells": [{"cell_type": "code", "source": ["nome = 'João'\n"]}],
+        }, ensure_ascii=False).encode("utf-8")
+    )
+    document = LocalDocumentExtractor().extract(notebook)
+    assert document.sections[0].text == "nome = 'João'"
+    notebook.write_bytes('{"cells": [], "nome": "João"}'.encode("cp1252"))
+    with pytest.raises(TextDecodingError, match="not valid UTF-8"):
+        LocalDocumentExtractor().extract(notebook)
+
+
+def test_ingestion_ocr_text_is_repaired_or_rejected_before_chunking() -> None:
+    extractor = LocalDocumentExtractor()
+    assert extractor._normalize_ocr_result((
+        (((0, 0),), "aÃ§Ã£o", .91),
+    )) == "ação"
+    with pytest.raises(TextDecodingError, match="replacement"):
+        extractor._normalize_ocr_result((
+            (((0, 0),), "valor \ufffd", .99),
+        ))
+
+
+def test_invalid_python_is_recorded_without_creating_searchable_chunks(
+    database, cipher, tmp_path: Path
+) -> None:
+    source = tmp_path / "damaged.py"
+    source.write_bytes(b"# coding: utf-8\nname = '\xff'\n")
+    summary = ContentIngestionPipeline(
+        KnowledgeRepository(database, cipher)
+    ).ingest((source,))
+    assert summary.failed_documents == 1
+    assert summary.indexed_documents == 0
+    assert "TextDecodingError" in summary.errors[0]
+    with database.read_connection() as connection:
+        assert connection.execute("SELECT count(*) FROM documents").fetchone()[0] == 0
+        assert connection.execute("SELECT count(*) FROM document_chunks").fetchone()[0] == 0
 
 
 def test_repository_atomically_stores_encrypted_chunks_cards_and_exercises(database, cipher) -> None:
@@ -73,4 +139,3 @@ def test_repository_atomically_stores_encrypted_chunks_cards_and_exercises(datab
         "Uma classe modela objetos.", "Cria uma classe Pessoa."
     }
     assert repository.store_document(document, chunks)[0] is False
-

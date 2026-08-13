@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from create_release_manifest import _build_input_record, _directory_record, _sha256
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SOURCE = ROOT / "src"
+if str(SOURCE) not in sys.path:
+    sys.path.insert(0, str(SOURCE))
+
+from aprendix import __version__
 
 
 def verify(manifest_path: Path) -> tuple[str, ...]:
@@ -40,7 +46,12 @@ def verify(manifest_path: Path) -> tuple[str, ...]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("manifest", type=Path, nargs="?", default=ROOT / "RELEASE-MANIFEST-1.0.0.json")
+    parser.add_argument(
+        "manifest",
+        type=Path,
+        nargs="?",
+        default=ROOT / f"RELEASE-MANIFEST-{__version__}.json",
+    )
     args = parser.parse_args()
     failures = verify(args.manifest.resolve())
     if failures:

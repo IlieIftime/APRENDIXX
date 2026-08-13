@@ -2,7 +2,11 @@ import struct
 
 import pytest
 
-from aprendix.application.contracts import OcrRegionDTO, SnippetAction, SnippetRequestDTO
+from aprendix.application.contracts import (
+    OcrRegionDTO,
+    SnippetAction,
+    SnippetRequestDTO,
+)
 from aprendix.application.snippet_analysis import SnippetAnalyzer
 from aprendix.bootstrap import build_runtime
 from aprendix.infrastructure.image_ocr import LocalImageOcr
@@ -53,6 +57,19 @@ def test_ocr_reconstructs_fragments_as_indented_code_lines() -> None:
         OcrRegionDTO(text="x", confidence=.99, box=((205, 60), (225, 60), (225, 90), (205, 90))),
     ]
     assert LocalImageOcr._combine_regions(regions) == "def f(x):\n    return x"
+
+
+def test_ocr_normalization_preserves_original_and_quarantines_damage() -> None:
+    ocr = LocalImageOcr()
+    text, status, warnings = ocr._normalize_ocr_text("aÃ§Ã£o → resultado", confidence=.8)
+    assert text == "ação → resultado"
+    assert status == "repaired"
+    assert warnings
+    damaged = "valor \ufffd ambíguo"
+    text, status, warnings = ocr._normalize_ocr_text(damaged, confidence=.9)
+    assert text == damaged
+    assert status == "quarantined"
+    assert "mantido sem alterações" in warnings[0]
 
 
 @pytest.mark.parametrize("lossless", [False, True])

@@ -1,0 +1,84 @@
+{
+  "audit_version": "1",
+  "counts": {
+    "authored_cards": 1131,
+    "bibliography_links": 1089,
+    "content_source_adapters": 18,
+    "curated_sources": 1121,
+    "curriculum_objectives": 71,
+    "exercises": 3063,
+    "glossary_aliases": 9757,
+    "glossary_entries": 3343,
+    "graph_nodes": 3398,
+    "guided_project_templates": 20,
+    "learning_tracks": 12,
+    "learning_units": 248
+  },
+  "curriculum": {
+    "coverage_by_gap": {
+      "none": 71
+    },
+    "orphan_units": 0,
+    "practice_without_exercise": 0,
+    "status": "passed",
+    "targets": {
+      "authored_cards": {
+        "actual": 1131,
+        "maximum": null,
+        "minimum": 1000,
+        "passed": true
+      },
+      "curated_sources": {
+        "actual": 1121,
+        "maximum": null,
+        "minimum": 1000,
+        "passed": true
+      },
+      "exercises": {
+        "actual": 3063,
+        "maximum": null,
+        "minimum": 3000,
+        "passed": true
+      },
+      "glossary_entries": {
+        "actual": 13100,
+        "maximum": null,
+        "minimum": 5000,
+        "passed": true
+      },
+      "graph_nodes": {
+        "actual": 3398,
+        "maximum": null,
+        "minimum": 2000,
+        "passed": true
+      },
+      "learning_tracks": {
+        "actual": 12,
+        "maximum": null,
+        "minimum": 12,
+        "passed": true
+      },
+      "learning_units": {
+        "actual": 248,
+        "maximum": 250,
+        "minimum": 150,
+        "passed": true
+      }
+    }
+  },
+  "database": {
+    "integrity": "ok",
+    "schema_version": 36
+  },
+  "external_gates": {
+    "android_physical": "not-measured-by-this-host",
+    "authenticode": "requires-publisher-certificate",
+    "ios_build_and_physical": "not-measured-by-this-host"
+  },
+  "privacy": {
+    "aggregate_only": true,
+    "contains_paths": false,
+    "contains_user_content": false,
+    "contains_user_identifiers": false
+  }
+}

@@ -22,6 +22,8 @@ def test_windows_installer_separates_build_venv_and_installed_application() -> N
     assert '"ITERATION-19-AUDIT-1.0.0.json"' in script
     assert '"ITERATION-20.md"' in script
     assert '"ITERATION-20-AUDIT-1.0.0.json"' in script
+    assert '"ITERATION-21.md"' in script
+    assert '"ITERATION-21-AUDIT-1.0.0.json"' in script
 
 
 def test_release_scan_only_allows_dynamic_execution_in_child_boundaries() -> None:

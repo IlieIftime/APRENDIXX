@@ -7,6 +7,7 @@ import hashlib
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID, uuid4
 
 from aprendix.application.contracts import (
@@ -24,6 +25,7 @@ from aprendix.application.knowledge_structure import (
     ancestors,
     area_depths,
     classify_areas,
+    canonical_source_key,
     descendants,
     fold,
 )
@@ -62,21 +64,33 @@ class KnowledgeStructureRepository:
                         (shortcut_id, area.id, query[0], query[1], shortcut_index),
                     )
             for source in SOURCES:
+                canonical_key = canonical_source_key(url=source.url, doi=source.doi)
+                duplicate = connection.execute(
+                    "SELECT id FROM curated_sources WHERE canonical_key=? AND id<>?",
+                    (canonical_key, source.id),
+                ).fetchone()
+                if duplicate is not None:
+                    raise ValueError(
+                        f"duplicate canonical source {canonical_key}: "
+                        f"{duplicate['id']} and {source.id}"
+                    )
                 connection.execute(
                     """INSERT INTO curated_sources(
                         id,title,authors_json,publication_year,source_type,canonical_url,
-                        doi,overview,why_it_matters,access_note,license_note,provenance
-                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                        doi,overview,why_it_matters,access_note,license_note,provenance,
+                        canonical_key
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
                     ON CONFLICT(id) DO UPDATE SET title=excluded.title,
                         authors_json=excluded.authors_json,publication_year=excluded.publication_year,
                         source_type=excluded.source_type,canonical_url=excluded.canonical_url,
                         doi=excluded.doi,overview=excluded.overview,
                         why_it_matters=excluded.why_it_matters,access_note=excluded.access_note,
-                        license_note=excluded.license_note,provenance=excluded.provenance""",
+                        license_note=excluded.license_note,provenance=excluded.provenance,
+                        canonical_key=excluded.canonical_key""",
                     (source.id, source.title, json.dumps(source.authors, ensure_ascii=False),
                      source.year, source.source_type, source.url, source.doi,
                      source.overview, source.why, source.access_note,
-                     source.license_note, source.provenance),
+                     source.license_note, source.provenance, canonical_key),
                 )
                 for position, area_id in enumerate(source.area_ids):
                     connection.execute(
@@ -84,6 +98,166 @@ class KnowledgeStructureRepository:
                         VALUES(?,?,?) ON CONFLICT(area_id,source_id) DO UPDATE SET
                         position=excluded.position""",
                         (area_id, source.id, position),
+                    )
+            self._retire_obsolete_official_sources(connection)
+
+    @staticmethod
+    def _public_official_url(url: str) -> str:
+        """Return the public canonical URL for a known leaked documentation host.
+
+        MongoDB's public documentation used to advertise an internal staging
+        canonical in its HTML metadata.  Release 21 corrected the catalogue,
+        but an installed profile can still contain the old ID (which was
+        derived from that URL).  This narrow rewrite is intentionally not a
+        general host allow-list bypass.
+        """
+
+        parsed = urlsplit(url)
+        if parsed.hostname != "mongodbcom-cdn.staging.corp.mongodb.com":
+            return url
+        return urlunsplit(("https", "www.mongodb.com", parsed.path, parsed.query, ""))
+
+    @classmethod
+    def _retire_obsolete_official_sources(cls, connection) -> None:
+        """Merge superseded official-source identities without losing links.
+
+        Source IDs are deterministic URL hashes.  When an upstream site leaks
+        a non-public canonical and later fixes it, the public URL therefore has
+        a different ID.  The merge runs in the same seed transaction, copies
+        every source relation to the current ID, then removes only the obsolete
+        row.  A second seed is a no-op.
+        """
+
+        current_by_url = {
+            canonical_source_key(url=source.url, doi=source.doi): source.id
+            for source in SOURCES
+        }
+        obsolete = connection.execute(
+            """SELECT id,canonical_url FROM curated_sources
+               WHERE canonical_url LIKE
+               'https://mongodbcom-cdn.staging.corp.mongodb.com/%'"""
+        ).fetchall()
+        for row in obsolete:
+            public_url = cls._public_official_url(row["canonical_url"])
+            target_id = current_by_url.get(canonical_source_key(url=public_url, doi=None))
+            if target_id is None or target_id == row["id"]:
+                continue
+            target = connection.execute(
+                "SELECT 1 FROM curated_sources WHERE id=?", (target_id,)
+            ).fetchone()
+            if target is None:
+                continue
+            cls._merge_source_links(connection, row["id"], target_id)
+            connection.execute("DELETE FROM curated_sources WHERE id=?", (row["id"],))
+
+    @staticmethod
+    def _merge_source_links(connection, obsolete_id: str, target_id: str) -> None:
+        simple_links = (
+            ("knowledge_area_sources", "area_id", "position"),
+            ("exercise_source_links", "exercise_id", "rationale"),
+            ("glossary_source_links", "entry_id", "position,rationale"),
+        )
+        for table, owner_column, payload_columns in simple_links:
+            columns = f"{owner_column},source_id,{payload_columns}"
+            select_columns = f"{owner_column},?,{payload_columns}"
+            connection.execute(
+                f"INSERT OR IGNORE INTO {table}({columns}) "
+                f"SELECT {select_columns} FROM {table} WHERE source_id=?",
+                (target_id, obsolete_id),
+            )
+            connection.execute(
+                f"DELETE FROM {table} WHERE source_id=?", (obsolete_id,)
+            )
+
+        for table, owner_column in (
+            ("pedagogical_document_sources", "document_id"),
+            ("card_source_links", "card_id"),
+        ):
+            rows = connection.execute(
+                f"SELECT {owner_column} FROM {table} WHERE source_id=?",
+                (obsolete_id,),
+            ).fetchall()
+            for link in rows:
+                exists = connection.execute(
+                    f"SELECT 1 FROM {table} WHERE {owner_column}=? AND source_id=?",
+                    (link[owner_column], target_id),
+                ).fetchone()
+                if exists is not None:
+                    connection.execute(
+                        f"DELETE FROM {table} WHERE {owner_column}=? AND source_id=?",
+                        (link[owner_column], obsolete_id),
+                    )
+                else:
+                    connection.execute(
+                        f"UPDATE {table} SET source_id=? "
+                        f"WHERE {owner_column}=? AND source_id=?",
+                        (target_id, link[owner_column], obsolete_id),
+                    )
+
+        connection.execute(
+            "UPDATE glossary_examples SET source_id=? WHERE source_id=?",
+            (target_id, obsolete_id),
+        )
+        connection.execute(
+            "UPDATE exercise_catalog_provenance SET source_id=? WHERE source_id=?",
+            (target_id, obsolete_id),
+        )
+
+        # These tables deliberately have no FK to curated_sources because they
+        # also catalogue non-source entities.  Preserve release/search history
+        # while coalescing a duplicate target row when one already exists.
+        if connection.execute(
+            """SELECT 1 FROM sqlite_master
+               WHERE type='table' AND name='content_catalog_items'"""
+        ).fetchone() is not None:
+            releases = connection.execute(
+                """SELECT release_id FROM content_catalog_items
+                   WHERE item_type='source' AND item_id=?""",
+                (obsolete_id,),
+            ).fetchall()
+            for item in releases:
+                duplicate = connection.execute(
+                    """SELECT 1 FROM content_catalog_items
+                       WHERE release_id=? AND item_type='source' AND item_id=?""",
+                    (item["release_id"], target_id),
+                ).fetchone()
+                if duplicate is not None:
+                    connection.execute(
+                        """DELETE FROM content_catalog_items
+                           WHERE release_id=? AND item_type='source' AND item_id=?""",
+                        (item["release_id"], obsolete_id),
+                    )
+                else:
+                    connection.execute(
+                        """UPDATE content_catalog_items SET item_id=?
+                           WHERE release_id=? AND item_type='source' AND item_id=?""",
+                        (target_id, item["release_id"], obsolete_id),
+                    )
+
+        if connection.execute(
+            """SELECT 1 FROM sqlite_master
+               WHERE type='table' AND name='catalog_search_entries'"""
+        ).fetchone() is not None:
+            obsolete_entry = connection.execute(
+                """SELECT id FROM catalog_search_entries
+                   WHERE entity_type='source' AND entity_id=?""",
+                (obsolete_id,),
+            ).fetchone()
+            if obsolete_entry is not None:
+                duplicate = connection.execute(
+                    """SELECT 1 FROM catalog_search_entries
+                       WHERE entity_type='source' AND entity_id=?""",
+                    (target_id,),
+                ).fetchone()
+                if duplicate is not None:
+                    connection.execute(
+                        "DELETE FROM catalog_search_entries WHERE id=?",
+                        (obsolete_entry["id"],),
+                    )
+                else:
+                    connection.execute(
+                        "UPDATE catalog_search_entries SET entity_id=? WHERE id=?",
+                        (target_id, obsolete_entry["id"]),
                     )
 
     @staticmethod

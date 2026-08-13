@@ -6,12 +6,17 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.0.0"
+SOURCE = ROOT / "src"
+if str(SOURCE) not in sys.path:
+    sys.path.insert(0, str(SOURCE))
+
+from aprendix import __version__ as VERSION
 
 
 def _sha256(path: Path) -> str:
@@ -43,6 +48,19 @@ def _directory_record(path: Path) -> dict[str, object]:
         "size_bytes": total,
         "tree_sha256": digest.hexdigest(),
     }
+
+
+def _resolve_versioned(path: Path) -> Path:
+    """Pick the requested versioned artefact or the newest compatible fallback."""
+
+    if path.is_file():
+        return path
+    token = VERSION
+    if token not in path.name:
+        return path
+    pattern = path.name.replace(token, "*")
+    candidates = sorted(path.parent.glob(pattern))
+    return candidates[-1] if candidates else path
 
 
 def _build_input_record() -> dict[str, object]:
@@ -110,6 +128,9 @@ def main() -> int:
         "iteration_19_report": ROOT / "ITERATION-19.md",
         "iteration_20_audit": ROOT / "ITERATION-20-AUDIT-1.0.0.json",
         "iteration_20_report": ROOT / "ITERATION-20.md",
+        "iteration_21_audit": ROOT / "ITERATION-21-AUDIT-1.0.0.json",
+        "iteration_21_report": ROOT / "ITERATION-21.md",
+        "iteration_21_plan": ROOT / "PLAN-ITERATION-21-DESKTOP-BOOK-IDE-INTELLIGENCE.md",
         "accessibility_audit": ROOT / f"ACCESSIBILITY-AUDIT-{VERSION}.json",
         "multimodal_benchmark": ROOT / f"MULTIMODAL-BENCHMARK-{VERSION}.json",
         "soak_benchmark": ROOT / f"SOAK-BENCHMARK-{VERSION}.json",
@@ -122,7 +143,8 @@ def main() -> int:
         "android_adb_installer": ROOT / "Instalar-Android-ADB.bat",
         "mobile_install_guide": ROOT / "INSTALL-MOBILE.md",
     }
-    missing = [str(path) for path in artefacts.values() if not path.is_file()]
+    resolved = {name: _resolve_versioned(path) for name, path in artefacts.items()}
+    missing = [str(path) for path in resolved.values() if not path.is_file()]
     runtime_directory = installation / "_internal"
     if not runtime_directory.is_dir():
         missing.append(str(runtime_directory))
@@ -138,7 +160,7 @@ def main() -> int:
                 "size_bytes": path.stat().st_size,
                 "sha256": _sha256(path),
             }
-            for name, path in artefacts.items()
+            for name, path in resolved.items()
         },
         "directories": {
             "windows_runtime": _directory_record(runtime_directory),

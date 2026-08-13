@@ -46,3 +46,25 @@ def test_packaged_evaluator_supports_classes_and_init() -> None:
     )
 
     assert result["status"] == "passed"
+
+
+def test_packaged_evaluator_exposes_safe_key_error_contract() -> None:
+    result = grading._evaluate_payload(
+        {
+            "source": (
+                "def required(mapping, key):\n"
+                "    if key not in mapping:\n"
+                "        raise KeyError(key)\n"
+                "    return mapping[key]"
+            ),
+            "test": (
+                "try:\n"
+                "    required({'x': 1}, 'missing')\n"
+                "    assert False\n"
+                "except KeyError:\n"
+                "    pass"
+            ),
+        }
+    )
+
+    assert result["status"] == "passed"

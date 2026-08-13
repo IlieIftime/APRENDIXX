@@ -15,6 +15,18 @@ class DatabaseError(RuntimeError):
     """Wrap persistence failures that should not leak driver internals."""
 
 
+class DatabaseSchemaTooNewError(DatabaseError):
+    """Raised when the on-disk profile was migrated by a newer app build."""
+
+    def __init__(self, *, unknown_versions: tuple[int, ...], supported_version: int) -> None:
+        self.unknown_versions = unknown_versions
+        self.supported_version = supported_version
+        super().__init__(
+            "database schema is newer than this application: "
+            f"{list(unknown_versions)}"
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class DatabaseConfig:
     path: Path
@@ -36,7 +48,7 @@ class Database:
     def path(self) -> Path:
         return self._config.path
 
-    def connect(self) -> sqlite3.Connection:
+    def connect(self, *, write_capable: bool = True) -> sqlite3.Connection:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(
             self.path,
@@ -50,9 +62,14 @@ class Database:
         connection.execute(
             f"PRAGMA busy_timeout = {int(self._config.timeout_seconds * 1000)}"
         )
-        connection.execute("PRAGMA secure_delete = ON")
-        connection.execute("PRAGMA journal_mode = WAL")
-        connection.execute("PRAGMA synchronous = NORMAL")
+        # journal_mode and secure_delete are persistent database settings and
+        # need not be renegotiated for every short-lived reader.  Avoiding
+        # those write-oriented PRAGMAs keeps interactive FTS reads bounded,
+        # especially when the profile lives in a synchronized folder.
+        if write_capable:
+            connection.execute("PRAGMA secure_delete = ON")
+            connection.execute("PRAGMA journal_mode = WAL")
+            connection.execute("PRAGMA synchronous = NORMAL")
         return connection
 
     def initialize(self) -> None:
@@ -77,8 +94,9 @@ class Database:
                 applied = {int(row["version"]) for row in rows}
                 unknown = {version for version in applied if version > SCHEMA_VERSION}
                 if unknown:
-                    raise DatabaseError(
-                        f"database schema is newer than this application: {sorted(unknown)}"
+                    raise DatabaseSchemaTooNewError(
+                        unknown_versions=tuple(sorted(unknown)),
+                        supported_version=SCHEMA_VERSION,
                     )
                 for version in sorted(MIGRATIONS):
                     if version in applied:
@@ -113,7 +131,7 @@ class Database:
 
     @contextmanager
     def read_connection(self) -> Iterator[sqlite3.Connection]:
-        connection = self.connect()
+        connection = self.connect(write_capable=False)
         try:
             yield connection
         finally:

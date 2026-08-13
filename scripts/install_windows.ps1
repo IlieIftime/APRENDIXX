@@ -7,8 +7,22 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$productVersion = "1.0.0"
 $projectRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
+$versionSource = Join-Path $projectRoot "src\aprendix\__init__.py"
+
+if (-not (Test-Path -LiteralPath $versionSource -PathType Leaf)) {
+    throw "Nao foi possivel localizar $versionSource para ler a versao do produto."
+}
+
+$versionMatch = [regex]::Match(
+    (Get-Content -Raw -LiteralPath $versionSource),
+    '__version__\s*=\s*[''\"](?<version>[^''\"]+)[''\"]'
+)
+if (-not $versionMatch.Success) {
+    throw "Nao foi possivel ler __version__ em $versionSource."
+}
+
+$productVersion = $versionMatch.Groups["version"].Value
 
 if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
     throw "A variavel LOCALAPPDATA nao esta disponivel neste perfil do Windows."
@@ -142,7 +156,23 @@ $installedSandbox = Join-Path $installPath "AprendixSandbox"
 New-Item -ItemType Directory -Path $installedSandbox -Force | Out-Null
 Copy-Item -Path (Join-Path $builtApplication "*") -Destination $installPath -Recurse -Force
 Copy-Item -Path (Join-Path $builtSandbox "*") -Destination $installedSandbox -Recurse -Force
-foreach ($document in @("LICENSE", "README.md", "INSTALL-MOBILE.md", "PLANO-MESTRE-AAA-APRENDIX.pdf", "RELEASE-NOTES-1.0.0.md", "VALIDATION-1.0.0.md", "ITERATION-14.md", "ITERATION-15.md", "ITERATION-16.md", "ITERATION-17.md", "ITERATION-19.md", "ITERATION-20.md", "RECOVERY-GUIDE-1.0.md", "THREAT-MODEL-1.0.md", "SBOM-1.0.0.json", "DEPENDENCY-AUDIT-1.0.0.json", "SEARCH-BENCHMARK-1.0.0.json", "OCR-BENCHMARK-1.0.0.json", "MULTIMODAL-BENCHMARK-1.0.0.json", "SOAK-BENCHMARK-1.0.0.json", "TUTOR-BENCHMARK-AAA.json", "BASELINE-1.0.0.json", "AAA-AUDIT-1.0.0.json", "ITERATION-13-AUDIT-1.0.0.json", "ITERATION-14-AUDIT-1.0.0.json", "ITERATION-15-AUDIT-1.0.0.json", "ITERATION-16-AUDIT-1.0.0.json", "ITERATION-17-AUDIT-1.0.0.json", "ITERATION-19-AUDIT-1.0.0.json", "ITERATION-20-AUDIT-1.0.0.json", "ACCESSIBILITY-AUDIT-1.0.0.json", "RELEASE-MANIFEST-1.0.0.json")) {
+foreach ($document in @(
+    "LICENSE", "README.md", "INSTALL-MOBILE.md", "PLANO-MESTRE-AAA-APRENDIX.pdf",
+    "RELEASE-NOTES-$productVersion.md", "VALIDATION-$productVersion.md",
+    "ITERATION-14.md", "ITERATION-15.md", "ITERATION-16.md", "ITERATION-17.md",
+    "ITERATION-19.md", "ITERATION-20.md", "ITERATION-21.md",
+    "PLAN-ITERATION-21-DESKTOP-BOOK-IDE-INTELLIGENCE.md", "RECOVERY-GUIDE-1.0.md",
+    "THREAT-MODEL-1.0.md", "SBOM-$productVersion.json",
+    "DEPENDENCY-AUDIT-$productVersion.json", "SEARCH-BENCHMARK-$productVersion.json",
+    "OCR-BENCHMARK-$productVersion.json", "MULTIMODAL-BENCHMARK-$productVersion.json",
+    "SOAK-BENCHMARK-$productVersion.json", "TUTOR-BENCHMARK-AAA.json",
+    "BASELINE-$productVersion.json", "AAA-AUDIT-$productVersion.json",
+    "ITERATION-13-AUDIT-1.0.0.json", "ITERATION-14-AUDIT-1.0.0.json",
+    "ITERATION-15-AUDIT-1.0.0.json", "ITERATION-16-AUDIT-1.0.0.json",
+    "ITERATION-17-AUDIT-1.0.0.json", "ITERATION-19-AUDIT-1.0.0.json",
+    "ITERATION-20-AUDIT-1.0.0.json", "ITERATION-21-AUDIT-1.0.0.json",
+    "ACCESSIBILITY-AUDIT-$productVersion.json", "RELEASE-MANIFEST-$productVersion.json"
+)) {
     $source = Join-Path $projectRoot $document
     if (Test-Path -LiteralPath $source -PathType Leaf) {
         Copy-Item -LiteralPath $source -Destination (Join-Path $installPath $document) -Force

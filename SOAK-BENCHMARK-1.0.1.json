@@ -1,0 +1,20 @@
+{
+  "generated_at": "2026-08-09T14:58:58.858864+00:00",
+  "profile": "fresh-temporary-no-user-data",
+  "cycles": 200,
+  "elapsed_seconds": 62.654,
+  "operations_per_second": 3.192,
+  "cycle_p95_ms": 460.713,
+  "retained_growth_bytes": 90918,
+  "peak_traced_bytes": 1054221,
+  "thread_delta": 0,
+  "database_integrity": "ok",
+  "failure_count": 0,
+  "failure_codes": [],
+  "limits": {
+    "retained_growth_bytes": 33554432,
+    "peak_traced_bytes": 268435456,
+    "thread_delta": 1
+  },
+  "passed": true
+}

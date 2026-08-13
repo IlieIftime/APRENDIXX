@@ -1,0 +1,9 @@
+{
+  "generated_at": "2026-08-09T14:25:25.227105+00:00",
+  "dataset": "generated-clear-digital-code-v1",
+  "cases": 4,
+  "character_accuracy": 0.9875303620224679,
+  "minimum_case_accuracy": 0.9807692307692307,
+  "target": 0.95,
+  "passed": true
+}

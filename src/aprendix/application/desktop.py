@@ -8,20 +8,40 @@ from datetime import UTC, datetime
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from aprendix.application.clustering import TaxonomyClassifier
+from aprendix.application.content_orchestrator import ContentOrchestrator
 from aprendix.application.contracts import (
-    CodeEditDTO, CopyKateRequest, EvaluationReceiptDTO, EventDTO, ExerciseDTO,
-    ExerciseTemplateDTO, FadedHintDTO, FallbackReason, GenerateExerciseRequest,
-    GradingTestCaseDTO, HintStage, HintTemplateDTO, LearningPhase, ProjectDTO, SandboxRequest,
-    SmartCorrectionRequestDTO, SmartCorrectionResponseDTO, SubmitAttemptCommand,
+    CodeEditDTO,
+    CopyKateRequest,
+    EvaluationReceiptDTO,
+    EventDTO,
+    ExerciseDTO,
+    ExerciseTemplateDTO,
+    GenerateExerciseRequest,
+    GradingTestCaseDTO,
+    HintStage,
+    HintTemplateDTO,
+    LearningPhase,
+    ProjectDTO,
+    SandboxRequest,
+    SmartCorrectionRequestDTO,
+    SmartCorrectionResponseDTO,
+    SubmitAttemptCommand,
     TemplateParameterDTO,
 )
-from aprendix.application.content_orchestrator import ContentOrchestrator
 from aprendix.application.copykate import CopyKateService
-from aprendix.application.mobile import CodeProvenanceGuard, EditTelemetry, StructuralCompletionEngine
 from aprendix.application.learning_session import assistance_for_attempt, classify_error
+from aprendix.application.mobile import (
+    CodeProvenanceGuard,
+    EditTelemetry,
+    StructuralCompletionEngine,
+)
 from aprendix.application.remediation import diagnose_correction
-from aprendix.application.services import AttemptSubmissionService, EventIngestionService
+from aprendix.application.services import (
+    AttemptSubmissionService,
+    EventIngestionService,
+)
 from aprendix.application.worked_solutions import (
+    build_reference_walkthrough,
     explain_reference_solution,
     solution_fingerprint,
 )
@@ -172,8 +192,14 @@ class DesktopLearningService:
         )
         reference = (
             self._validated_reference_solution(exercise)
-            if not passed and failed_attempts >= 4 and not evaluation_locked
+            if not evaluation_locked and (passed or failed_attempts >= 4)
             else None
+        )
+        reference_walkthrough = (
+            build_reference_walkthrough(
+                str(reference["solution"]), tuple(exercise.tests)
+            )
+            if reference is not None else None
         )
         current_session = self._workspace.learning_session(self.user.id, exercise.id)
         session_phase = (
@@ -219,6 +245,11 @@ class DesktopLearningService:
             reference_available=reference is not None,
             reference_solution=str(reference["solution"]) if reference else "",
             reference_explanation=str(reference["explanation"]) if reference else "",
+            reference_trace=(reference_walkthrough.steps if reference_walkthrough else ()),
+            reference_expected_output=(
+                reference_walkthrough.expected_behaviour
+                if reference_walkthrough else ()
+            ),
             reference_validation_hash=str(reference["validation_hash"]) if reference else "",
             access=access,
             credit_awarded=credit_awarded,
@@ -299,7 +330,7 @@ class DesktopLearningService:
                     name=(f"Caso oculto {index}" if visibility == "hidden" else f"Teste {index}"),
                     code=test, visibility=visibility, kind=kind,
                 ))
-        _technologies, themes = TaxonomyClassifier.classify(
+        _technologies, _themes = TaxonomyClassifier.classify(
             f"{exercise.title} {exercise.prompt} {exercise.starter_code}"
         )
         try:
@@ -322,13 +353,16 @@ class DesktopLearningService:
     def _validated_reference_solution(self, exercise: ExerciseDTO):
         """Lazily validate trusted catalogue code before it can be disclosed."""
 
+        stored = self._workspace.reference_solution(exercise.id)
+        if stored is not None:
+            stored_solution = str(stored.get("solution", "")).strip()
+            expected = solution_fingerprint(stored_solution, tuple(exercise.tests))
+            if stored_solution and str(stored.get("validation_hash", "")) == expected:
+                return stored
         candidate = exercise.starter_code.strip()
         if not candidate:
             return None
         fingerprint = solution_fingerprint(candidate, tuple(exercise.tests))
-        stored = self._workspace.reference_solution(exercise.id)
-        if stored is not None and stored["validation_hash"] == fingerprint:
-            return stored
         validation, _output = self._correct(exercise, candidate)
         if validation.status != "passed" or validation.score < 1.0:
             return None

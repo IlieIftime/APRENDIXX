@@ -3,7 +3,7 @@ setlocal
 chcp 65001 >nul
 cd /d "%~dp0"
 
-echo Aprendix 1.0.0 - instalacao Windows
+echo Aprendix 1.0.1 - instalacao Windows
 echo.
 echo Sera criada uma venv isolada em %%LOCALAPPDATA%%\AprendixBuild.
 echo A aplicacao final sera instalada em %%LOCALAPPDATA%%\Programs\Aprendix.

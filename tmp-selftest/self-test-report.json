@@ -1,0 +1,36 @@
+{
+  "passed": true,
+  "sandbox": {
+    "schema_version": 1,
+    "status": "ok",
+    "stdout": "42\n",
+    "duration_ms": 1047,
+    "exit_code": 0,
+    "error_type": null,
+    "error_message": null,
+    "policy_violations": [],
+    "memory_limit_enforced": true,
+    "output_truncated": false
+  },
+  "integrity": "ok",
+  "schema_version": 38,
+  "authored_fact_cards": 2827,
+  "dictionary_else": true,
+  "games": true,
+  "extended_features": true,
+  "tutor_confidence": 0.5435465070884404,
+  "projects": 70,
+  "reference_solutions": 500,
+  "catalog_delta": {
+    "card": 1000,
+    "exercise": 500,
+    "glossary": 1000,
+    "project": 50,
+    "source": 500
+  },
+  "catalog_iteration_21": true,
+  "source_first": true,
+  "formula_renderer": "mathtext-agg",
+  "runtime_health": "healthy",
+  "feature_flags": 14
+}

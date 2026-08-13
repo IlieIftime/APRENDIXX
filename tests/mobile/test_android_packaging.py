@@ -1,7 +1,7 @@
-from importlib.util import module_from_spec, spec_from_file_location
-from pathlib import Path
 import subprocess
 import sys
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
 from types import SimpleNamespace
 
 
@@ -85,8 +85,12 @@ def test_mobile_runtime_import_path_does_not_require_pydantic() -> None:
         "import aprendix_mobile.app, aprendix_mobile.runtime; "
         "from aprendix.application.snippet_analysis import SnippetAnalyzer; "
         "from aprendix_mobile.contracts import SnippetAnalysisDTO,SnippetRequestDTO; "
-        "result=SnippetAnalyzer(result_type=SnippetAnalysisDTO).analyze(SnippetRequestDTO(text='x = 1')); "
-        "assert result.detected_language == 'python'"
+        "analyzer=SnippetAnalyzer(result_type=SnippetAnalysisDTO); "
+        "result=analyzer.analyze(SnippetRequestDTO(text='x = 1')); "
+        "loop=analyzer.analyze(SnippetRequestDTO(text='for x in range(3):\\n    print(x)')); "
+        "assert result.detected_language == 'python'; "
+        "assert result.line_explanations and loop.complexity_time == 'O(n)'; "
+        "assert 'pydantic' not in sys.modules"
     )
     completed = subprocess.run(
         [sys.executable, "-I", "-S", "-c", code], capture_output=True, text=True, check=False,

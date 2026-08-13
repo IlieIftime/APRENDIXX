@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import html
-import re
 import urllib.parse
 import urllib.request
 from uuid import NAMESPACE_URL, uuid5
@@ -14,6 +13,7 @@ from aprendix.application.contracts import (
     EvidenceOrigin,
     SearchEvidenceDTO,
 )
+from aprendix.application.text_normalization import TextNormalizationService
 
 
 class SafeDuckDuckGoSearch:
@@ -26,6 +26,7 @@ class SafeDuckDuckGoSearch:
             raise ValueError("max_bytes is outside the safe range")
         self._timeout = timeout_seconds
         self._max_bytes = max_bytes
+        self._normalizer = TextNormalizationService()
 
     def search(self, query: str, *, max_results: int) -> tuple[SearchEvidenceDTO, ...]:
         query = " ".join(query.split())[:500]
@@ -49,10 +50,15 @@ class SafeDuckDuckGoSearch:
             content_type = response.headers.get_content_type()
             if content_type not in {"text/html", "application/xhtml+xml"}:
                 raise ValueError("web search returned a non-HTML response")
+            response_headers = dict(response.headers.items())
             raw = response.read(self._max_bytes + 1)
             if len(raw) > self._max_bytes:
                 raise ValueError("web search response exceeded the size limit")
-        document = raw.decode("utf-8", errors="replace")
+        document = self._normalizer.decode_web(
+            raw,
+            headers=response_headers,
+            content_type=response_headers.get("Content-Type", ""),
+        ).text
         return self._parse(document, max_results=max_results)
 
     @staticmethod

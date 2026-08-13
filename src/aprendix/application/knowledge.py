@@ -11,8 +11,8 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
+from typing import ClassVar, Protocol
 from uuid import UUID
-from typing import Protocol
 
 from aprendix.application.contracts import (
     Complexity,
@@ -21,14 +21,14 @@ from aprendix.application.contracts import (
     DashboardNodeDTO,
     EvidenceOrigin,
     GraphSnapshotDTO,
-    KnowledgeClusterDTO,
+    LearningTheme,
     SearchEvidenceDTO,
+    SearchIntent,
     SearchRequestDTO,
     SearchResponseDTO,
-    SearchIntent,
     Technology,
-    LearningTheme,
 )
+from aprendix.application.text_normalization import TextNormalizationService, TextProfile
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +48,8 @@ class SearchCandidate:
     cluster_id: str | None = None
     rights_status: str = "local-private"
     trust_score: float = 0.8
+    entity_type: str = "reading_chunk"
+    authority_tier: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,7 +79,7 @@ class SearchCancellationToken:
 class TechnicalQueryInterpreter:
     """Offline intent, aliases and conservative spelling repair for technical terms."""
 
-    ALIASES = {
+    ALIASES: ClassVar[dict[str, tuple[str, ...]]] = {
         "poo": ("programacao orientada objetos", "classe", "objeto"),
         "oop": ("object oriented programming", "class", "object"),
         "ann": ("artificial neural network", "rede neuronal"),
@@ -95,7 +97,7 @@ class TechnicalQueryInterpreter:
         "nlp": ("natural language processing", "processamento linguagem natural"),
         "big o": ("complexidade assintotica", "complexidade temporal"),
     }
-    TYPO_FIXES = {
+    TYPO_FIXES: ClassVar[dict[str, str]] = {
         "pyhton": "python", "phyton": "python", "funçao": "funcao",
         "função": "funcao", "algoritimo": "algoritmo", "recursao": "recursao",
         "heranca": "heranca", "dicionario": "dicionario", "assynchio": "asyncio",
@@ -103,7 +105,11 @@ class TechnicalQueryInterpreter:
 
     @classmethod
     def interpret(cls, query: str) -> tuple[SearchIntent, str, tuple[str, ...]]:
-        folded = HybridSearchService._fold(query)
+        # Queries can arrive from OCR, copied PDFs or legacy profiles with a
+        # reversible UTF-8/CP1252 mojibake layer.  Repair that boundary once so
+        # accents do not become unrelated tokens such as ``mema3ria``.
+        normalized = TextNormalizationService().normalize(query, TextProfile.PROSE).text
+        folded = HybridSearchService._fold(normalized)
         repaired = " ".join(cls.TYPO_FIXES.get(token, token) for token in folded.split())
         additions: list[str] = []
         for alias, expansion in cls.ALIASES.items():
@@ -207,6 +213,18 @@ class FallbackAnswerSynthesizer:
 
 
 class HybridSearchService:
+    _INTERNAL_INTENT = re.compile(
+        r"\b(?:aprendix|curso|aula|li[cç][aã]o|card|exerc[ií]cio|desafio|"
+        r"projeto|dicion[aá]rio|percurso)\b",
+        re.IGNORECASE,
+    )
+    _QUERY_STOPWORDS = frozenset({
+        "a", "ao", "aos", "as", "com", "como", "da", "das", "de", "do", "dos",
+        "e", "em", "entre", "explica", "explicar", "o", "os", "para", "por", "que",
+        "qual", "quais", "sem", "sobre", "um", "uma", "the", "and", "for", "from",
+        "how", "of", "to", "what", "with",
+    })
+
     def __init__(
         self,
         repository: LocalKnowledgeIndex,
@@ -231,7 +249,7 @@ class HybridSearchService:
         self, request: SearchRequestDTO, cancellation: SearchCancellationToken | None = None
     ) -> SearchResponseDTO:
         started = time.perf_counter()
-        intent, expanded_query, expansions = TechnicalQueryInterpreter.interpret(request.query)
+        intent, expanded_query, _expansions = TechnicalQueryInterpreter.interpret(request.query)
         if cancellation is not None and cancellation.cancelled:
             return self._cancelled(request, intent, expanded_query, started)
         query_vector = self._embedder.embed(expanded_query)
@@ -252,19 +270,23 @@ class HybridSearchService:
         )
         if cancellation is not None and cancellation.cancelled:
             return self._cancelled(request, intent, expanded_query, started)
-        ranked = self._diversify(ranked, limit=request.max_results)
+        ranked = self._diversify(ranked, limit=min(90, request.max_results * 3))
         local = tuple(
             self._evidence(item)
-            for item in ranked[: request.max_results]
-            if item.score > 0.02
+            for item in ranked
         )
         local_confidence = local[0].relevance if local else 0.0
         evidence: list[SearchEvidenceDTO] = list(local)
         if self._curated is not None:
             for score, source in self._curated.search_sources(
-                request.query, request.filters.area_ids,
+                expanded_query, request.filters.area_ids,
                 limit=max(4, request.max_results // 2),
             ):
+                source_text = " ".join((
+                    source.title, *source.authors, source.overview, source.why_it_matters,
+                ))
+                if not self._has_lexical_floor(expanded_query, source_text):
+                    continue
                 evidence.append(SearchEvidenceDTO(
                     id=f"reference:{source.id}", origin=EvidenceOrigin.LOCAL,
                     title=source.title, excerpt=(
@@ -308,9 +330,10 @@ class HybridSearchService:
                         fallback_reason = "web_returned_no_results"
                 except (OSError, TimeoutError, ValueError, RuntimeError) as exc:
                     fallback_reason = f"web_error:{type(exc).__name__}"
-        ranked_evidence = sorted(
+        ranked_evidence = self._source_first_fusion(
             evidence,
-            key=lambda item: (-item.relevance, item.title.casefold(), item.id),
+            query=request.query,
+            intent=intent,
         )
         # Several chunks from the same document can share a title.  Present
         # the strongest hit once so that a result list remains diverse and the
@@ -343,6 +366,48 @@ class HybridSearchService:
             intent=intent, expanded_query=expanded_query,
             elapsed_ms=(time.perf_counter() - started) * 1000,
         )
+
+    @classmethod
+    def _source_first_fusion(
+        cls,
+        evidence: Sequence[SearchEvidenceDTO],
+        *,
+        query: str,
+        intent: SearchIntent,
+    ) -> list[SearchEvidenceDTO]:
+        """Fuse authority pools without allowing internal examples to lead by default."""
+
+        internal_intent = bool(cls._INTERNAL_INTENT.search(query)) or intent == SearchIntent.EXERCISE
+        ordered = sorted(
+            evidence,
+            key=lambda item: (
+                0 if internal_intent else cls._evidence_authority(item),
+                -item.relevance,
+                item.title.casefold(),
+                item.id,
+            ),
+        )
+        if internal_intent:
+            return ordered
+        # The authority sort already puts sources first.  This explicit quota
+        # keeps the top-three invariant obvious and regression-testable when
+        # future pools are added.
+        sources = [item for item in ordered if cls._evidence_authority(item) <= 1]
+        if len(sources) < 2:
+            return ordered
+        leading = sources[:2]
+        return leading + [item for item in ordered if item not in leading]
+
+    @staticmethod
+    def _evidence_authority(item: SearchEvidenceDTO) -> int:
+        source = item.source.casefold()
+        if item.origin == EvidenceOrigin.WEB or item.id.startswith("reference:"):
+            return 0
+        if not source.startswith("aprendix://"):
+            return 1
+        if "authored-facts" in source or item.id.startswith("card:"):
+            return 3
+        return 2
 
     @staticmethod
     def _cancelled(request, intent, expanded_query, started) -> SearchResponseDTO:
@@ -427,6 +492,10 @@ class HybridSearchService:
         maximum_sparse = max((item[0] for item in sparse), default=1.0)
         reranked: list[RankedCandidate] = []
         query_set = set(query_tokens)
+        original_query_set = {
+            token for token in self._tokenize(request.query)
+            if token not in self._QUERY_STOPWORDS and len(token) >= 2
+        }
         query_phrase = " ".join(query_tokens)
         for index, fusion in fused.items():
             candidate = candidates[index]
@@ -434,6 +503,9 @@ class HybridSearchService:
             body_tokens = self._tokenize(normalized[index])
             title_overlap = len(query_set & set(title_tokens)) / max(1, len(query_set))
             body_overlap = len(query_set & set(body_tokens)) / max(1, len(query_set))
+            original_overlap = self._lexical_coverage(
+                original_query_set, set(title_tokens) | set(body_tokens)
+            )
             body_folded = " ".join(body_tokens)
             phrase = 1.0 if query_phrase and query_phrase in body_folded else 0.0
             # Bounded joint-feature reranker fallback.  It observes the pair
@@ -453,8 +525,26 @@ class HybridSearchService:
             )
             sparse_score = min(1.0, sparse[index][0] / max(1.0, maximum_sparse))
             semantic_score = min(1.0, dense[index][0])
+            # Dense similarity alone is not evidence: quantized fallback
+            # embedders can collide.  Require lexical support, a trusted FTS
+            # match, or a strong semantic pair that still shares a concept.
+            required_overlap = min(
+                1.0,
+                (2.0 if len(original_query_set) >= 3 else 1.0) / max(1, len(original_query_set)),
+            )
+            lexical_supported = original_overlap >= required_overlap or phrase > 0
+            semantic_supported = (
+                semantic_score >= .82 and cross >= .50 and body_overlap >= .20
+                and original_overlap >= max(.34, required_overlap * .75)
+            )
+            if not lexical_supported and not semantic_supported:
+                continue
             score = min(1.0, 0.42 * (fusion / maximum) + 0.58 * cross + author_bonus
                         + authority_bonus + intent_bonus)
+            # A minimal calibrated relevance prevents vague matches from
+            # entering MMR and being promoted merely for being different.
+            if score < .12:
+                continue
             reasons = []
             if title_overlap:
                 reasons.append("O título contém termos da pergunta")
@@ -464,6 +554,8 @@ class HybridSearchService:
                 reasons.append("Correspondência semântica forte")
             if phrase:
                 reasons.append("Expressão técnica encontrada no contexto")
+            if original_overlap:
+                reasons.append("Cobertura lexical verificável da pergunta")
             if candidate.cluster_id:
                 reasons.append("Pertence a um tópico relacionado")
             if authority_bonus:
@@ -498,7 +590,13 @@ class HybridSearchService:
 
     def _diversify(self, ranked: list[RankedCandidate], *, limit: int) -> list[RankedCandidate]:
         """MMR removes near-duplicates while retaining the most relevant evidence."""
-        remaining = ranked[:max(80, limit * 10)]
+        if not ranked:
+            return []
+        relevance_floor = max(.12, ranked[0].score * .42)
+        remaining = [
+            item for item in ranked[:max(80, limit * 10)]
+            if item.score >= relevance_floor
+        ]
         selected: list[RankedCandidate] = []
         while remaining and len(selected) < limit:
             best = max(
@@ -572,6 +670,27 @@ class HybridSearchService:
             r"__[a-z0-9_]+__|[a-z][a-z0-9_+#.-]*|==|!=|<=|>=|//|\*\*|[%+*/-]",
             folded,
         )
+
+    @classmethod
+    def _has_lexical_floor(cls, query: str, text: str) -> bool:
+        query_terms = {
+            token for token in cls._tokenize(query)
+            if token not in cls._QUERY_STOPWORDS and len(token) >= 2
+        }
+        coverage = cls._lexical_coverage(query_terms, set(cls._tokenize(text)))
+        required = min(1.0, (2.0 if len(query_terms) >= 3 else 1.0) / max(1, len(query_terms)))
+        return coverage >= required
+
+    @staticmethod
+    def _lexical_coverage(query_terms: set[str], text_terms: set[str]) -> float:
+        def related(left: str, right: str) -> bool:
+            if left == right:
+                return True
+            shorter, longer = sorted((left, right), key=len)
+            return len(shorter) >= 4 and longer.startswith(shorter)
+
+        matched = sum(any(related(query, term) for term in text_terms) for query in query_terms)
+        return matched / max(1, len(query_terms))
 
     @staticmethod
     def _fold(text: str) -> str:

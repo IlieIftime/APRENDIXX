@@ -94,6 +94,105 @@ def build_search_holdout() -> tuple[SearchHoldoutQuery, ...]:
 SEARCH_HOLDOUT_V2 = build_search_holdout()
 
 
+def build_search_holdout_v3() -> tuple[SearchHoldoutQuery, ...]:
+    """Return a 250+ query source-first holdout without changing the v2 baseline."""
+
+    records = list(SEARCH_HOLDOUT_V2)
+    areas = tuple(sorted(AREA_SEEDS))
+    for area_index, area_id in enumerate(areas):
+        seed = AREA_SEEDS[area_id]
+        concept = seed.concepts[(area_index * 3 + 1) % len(seed.concepts)]
+        negatives = (
+            areas[(area_index + 11) % len(areas)],
+            areas[(area_index + 23) % len(areas)],
+        )
+        variants = (
+            (f"referências fundamentais para {concept.name} em {seed.title}", "reference"),
+            (f"exemplo prático de {concept.name}: {_words(concept.mechanism, 7)}", "example"),
+            (f"comparar abordagens de {concept.name}: {_words(concept.boundary, 7)}", "compare"),
+            (f"exercícios para consolidar {concept.name} em {seed.title}", "exercise"),
+        )
+        for variant, (query, intent) in enumerate(variants, start=4):
+            records.append(SearchHoldoutQuery(
+                id=f"holdout-{area_id}-{variant}",
+                query=query,
+                expected_area_id=area_id,
+                expected_source_ids=seed.sources,
+                hard_negative_area_ids=negatives,
+                intent=intent,
+            ))
+    records.extend((
+        SearchHoldoutQuery(
+            id="holdout-regression-capital",
+            query="capital acumulado juros compostos fórmula e tabela Python",
+            expected_area_id="python",
+            expected_source_ids=AREA_SEEDS["python"].sources,
+            hard_negative_area_ids=("computer-vision", "natural-language"),
+            intent="formula",
+        ),
+        SearchHoldoutQuery(
+            id="holdout-regression-decorators",
+            query="decoradores Python função envolvente argumentos e retorno",
+            expected_area_id="oop",
+            expected_source_ids=AREA_SEEDS["oop"].sources,
+            hard_negative_area_ids=("robotics-app", "linear-algebra"),
+            intent="definition",
+        ),
+        SearchHoldoutQuery(
+            id="holdout-regression-backprop",
+            query="backpropagation regra da cadeia gradiente pesos e bias",
+            expected_area_id="deep-learning",
+            expected_source_ids=AREA_SEEDS["deep-learning"].sources,
+            hard_negative_area_ids=("web", "databases"),
+            intent="formula",
+        ),
+        SearchHoldoutQuery(
+            id="holdout-role-ai",
+            query="percurso profissional AI ML Python backpropagation treino e avaliação",
+            expected_area_id="deep-learning",
+            expected_source_ids=AREA_SEEDS["deep-learning"].sources,
+            hard_negative_area_ids=("web", "databases"),
+            intent="explore",
+        ),
+        SearchHoldoutQuery(
+            id="holdout-role-cyber",
+            query="profissional de cibersegurança Python automação menor privilégio",
+            expected_area_id="cybersecurity-app",
+            expected_source_ids=AREA_SEEDS["cybersecurity-app"].sources,
+            hard_negative_area_ids=("health-app", "games-app"),
+            intent="explore",
+        ),
+        SearchHoldoutQuery(
+            id="holdout-role-analyst",
+            query="analista de dados Python pandas validação limpeza e visualização",
+            expected_area_id="data-practice",
+            expected_source_ids=AREA_SEEDS["data-practice"].sources,
+            hard_negative_area_ids=("robotics-app", "systems"),
+            intent="explore",
+        ),
+        SearchHoldoutQuery(
+            id="holdout-role-backend",
+            query="engenheiro backend Python API FastAPI Django testes e segurança",
+            expected_area_id="web",
+            expected_source_ids=AREA_SEEDS["web"].sources,
+            hard_negative_area_ids=("computer-vision", "calculus"),
+            intent="explore",
+        ),
+        SearchHoldoutQuery(
+            id="holdout-role-data-engineer",
+            query="engenheiro de dados Python SQL transações índices e pipelines",
+            expected_area_id="databases",
+            expected_source_ids=AREA_SEEDS["databases"].sources,
+            hard_negative_area_ids=("games-app", "convolutional-networks"),
+            intent="explore",
+        ),
+    ))
+    return tuple(records)
+
+
+SEARCH_HOLDOUT_V3 = build_search_holdout_v3()
+
+
 @dataclass(frozen=True, slots=True)
 class SearchBenchmarkResult:
     algorithm_version: str
@@ -108,14 +207,14 @@ class SearchBenchmarkResult:
 
 
 class CatalogSearchBenchmark:
-    VERSION = "catalog-fts-holdout-v2"
+    VERSION = "catalog-source-first-holdout-v3"
 
     def __init__(self, repository) -> None:
         self._repository = repository
 
     def run(
         self,
-        holdout: tuple[SearchHoldoutQuery, ...] = SEARCH_HOLDOUT_V2,
+        holdout: tuple[SearchHoldoutQuery, ...] = SEARCH_HOLDOUT_V3,
     ) -> SearchBenchmarkResult:
         reciprocal_ranks: list[float] = []
         ndcgs: list[float] = []
@@ -140,8 +239,15 @@ class CatalogSearchBenchmark:
             else:
                 reciprocal_ranks.append(0.0)
                 ndcgs.append(0.0)
+            # A broad reference can legitimately span both the target field
+            # and a neighbouring hard-negative area (for example SQLAlchemy is
+            # databases *and* software engineering).  Count an intrusion only
+            # when the hit carries negative evidence without the expected area
+            # or one of the expected sources.
             if any(
                 set(hit.area_ids).intersection(case.hard_negative_area_ids)
+                and case.expected_area_id not in hit.area_ids
+                and not set(case.expected_source_ids).intersection(hit.source_ids)
                 for hit in hits[:3]
             ):
                 negative_intrusions += 1
@@ -160,7 +266,9 @@ class CatalogSearchBenchmark:
             ndcg_at_10=ndcg,
             hard_negative_rate_at_3=negative_rate,
             p95_ms=p95,
-            passed=(recall >= .90 and ndcg >= .80 and p95 <= 500.0),
+            passed=(
+                recall >= .98 and ndcg >= .95 and negative_rate <= .02 and p95 < 150.0
+            ),
             measured_at=datetime.now(UTC).isoformat(),
         )
 

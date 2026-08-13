@@ -10,8 +10,7 @@ from uuid import NAMESPACE_URL, uuid5
 
 from aprendix.application.contracts import SearchRequestDTO
 
-
-ALGORITHM_VERSION = "hybrid-bm25f-q8-rrf-joint-reranker-mmr-v4"
+ALGORITHM_VERSION = "hybrid-pools-source-first-lexical-floor-v5"
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +83,70 @@ GOLDEN_QUERIES = (
     GoldenQuery("localizar a primeira divergência entre obtido e esperado", ("curriculum-debug-first-divergence",)),
     GoldenQuery("calcular ReLU e conservar decisão auditável", ("curriculum-neural-agents",)),
 )
+
+
+@dataclass(frozen=True, slots=True)
+class SourceFirstRegression:
+    query: str
+    required_terms: tuple[str, ...]
+    internal_intent: bool = False
+
+
+SOURCE_FIRST_REGRESSIONS = (
+    SourceFirstRegression(
+        "capital acumulado juros compostos",
+        ("capital", "juro", "compost"),
+    ),
+    SourceFirstRegression(
+        "decoradores Python função envolvente",
+        ("decor", "python", "fun"),
+    ),
+    SourceFirstRegression(
+        "backpropagation regra da cadeia",
+        ("backprop", "cadeia", "grad"),
+    ),
+)
+
+
+def evaluate_source_first(service, queries=SOURCE_FIRST_REGRESSIONS) -> dict[str, object]:
+    """Check authority and topicality invariants independently of entity UUIDs."""
+
+    cases = []
+    passed = 0
+    for case in queries:
+        response = service.search(SearchRequestDTO(
+            query=case.query,
+            max_results=10,
+            allow_web_fallback=False,
+        ))
+        top = response.evidence[:3]
+        source_hits = [
+            item for item in response.evidence
+            if item.id.startswith("reference:") or not item.source.casefold().startswith("aprendix://")
+        ]
+        top_sources = sum(
+            item.id.startswith("reference:") or not item.source.casefold().startswith("aprendix://")
+            for item in top
+        )
+        folded = " ".join(f"{item.title} {item.excerpt}" for item in top).casefold()
+        topical = any(term.casefold() in folded for term in case.required_terms)
+        authority_ok = case.internal_intent or len(source_hits) < 2 or top_sources >= 2
+        ok = bool(top and topical and authority_ok)
+        passed += int(ok)
+        cases.append({
+            "query": case.query,
+            "passed": ok,
+            "topical": topical,
+            "top_sources": top_sources,
+            "available_sources": len(source_hits),
+        })
+    return {
+        "algorithm_version": ALGORITHM_VERSION,
+        "query_count": len(queries),
+        "passed_count": passed,
+        "passed": passed == len(queries),
+        "cases": tuple(cases),
+    }
 
 
 def evaluate_search(service, queries=GOLDEN_QUERIES, *, k: int = 10) -> dict[str, float | int | bool]:

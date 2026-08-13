@@ -66,7 +66,9 @@ from aprendix.infrastructure.db import (
     DesktopProfileRepository,
     PedagogicalQualityRepository,
     PedagogicalRepository,
+    EditorialCatalogRepository,
 )
+from aprendix.infrastructure.db.database import DatabaseSchemaTooNewError
 from aprendix.infrastructure.db.schema import SCHEMA_VERSION
 from aprendix.infrastructure.curriculum import CurriculumRepository
 from aprendix.infrastructure.grading import IsolatedGradingExecutor, OopGradingPolicy
@@ -123,6 +125,7 @@ class Runtime:
     quality: PedagogicalQualityCompiler
     pedagogy: PedagogicalDocumentService
     pedagogical_assets: ManagedAssetStore
+    catalog: EditorialCatalogRepository
 
 
 def default_data_directory() -> Path:
@@ -138,13 +141,53 @@ def default_data_directory() -> Path:
     return Path(root) / "aprendix" if root else Path.home() / ".local/share/aprendix"
 
 
+def _schema_compatibility_directory(root: Path) -> Path:
+    return root / "profiles" / f"schema-v{SCHEMA_VERSION}"
+
+
+def _write_schema_compatibility_warning(
+    *, root: Path, fallback: Path, unknown_versions: tuple[int, ...],
+) -> None:
+    warning = root / "schema-compatibility-warning.txt"
+    warning.parent.mkdir(parents=True, exist_ok=True)
+    warning.write_text(
+        "\n".join((
+            "Aprendix profile compatibility fallback",
+            "",
+            f"Detected profile schema versions: {', '.join(str(v) for v in unknown_versions)}",
+            f"This build supports schema version: {SCHEMA_VERSION}",
+            "",
+            "To avoid startup failure, Aprendix started with a compatible profile directory:",
+            str(fallback),
+            "",
+            "Install/launch a newer Aprendix build to continue using the original upgraded profile.",
+        )) + "\n",
+        encoding="utf-8",
+    )
+
+
 def build_runtime(data_directory: Path | None = None) -> Runtime:
     """Construct a complete local runtime without starting a presentation loop."""
 
     build_started = time.perf_counter()
+    data_directory_explicit = data_directory is not None
     data_directory = data_directory or default_data_directory()
     database = Database(DatabaseConfig(data_directory / "aprendix.db"))
-    database.initialize()
+    try:
+        database.initialize()
+    except DatabaseSchemaTooNewError as exc:
+        if data_directory_explicit:
+            raise
+        fallback_directory = _schema_compatibility_directory(data_directory)
+        fallback_database = Database(DatabaseConfig(fallback_directory / "aprendix.db"))
+        fallback_database.initialize()
+        _write_schema_compatibility_warning(
+            root=data_directory,
+            fallback=fallback_directory,
+            unknown_versions=exc.unknown_versions,
+        )
+        data_directory = fallback_directory
+        database = fallback_database
     cipher = AesGcmFieldCipher.from_key_store(
         FileKeyStore(data_directory / "keys" / "fields.key")
     )
@@ -270,6 +313,8 @@ def build_runtime(data_directory: Path | None = None) -> Runtime:
     )
     portfolio_repository = PortfolioRepository(database, cipher)
     portfolio_repository.seed()
+    catalog_repository = EditorialCatalogRepository(database, cipher)
+    catalog_seed = catalog_repository.seed()
     portfolio = ProjectPortfolioService(
         user=user, repository=portfolio_repository, desktop=desktop,
     )
@@ -286,7 +331,8 @@ def build_runtime(data_directory: Path | None = None) -> Runtime:
             """SELECT 1 FROM catalog_search_entries
                WHERE entity_type='glossary' AND trim(body)<>trim(title) LIMIT 1"""
         ).fetchone() is not None
-    if document_seed["updated"] or catalog_search_count == 0 or insecure_glossary_shadow:
+    if (document_seed["updated"] or catalog_seed["changed"]
+            or catalog_search_count == 0 or insecure_glossary_shadow):
         pedagogy.rebuild_catalog_search()
 
     def audit_pedagogical_catalog():
@@ -373,6 +419,7 @@ def build_runtime(data_directory: Path | None = None) -> Runtime:
         quality=quality,
         pedagogy=pedagogy,
         pedagogical_assets=pedagogical_assets,
+        catalog=catalog_repository,
     )
 
 

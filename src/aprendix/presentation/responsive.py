@@ -33,6 +33,66 @@ class IdeJourneyHeaderProfile:
     occupied_width_dp: int
 
 
+@dataclass(frozen=True, slots=True)
+class BookWorkspaceProfile:
+    """Geometry for the two-page IDE and its transversal terminal."""
+
+    mode: str
+    available_width_dp: float
+    available_height_dp: float
+    editor_width_dp: int
+    support_width_dp: int
+    divider_width_dp: int
+    terminal_collapsed_height_dp: int
+    terminal_open_height_dp: int
+    terminal_ratio: float
+
+
+def book_workspace_profile(
+    width_px: int,
+    height_px: int,
+    *,
+    density: float = 1.0,
+    requested_support_width_dp: float = 430.0,
+    requested_terminal_ratio: float = 0.28,
+) -> BookWorkspaceProfile:
+    """Choose book or explicit-tab mode from the actual workspace width.
+
+    ``width_px`` is the learning screen itself, after the application rail has
+    taken its share. This avoids the old global 1080-dp threshold and preserves
+    both pages whenever the 360/320-dp page minima really fit.
+    """
+
+    if width_px <= 0 or height_px <= 0 or not 0.5 <= density <= 4.0:
+        raise ValueError("workspace dimensions and density must be positive and bounded")
+    width_dp, height_dp = width_px / density, height_px / density
+    divider = 9
+    editor_minimum, support_minimum = 360, 320
+    book_mode = width_dp >= editor_minimum + support_minimum + divider
+    terminal_ratio = min(.35, max(.20, float(requested_terminal_ratio)))
+    terminal_height = math.floor(height_dp * terminal_ratio)
+    if book_mode:
+        maximum_support = max(support_minimum, math.floor(width_dp - editor_minimum - divider))
+        support = round(min(maximum_support, max(support_minimum, requested_support_width_dp)))
+        editor = max(editor_minimum, math.floor(width_dp - support - divider))
+        mode = "book"
+    else:
+        support = max(0, math.floor(width_dp))
+        editor = support
+        mode = "tabs"
+    return BookWorkspaceProfile(
+        mode=mode,
+        available_width_dp=round(width_dp, 2),
+        available_height_dp=round(height_dp, 2),
+        editor_width_dp=editor,
+        support_width_dp=support,
+        divider_width_dp=divider,
+        terminal_collapsed_height_dp=38,
+        terminal_open_height_dp=terminal_height,
+        terminal_ratio=round(terminal_ratio, 3),
+    )
+
+
 def dashboard_tab_width(label: str, *, font_scale: float = 1.0) -> int:
     """Return a readable, non-shrinking width for one dashboard tab.
 

@@ -678,18 +678,30 @@ class DesktopRepository:
         with self._database.read_connection() as connection:
             rows = connection.execute(
                 """SELECT tc.id,
-                          CASE WHEN cr.card_id IS NULL THEN 1 ELSE 0 END unseen,
-                          COALESCE(cr.next_review_at, '') due,
-                          COALESCE(cr.mastery, 0.0) mastery
+                          CASE WHEN rv.card_id IS NULL THEN 1 ELSE 0 END unseen,
+                          COALESCE(rv.next_review_at, '') due,
+                          COALESCE(rv.mastery, 0.0) mastery
                    FROM theory_cards tc
                    JOIN document_chunks dc ON dc.id=tc.chunk_id
                    JOIN documents d ON d.id=dc.document_id
+                   JOIN card_presentation cp ON cp.card_id=tc.id
+                   JOIN pedagogical_quality pq
+                     ON pq.item_type='card' AND pq.item_id=tc.id
+                    AND pq.status='accepted'
+                   JOIN content_catalog_items ci
+                     ON ci.item_type='card' AND ci.item_id=tc.id
+                    AND ci.content_type='editorial' AND ci.status='active'
+                   JOIN content_catalog_releases cr
+                     ON cr.id=ci.release_id AND cr.status='active'
                    LEFT JOIN chunk_quality q ON q.chunk_id=dc.id
-                   LEFT JOIN card_review_state cr ON cr.card_id=tc.id AND cr.user_id=?
+                   LEFT JOIN card_review_state rv ON rv.card_id=tc.id AND rv.user_id=?
                    WHERE d.lifecycle='active'
                      AND d.source_path='aprendix://authored-facts/v1'
                      AND COALESCE(q.status,'accepted')='accepted'
-                     AND (cr.card_id IS NULL OR cr.next_review_at <= ?)
+                     AND EXISTS(
+                         SELECT 1 FROM card_source_links csl WHERE csl.card_id=tc.id
+                     )
+                     AND (rv.card_id IS NULL OR rv.next_review_at <= ?)
                    ORDER BY unseen ASC, due ASC, mastery ASC, tc.created_at DESC
                    LIMIT ?""",
                 (str(user_id), now, max(1, min(limit, 100))),

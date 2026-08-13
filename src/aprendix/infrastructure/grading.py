@@ -80,7 +80,8 @@ safe = {
     "print": limited_print, "property": property, "range": range, "repr": repr,
     "reversed": reversed, "round": round, "set": set, "slice": slice,
     "sorted": sorted, "staticmethod": staticmethod, "str": str, "sum": sum,
-    "super": super, "tuple": tuple, "type": type, "ValueError": ValueError,
+    "super": super, "tuple": tuple, "type": type, "KeyError": KeyError,
+    "ValueError": ValueError,
     "zip": zip,
 }
 namespace = {"__builtins__": safe, "__name__": "__main__"}
@@ -124,7 +125,7 @@ def _evaluate_payload(payload: Mapping[str, str]) -> dict[str, str]:
         "repr": repr, "reversed": reversed, "round": round, "set": set,
         "slice": slice, "sorted": sorted, "staticmethod": staticmethod,
         "str": str, "sum": sum, "super": super, "tuple": tuple,
-        "type": type, "ValueError": ValueError, "zip": zip,
+        "type": type, "KeyError": KeyError, "ValueError": ValueError, "zip": zip,
     }
     namespace = {"__builtins__": safe, "__name__": "__main__"}
     try:

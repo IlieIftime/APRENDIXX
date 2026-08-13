@@ -45,8 +45,9 @@ def test_ide_uses_course_journey_and_starts_with_blank_source() -> None:
     assert 'text="", hint_text="Escreve a tua solução aqui…"' in source
     assert "Aprovado e creditado · regista uma reflexão ou seleciona Seguinte." in source
     assert "build_exercise_brief(self.selected).render()" in source
-    assert 'for panel_name in ("Output", "Problemas", "Tutor", "Testes")' in source
+    assert 'for panel_name in ("Output", "Problemas", "Testes", "Debug", "Tutor")' in source
     assert 'self.terminal_shell = BoxLayout(' in source
+    assert "self.ide_desk.add_widget(self.terminal_shell)" in source
     assert 'orientation="horizontal"' in source
     assert '"find": lambda: self._open_find(False)' in source
     assert '"replace": lambda: self._open_find(True)' in source
@@ -58,8 +59,8 @@ def test_ide_uses_course_journey_and_starts_with_blank_source() -> None:
     assert 'tool_action("", "Corrigir", self.evaluate' in source
     assert 'tool_action("", "Testar", self.evaluate' not in source
     assert 'values=("Simples", "Guiado", "Técnico")' in source
-    assert 'self.theory_button = tool_action("", "Teoria"' in source
-    assert 'self.practice_button = tool_action("", "Prática"' in source
+    assert 'self.theory_button = tool_action("", "Aula"' in source
+    assert 'self.practice_button = tool_action("", "Enunciado"' in source
     assert "controller.learning_session(self.selected.id)" in source
     assert 'phase="microtheory", theory_viewed=True' in source
     assert "hint_count=self.hints_used" in source
@@ -90,7 +91,7 @@ def test_ide_header_and_lesson_toggle_preserve_context_at_compact_widths() -> No
         Path(__file__).parents[3] / "src" / "aprendix" / "presentation" / "kivy_advanced.py"
     ).read_text(encoding="utf-8")
 
-    assert "profile = self._apply_journey_header(width)" in source
+    assert "profile = book_workspace_profile(" in source
     assert "self.exercise_title.size_hint_x = None" in source
     assert "self.exercise_title.width = dp(profile.title_width_dp)" in source
     assert 'return "Aula" if self.brief_view == "theory" else "Enunciado"' in source

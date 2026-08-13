@@ -42,13 +42,22 @@ from aprendix.application.exercise_presentation import build_exercise_brief
 from aprendix.application.games import DIFFICULTIES, MinesweeperGame, SudokuGame
 from aprendix.application.ide_commands import search_ide_commands
 from aprendix.application.knowledge import SearchCancellationToken
+from aprendix.application.math_rendering import FormulaRenderRequest
 from aprendix.application.navigation import CommandPalette, NavigationHistory, Route
 from aprendix.application.pedagogy_tools import profile_execution, visualize_structures
 from aprendix.presentation.design_system import THEMES, palette
+from aprendix.presentation.fonts import register_kivy_fonts
+from aprendix.presentation.math_renderer import (
+    OfflineMathRenderer,
+    extract_latex_expressions,
+    strip_latex_markup,
+)
 from aprendix.presentation.responsive import (
+    book_workspace_profile,
     dashboard_tab_width,
     ide_journey_header_profile,
 )
+from aprendix.presentation.text_safety import normalize_ui_text
 
 
 def _walk_theme_widgets(branches):
@@ -79,15 +88,18 @@ def launch_advanced_kivy(controller) -> int:
     from kivy.clock import Clock
     from kivy.core.window import Window
     from kivy.core.clipboard import Clipboard
+    from kivy.core.text import LabelBase
     from kivy.graphics import (
         Color, Line, PopMatrix, PushMatrix, Rectangle, RoundedRectangle, Scale,
         Translate,
     )
     from kivy.graphics.svg import Svg
     from kivy.metrics import dp
+    from kivy.resources import resource_find
     from kivy.uix.image import AsyncImage
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
+    from kivy.uix.behaviors import FocusBehavior
     from kivy.uix.checkbox import CheckBox
     from kivy.uix.codeinput import CodeInput
     from kivy.uix.floatlayout import FloatLayout
@@ -104,10 +116,12 @@ def launch_advanced_kivy(controller) -> int:
     from kivy.uix.widget import Widget
 
     palettes = {name: palette(name) for name in THEMES}
+    register_kivy_fonts(LabelBase, resource_find)
     theme_name = controller.load_preference("theme", "dark")
     if theme_name not in palettes:
         theme_name = "dark"
     colors = dict(palettes[theme_name])
+    math_renderer = OfflineMathRenderer()
     try:
         font_scale = min(
             1.5, max(0.85, float(controller.load_preference("font_scale", "1.0")))
@@ -162,10 +176,10 @@ def launch_advanced_kivy(controller) -> int:
 
         def on_touch_move(self, touch):
             if touch.grab_current is self and self.target is not None:
-                available = max(dp(640), self.parent.width if self.parent else Window.width)
+                available = max(dp(689), self.parent.width if self.parent else Window.width)
                 self.target.width = min(
-                    available * .58,
-                    max(dp(300), self._target_origin - (touch.x - self._drag_origin)),
+                    available - dp(369),
+                    max(dp(320), self._target_origin - (touch.x - self._drag_origin)),
                 )
                 return True
             return super().on_touch_move(touch)
@@ -174,7 +188,57 @@ def launch_advanced_kivy(controller) -> int:
             if touch.grab_current is self:
                 touch.ungrab(self)
                 if self.target is not None:
-                    controller.save_preference("ide.brief_width", f"{self.target.width:.2f}")
+                    controller.save_preference(
+                        "ide.brief_width_dp",
+                        f"{self.target.width / max(dp(1), .001):.2f}",
+                    )
+                return True
+            return super().on_touch_up(touch)
+
+
+    class TerminalDivider(Widget):
+        """Horizontal drag handle that preserves the book while resizing output."""
+
+        def __init__(self, target=None, on_commit=None, **kwargs):
+            kwargs.setdefault("size_hint_y", None)
+            kwargs.setdefault("height", 0)
+            super().__init__(**kwargs)
+            self.target = target
+            self.on_commit = on_commit
+            self._drag_origin = None
+            self._target_origin = None
+            with self.canvas:
+                self.divider_color = Color(*colors["accent"])
+                self.divider_line = Rectangle(pos=self.pos, size=self.size)
+            self.bind(pos=self._sync, size=self._sync)
+
+        def _sync(self, *_args):
+            self.divider_line.pos = (self.x, self.center_y - dp(1))
+            self.divider_line.size = (self.width, dp(2) if self.height else 0)
+
+        def on_touch_down(self, touch):
+            if self.height and self.collide_point(*touch.pos) and self.target is not None:
+                touch.grab(self)
+                self._drag_origin = touch.y
+                self._target_origin = self.target.height
+                return True
+            return super().on_touch_down(touch)
+
+        def on_touch_move(self, touch):
+            if touch.grab_current is self and self.target is not None:
+                useful = max(dp(400), self.parent.height if self.parent else Window.height)
+                self.target.height = min(
+                    useful * .35,
+                    max(useful * .20, self._target_origin + touch.y - self._drag_origin),
+                )
+                return True
+            return super().on_touch_move(touch)
+
+        def on_touch_up(self, touch):
+            if touch.grab_current is self:
+                touch.ungrab(self)
+                if self.on_commit is not None:
+                    self.on_commit(self.target.height)
                 return True
             return super().on_touch_up(touch)
 
@@ -261,6 +325,263 @@ def launch_advanced_kivy(controller) -> int:
                 self.x + (self.width - rendered_width) / 2,
                 self.y + (self.height - rendered_height) / 2,
             )
+
+
+    class TooltipBubble(Label):
+        """Small visual tooltip that never replaces accessible metadata."""
+
+        def __init__(self, **kwargs):
+            kwargs.setdefault("size_hint", (None, None))
+            kwargs.setdefault("padding", (dp(10), dp(6)))
+            kwargs.setdefault("font_size", dp(13))
+            kwargs.setdefault("color", colors["text"])
+            kwargs.setdefault("font_name", "AprendixSans")
+            super().__init__(**kwargs)
+            with self.canvas.before:
+                self.tooltip_color = Color(*colors["card_alt"])
+                self.tooltip_shape = RoundedRectangle(
+                    pos=self.pos, size=self.size, radius=[dp(7)],
+                )
+            self.bind(pos=self._sync, size=self._sync, texture_size=self._fit)
+
+        def _fit(self, _widget, value):
+            self.size = (min(dp(360), value[0] + dp(20)), value[1] + dp(12))
+
+        def _sync(self, *_args):
+            self.tooltip_shape.pos, self.tooltip_shape.size = self.pos, self.size
+
+
+    class _IconMixin:
+        """Shared SVG, tooltip and focus behaviour for compact actions."""
+
+        icon_name = "more"
+        command_title = "Ação"
+        shortcut = ""
+
+        def _init_icon(self, *, icon_name, title, shortcut="", show_label=False):
+            self.icon_name = icon_name or "more"
+            self.command_title = normalize_ui_text(title)
+            self.full_title = self.command_title
+            self.shortcut = shortcut
+            self.accessible_name = self.command_title
+            self.tooltip_text = self.command_title + (f" · {shortcut}" if shortcut else "")
+            self._show_label = bool(show_label)
+            self.text = self.command_title if self._show_label else ""
+            self.padding = (dp(36), 0) if self._show_label else (0, 0)
+            self.halign = "left" if self._show_label else "center"
+            self.valign = "middle"
+            asset = Path(__file__).resolve().parent / "assets" / f"icon-{self.icon_name}.svg"
+            if not asset.is_file():
+                asset = Path(__file__).resolve().parent / "assets" / "icon-more.svg"
+            with self.canvas.after:
+                self._icon_badge_color = Color(
+                    .035, .055, .09,
+                    .9 if theme_name == "light" and self.theme_role != "accent" else 0,
+                )
+                self._icon_badge = RoundedRectangle(radius=[dp(6)])
+                Color(1, 1, 1, 1)
+                PushMatrix()
+                self._icon_translate = Translate()
+                self._icon_scale = Scale(1, 1, 1)
+                try:
+                    self._icon_svg = Svg(source=str(asset))
+                except Exception:
+                    fallback_asset = Path(__file__).resolve().parent / "assets" / "icon-more.svg"
+                    self._icon_svg = Svg(source=str(fallback_asset))
+                PopMatrix()
+                self._focus_color = Color(*(*colors["focus"][:3], 0))
+                self._focus_line = Line(
+                    rounded_rectangle=(self.x + dp(2), self.y + dp(2),
+                                       max(0, self.width - dp(4)), max(0, self.height - dp(4)), dp(5)),
+                    width=dp(1.4),
+                )
+            self.bind(pos=self._sync_icon, size=self._sync_icon, focus=self._focus_changed)
+            self._tooltip_bound = False
+            self._tooltip_event = None
+            self._tooltip_widget = None
+            self._sync_icon()
+
+        def on_parent(self, _widget, parent):
+            """Bind hover tracking only while the action belongs to a widget tree.
+
+            Screens such as Cards and Search are rebuilt frequently.  A permanent
+            Window binding would otherwise retain every discarded button and make
+            tooltips progressively slower during long study sessions.
+            """
+
+            if parent is not None and not self._tooltip_bound:
+                Window.bind(mouse_pos=self._tooltip_mouse)
+                self._tooltip_bound = True
+            elif parent is None and self._tooltip_bound:
+                Window.unbind(mouse_pos=self._tooltip_mouse)
+                self._tooltip_bound = False
+                self._hide_tooltip()
+
+        def set_label_visible(self, visible):
+            self._show_label = bool(visible)
+            self.text = self.command_title if self._show_label else ""
+            self.padding = (dp(36), 0) if self._show_label else (0, 0)
+            self.halign = "left" if self._show_label else "center"
+            self._sync_icon()
+
+        def _sync_icon(self, *_args):
+            intrinsic_width = max(1, self._icon_svg.width)
+            intrinsic_height = max(1, self._icon_svg.height)
+            icon_size = min(dp(22), max(dp(14), self.height - dp(16)))
+            factor = min(icon_size / intrinsic_width, icon_size / intrinsic_height)
+            rendered_width = intrinsic_width * factor
+            rendered_height = intrinsic_height * factor
+            self._icon_scale.xyz = (factor, factor, 1)
+            icon_x = self.x + dp(10) if self._show_label else self.center_x - rendered_width / 2
+            self._icon_translate.xy = (icon_x, self.center_y - rendered_height / 2)
+            badge_size = dp(30)
+            badge_x = self.x + dp(6) if self._show_label else self.center_x - badge_size / 2
+            self._icon_badge.pos = (badge_x, self.center_y - badge_size / 2)
+            self._icon_badge.size = (badge_size, badge_size)
+            self.text_size = (
+                max(0, self.width - (dp(42) if self._show_label else 0)), self.height,
+            )
+            self._focus_line.rounded_rectangle = (
+                self.x + dp(2), self.y + dp(2), max(0, self.width - dp(4)),
+                max(0, self.height - dp(4)), dp(5),
+            )
+
+        def _focus_changed(self, _widget, focused):
+            self._focus_color.rgba = (*colors["focus"][:3], 1 if focused else 0)
+
+        def _tooltip_mouse(self, _window, position):
+            inside = self.get_root_window() is not None and self.collide_point(
+                *self.to_widget(*position)
+            )
+            if inside and not self.disabled:
+                if self._tooltip_widget is None and self._tooltip_event is None:
+                    self._tooltip_event = Clock.schedule_once(self._show_tooltip, .45)
+            else:
+                self._hide_tooltip()
+
+        def _show_tooltip(self, *_args):
+            self._tooltip_event = None
+            if self.get_root_window() is None:
+                return
+            bubble = TooltipBubble(text=self.tooltip_text)
+            bubble.texture_update()
+            bubble._fit(bubble, bubble.texture_size)
+            window_position = self.to_window(self.center_x, self.y)
+            bubble.x = min(Window.width - bubble.width - dp(8), max(dp(8), window_position[0] - bubble.width / 2))
+            bubble.y = min(Window.height - bubble.height - dp(8), window_position[1] + self.height + dp(5))
+            Window.add_widget(bubble)
+            self._tooltip_widget = bubble
+
+        def _hide_tooltip(self):
+            if self._tooltip_event is not None:
+                self._tooltip_event.cancel()
+                self._tooltip_event = None
+            if self._tooltip_widget is not None:
+                try:
+                    Window.remove_widget(self._tooltip_widget)
+                except (AttributeError, ValueError):
+                    pass
+                self._tooltip_widget = None
+
+        def refresh_theme(self):
+            self._focus_color.rgba = (*colors["focus"][:3], 1 if self.focus else 0)
+            self._icon_badge_color.rgba = (
+                .035, .055, .09,
+                .9 if theme_name == "light" and self.theme_role != "accent" else 0,
+            )
+            if self._tooltip_widget is not None:
+                self._tooltip_widget.color = colors["text"]
+                self._tooltip_widget.tooltip_color.rgba = colors["card_alt"]
+
+
+    class IconAction(_IconMixin, FocusBehavior, Button):
+        def __init__(
+            self, icon_name, title, callback, *, primary=False, width=None,
+            show_label=False, shortcut="", **kwargs,
+        ):
+            if width is not None:
+                kwargs.setdefault("size_hint_x", None)
+                kwargs.setdefault("width", dp(width))
+            kwargs.setdefault("size_hint_y", None)
+            kwargs.setdefault("height", dp(42))
+            kwargs.setdefault("background_normal", "")
+            kwargs.setdefault("background_color", colors["accent" if primary else "card_alt"])
+            kwargs.setdefault("color", colors["accent_text" if primary else "text"])
+            kwargs.setdefault("bold", True)
+            kwargs.setdefault("font_name", "AprendixSans")
+            super().__init__(**kwargs)
+            self.theme_role = "accent" if primary else "navigation"
+            self.aprendix_base_font_size = 13
+            self._init_icon(
+                icon_name=icon_name, title=title, shortcut=shortcut,
+                show_label=show_label,
+            )
+            self.bind(on_release=callback)
+
+
+    class IconToggleAction(_IconMixin, FocusBehavior, ToggleButton):
+        def __init__(self, icon_name, title, callback, *, group, state="normal", **kwargs):
+            kwargs.setdefault("size_hint_y", None)
+            kwargs.setdefault("height", dp(38))
+            kwargs.setdefault("background_normal", "")
+            kwargs.setdefault("background_color", colors["card_alt"])
+            kwargs.setdefault("color", colors["text"])
+            kwargs.setdefault("font_name", "AprendixSans")
+            super().__init__(group=group, state=state, **kwargs)
+            self.theme_role = "navigation"
+            self.aprendix_base_font_size = 12
+            self._init_icon(icon_name=icon_name, title=title)
+            self.bind(on_release=callback)
+
+
+    class FormulaView(Card):
+        """One accessible mathematical view shared by every rich document."""
+
+        def __init__(self, *, latex, spoken, variables=None, compact=False, **kwargs):
+            self.latex = normalize_ui_text(latex)
+            self.spoken = normalize_ui_text(spoken) or "Expressão matemática"
+            self.variables = dict(variables or {})
+            self.compact = compact
+            super().__init__(**kwargs)
+            self.accessible_name = self.spoken
+            self.tooltip_text = "Fórmula matemática local. " + self.spoken
+            self._render_formula()
+
+        def _render_formula(self):
+            self.clear_widgets()
+            result = math_renderer.render(FormulaRenderRequest(
+                latex=self.latex, spoken=self.spoken, variables=self.variables,
+                theme=theme_name, dpi=max(96, round(96 * dp(1))), scale=font_scale,
+            ))
+            self.add_widget(text(result.spoken, size=14 if self.compact else 16, bold=True))
+            if result.path is not None and result.path.is_file():
+                image = AsyncImage(
+                    source=str(result.path), size_hint_y=None,
+                    height=dp(82 if self.compact else 112),
+                    allow_stretch=True, keep_ratio=True,
+                )
+                image.accessible_name = result.spoken
+                self.add_widget(image)
+            else:
+                self.add_widget(text(
+                    result.error or "Fórmula disponível em descrição textual.",
+                    muted=True,
+                ))
+            if result.variables:
+                self.add_widget(text(
+                    " · ".join(f"{name}: {meaning}" for name, meaning in result.variables),
+                    muted=True,
+                ))
+            copy_button = IconAction(
+                "copy", "Copiar expressão", lambda *_: Clipboard.copy(result.latex),
+                width=52, shortcut="Ctrl+C",
+            )
+            copy_button.accessible_name = "Copiar fórmula em LaTeX"
+            self.add_widget(copy_button)
+
+        def refresh_theme(self):
+            super().refresh_theme()
+            self._render_formula()
 
     def local_visual(source, *, height):
         path = Path(source)
@@ -461,7 +782,8 @@ def launch_advanced_kivy(controller) -> int:
 
     def text(value="", *, size=16, muted=False, bold=False, fixed=None):
         widget = Label(
-            text=value, bold=bold, markup=False,
+            text=normalize_ui_text(value), bold=bold, markup=False,
+            font_name="AprendixSans",
             color=colors["muted" if muted else "text"],
             font_size=dp(size * font_scale),
             halign="left", valign="top", size_hint_y=None,
@@ -478,33 +800,45 @@ def launch_advanced_kivy(controller) -> int:
             widget.bind(texture_size=lambda item, dimensions: setattr(item, "height", dimensions[1] + dp(10)))
         return widget
 
-    def action(title, callback):
+    def action(title, callback, *, primary=True):
         button = Button(
-            text=title, bold=True, size_hint_y=None, height=dp(46),
-            background_normal="", background_color=colors["accent"], color=colors["accent_text"],
+            text=normalize_ui_text(title), bold=True, size_hint_y=None, height=dp(46),
+            background_normal="",
+            background_color=colors["accent" if primary else "card_alt"],
+            color=colors["accent_text" if primary else "text"],
+            font_name="AprendixSans",
         )
-        button.theme_role = "accent"
+        button.theme_role = "accent" if primary else "navigation"
         button.aprendix_base_font_size = 14
         button.bind(on_release=callback)
         return button
 
     def tool_action(symbol, title, callback, *, primary=False, width=92):
-        """Compact, labelled IDE action that remains understandable without icons."""
+        """Return an original local SVG action with tooltip and accessible name."""
 
-        button = Button(
-            text=f"{symbol}  {title}".strip(),
-            bold=True, size_hint_x=None, width=dp(width),
-            background_normal="",
-            background_color=colors["accent" if primary else "card_alt"],
-            color=colors["accent_text" if primary else "text"],
+        normalized = normalize_ui_text(title)
+        icon_name = {
+            "Run": "run", "Executar": "run", "Corrigir": "correct",
+            "Debug": "debug", "Formatar": "format", "Procurar": "search",
+            "Guardar": "save", "Tutor": "tutor", "Pista": "hints",
+            "Erro": "problems", "CopyKate": "copykate", "Mais": "more",
+            "Anterior": "previous", "Seguinte": "next", "Substituir": "replace",
+            "Tudo": "replace", "Fechar": "close", "X": "close",
+            "Copiar": "copy", "Teoria": "lesson", "Prática": "ide",
+            "Teste": "tests", "A-": "previous", "A+": "next",
+        }.get(normalized, "book" if "Enunciado" in normalized or "Aula" in normalized else "more")
+        shortcut = {
+            "Run": "F5", "Corrigir": "Ctrl+Shift+Enter", "Debug": "F6",
+            "Formatar": "Shift+Alt+F", "Procurar": "Ctrl+F", "Guardar": "Ctrl+S",
+            "Tutor": "Ctrl+I", "Fechar": "Esc",
+        }.get(normalized, "")
+        show_label = normalized in {
+            "Corrigir", "Teoria", "Prática", "Teste",
+        } or normalized.startswith(("Enunciado", "Aula"))
+        return IconAction(
+            icon_name, normalized, callback, primary=primary, width=width,
+            show_label=show_label, shortcut=shortcut,
         )
-        button.theme_role = "accent" if primary else "navigation"
-        button.aprendix_base_font_size = 13
-        button.command_title = title
-        button.accessible_name = title
-        button.tooltip_text = title
-        button.bind(on_release=callback)
-        return button
 
     def scroll_column(preference_key=None):
         scroll = ScrollView(
@@ -599,18 +933,10 @@ def launch_advanced_kivy(controller) -> int:
                     background_color=colors["card_alt"], foreground_color=colors["text"],
                 ))
             elif kind == "formula":
-                formula = Card()
-                formula.add_widget(text(block.spoken, size=16, bold=True))
-                formula.add_widget(CodeInput(
-                    text=block.latex, readonly=True, size_hint_y=None, height=dp(58),
-                    background_color=colors["card_alt"], foreground_color=colors["text"],
+                column.add_widget(FormulaView(
+                    latex=block.latex, spoken=block.spoken,
+                    variables=block.variables, compact=compact,
                 ))
-                if block.variables:
-                    formula.add_widget(text(
-                        " · ".join(f"{name}: {meaning}" for name, meaning in block.variables.items()),
-                        muted=True,
-                    ))
-                column.add_widget(formula)
             elif kind == "table":
                 rows = (tuple(block.headers), *tuple(block.rows))
                 rendered = "\n".join("  |  ".join(row) for row in rows)
@@ -670,6 +996,8 @@ def launch_advanced_kivy(controller) -> int:
         """Readable deterministic fallback for legacy material awaiting migration."""
 
         column.clear_widgets()
+        formulae = extract_latex_expressions(body or "")
+        body = strip_latex_markup(body or "") if formulae else normalize_ui_text(body or "")
         headings = {
             "contextualização", "objetivo", "especificação técnica", "contrato",
             "entradas e parâmetros", "exemplo de comportamento", "exemplos",
@@ -696,6 +1024,11 @@ def launch_advanced_kivy(controller) -> int:
                 ))
             else:
                 column.add_widget(text(paragraph, size=14 if compact else 16))
+        for latex in formulae:
+            column.add_widget(FormulaView(
+                latex=latex, spoken="Expressão matemática do conteúdo",
+                compact=compact,
+            ))
 
     class Dashboard(Screen):
         def __init__(self, **kwargs):
@@ -1355,23 +1688,32 @@ def launch_advanced_kivy(controller) -> int:
             self._active_project_path = "main.py"
             self._active_project_template_id = ""
             self.workspace_mode = "exercise"
-            self.compact_workspace = Window.width < dp(1080)
+            self.compact_workspace = False
             preferred_pane = controller.load_preference("ide.compact_pane", "editor")
             self.compact_pane = preferred_pane if preferred_pane in {"editor", "brief"} else "editor"
             initial_brief_expanded = controller.load_preference(
                 "ide.brief_expanded", "1"
             ) != "0"
             self.brief_expanded = True
-            # The terminal is a drawer: its tab strip remains visible but the
-            # body never occupies working space until an action produces data.
-            self.bottom_panel_expanded = False
+            # The terminal is a transversal drawer below both book pages.
+            self.bottom_panel_expanded = controller.load_preference(
+                "ide.bottom_panel_expanded", "0"
+            ) == "1"
+            try:
+                self._terminal_ratio = min(.35, max(.20, float(
+                    controller.load_preference("ide.terminal_ratio", ".28")
+                )))
+            except ValueError:
+                self._terminal_ratio = .28
             self._active_panel = "Output"
             self._panel_buffers = {
                 "Output": "Terminal local pronto.",
                 "Problemas": "Sem problemas detetados.",
                 "Tutor": "Escreve uma dúvida ou pede uma pista sem sair do IDE.",
                 "Testes": "Os resultados da correção aparecem aqui.",
+                "Debug": "Inicia o depurador para observar frames, valores e fluxo.",
             }
+            self._last_evaluation_receipt = None
             root = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(7))
             journey = Card()
             self.journey = journey
@@ -1435,14 +1777,35 @@ def launch_advanced_kivy(controller) -> int:
             journey.add_widget(self.journey_meta)
             journey.add_widget(self.journey_progress)
             self.brief_cell = Card()
-            brief_header = BoxLayout(size_hint_y=None, height=dp(38), spacing=dp(5))
-            self.brief_toggle = tool_action("", "Enunciado [-]", self._toggle_brief, width=136)
+            brief_header_scroll = ScrollView(
+                do_scroll_x=True, do_scroll_y=False, size_hint_y=None, height=dp(40),
+                scroll_type=["bars", "content"], bar_width=dp(3),
+            )
+            brief_header = BoxLayout(
+                size_hint=(None, None), height=dp(38), spacing=dp(4),
+            )
+            brief_header.bind(minimum_width=brief_header.setter("width"))
+            self.brief_toggle = tool_action("", "Apoio [-]", self._toggle_brief, width=104)
             brief_header.add_widget(self.brief_toggle)
-            self.theory_button = tool_action("", "Teoria", self._show_theory, width=72)
-            self.practice_button = tool_action("", "Prática", self._show_practice, width=76)
+            self.theory_button = tool_action("", "Aula", self._show_theory, width=70)
+            self.practice_button = tool_action("", "Enunciado", self._show_practice, width=108)
             self.assessment_button = tool_action("", "Teste", self._show_assessment, width=68)
             brief_header.add_widget(self.theory_button)
             brief_header.add_widget(self.practice_button)
+            self.hints_button = IconAction(
+                "hints", "Pistas", self._show_support_hints, width=50,
+            )
+            self.solution_button = IconAction(
+                "solution", "Solução possível", self._show_support_solution, width=50,
+            )
+            self.execution_button = IconAction(
+                "trace", "Execução esperada", self._show_support_execution, width=50,
+            )
+            self.solution_button.disabled = True
+            self.execution_button.disabled = True
+            brief_header.add_widget(self.hints_button)
+            brief_header.add_widget(self.solution_button)
+            brief_header.add_widget(self.execution_button)
             brief_header.add_widget(self.assessment_button)
             self.brief_mode = Spinner(
                 text={"simple": "Simples", "guided": "Guiado", "technical": "Técnico"}.get(
@@ -1456,6 +1819,7 @@ def launch_advanced_kivy(controller) -> int:
             brief_header.add_widget(tool_action("", "A-", lambda *_: self._resize_prompt(-dp(35)), width=48))
             brief_header.add_widget(tool_action("", "A+", lambda *_: self._resize_prompt(dp(35)), width=48))
             brief_header.add_widget(tool_action("", "Copiar", lambda *_: Clipboard.copy(self.prompt.text), width=76))
+            brief_header_scroll.add_widget(brief_header)
             self.prompt = TextInput(
                 text=build_exercise_brief(self.selected).render() if self.selected else "",
                 readonly=True,
@@ -1503,7 +1867,7 @@ def launch_advanced_kivy(controller) -> int:
             self.assessment_controls.add_widget(self.assessment_mode)
             self.assessment_controls.add_widget(self.assessment_option)
             self.assessment_controls.add_widget(self.assessment_submit)
-            self.brief_cell.add_widget(brief_header)
+            self.brief_cell.add_widget(brief_header_scroll)
             self.brief_cell.add_widget(self.document_scroll)
             self.brief_cell.add_widget(self.prompt)
             self.brief_cell.add_widget(self.learning_note)
@@ -1518,7 +1882,7 @@ def launch_advanced_kivy(controller) -> int:
             self.editor = CodeInput(
                 text="", hint_text="Escreve a tua solução aqui…", font_size=dp(16),
                 background_color=colors["card_alt"], foreground_color=colors["text"],
-                size_hint_y=1,
+                size_hint_y=1, font_name="AprendixMono",
             )
             saved_editor_font = controller.load_preference("ide.editor_font_size", "")
             if saved_editor_font:
@@ -1542,22 +1906,22 @@ def launch_advanced_kivy(controller) -> int:
                 size_hint=(None, None), height=dp(40), spacing=dp(4),
             )
             code_header.bind(minimum_width=code_header.setter("width"))
-            self.file_label = text("[ ]  main.py", size=15, bold=True, fixed=40)
+            self.file_label = text("main.py", size=15, bold=True, fixed=40)
             self.file_label.size_hint_x = None
             self.file_label.width = dp(150)
             code_header.add_widget(self.file_label)
-            self.run_button = tool_action(">", "Run", self.run_code, primary=True, width=78)
-            self.correct_button = tool_action("", "Corrigir", self.evaluate, width=88)
-            self.debug_button = tool_action("DBG", "Debug", self.debug_setup, width=82)
+            self.run_button = tool_action("", "Run", self.run_code, primary=True, width=50)
+            self.correct_button = tool_action("", "Corrigir", self.evaluate, width=96)
+            self.debug_button = tool_action("", "Debug", self.debug_setup, width=50)
             code_header.add_widget(self.run_button)
             code_header.add_widget(self.correct_button)
             code_header.add_widget(self.debug_button)
-            code_header.add_widget(tool_action("{}", "Formatar", lambda *_: self._execute_ide_command("format"), width=92))
-            code_header.add_widget(tool_action("/", "Procurar", lambda *_: self._execute_ide_command("find"), width=92))
-            code_header.add_widget(tool_action("S", "Guardar", lambda *_: self._execute_ide_command("save"), width=88))
-            code_header.add_widget(tool_action("?", "Tutor", self._open_inline_tutor, width=74))
-            code_header.add_widget(tool_action("CK", "CopyKate", self.copykate, width=98))
-            code_header.add_widget(tool_action("...", "Mais", self.engineering_tools, width=72))
+            code_header.add_widget(tool_action("", "Formatar", lambda *_: self._execute_ide_command("format"), width=50))
+            code_header.add_widget(tool_action("", "Procurar", lambda *_: self._execute_ide_command("find"), width=50))
+            code_header.add_widget(tool_action("", "Guardar", lambda *_: self._execute_ide_command("save"), width=50))
+            code_header.add_widget(tool_action("", "Tutor", self._open_inline_tutor, width=50))
+            code_header.add_widget(tool_action("", "CopyKate", self.copykate, width=50))
+            code_header.add_widget(tool_action("", "Mais", self.engineering_tools, width=50))
             code_header_scroll.add_widget(code_header)
 
             self.find_bar = BoxLayout(
@@ -1588,7 +1952,7 @@ def launch_advanced_kivy(controller) -> int:
                 text=self._line_numbers(self.editor.text), readonly=True,
                 size_hint_x=None, width=dp(52), font_size=dp(14),
                 background_color=colors["card"], foreground_color=colors["muted"],
-                padding=(dp(7), dp(7)),
+                padding=(dp(7), dp(7)), font_name="AprendixMono",
             )
             self.editor.size_hint_y = 1
             self.editor.bind(
@@ -1618,7 +1982,13 @@ def launch_advanced_kivy(controller) -> int:
                 hint_text="Justificação conceptual (pedida apenas após colagem extensa)",
                 multiline=False, size_hint_y=None, height=0, opacity=0, disabled=True,
             )
-            self._bottom_panel_height = dp(140 if Window.height < dp(800) else 190)
+            initial_profile = book_workspace_profile(
+                max(1, round(Window.width)), max(1, round(Window.height)),
+                density=max(1.0, dp(1)), requested_terminal_ratio=self._terminal_ratio,
+            )
+            self._bottom_panel_height = dp(
+                max(80, initial_profile.terminal_open_height_dp - 38)
+            )
             self.terminal_shell = BoxLayout(
                 orientation="vertical", size_hint_y=None, height=dp(38), spacing=dp(2),
             )
@@ -1628,14 +1998,18 @@ def launch_advanced_kivy(controller) -> int:
             )
             tabs = BoxLayout(size_hint_y=None, height=dp(38), spacing=dp(4))
             self.panel_tabs = {}
-            for panel_name in ("Output", "Problemas", "Tutor", "Testes"):
-                tab = ToggleButton(
-                    text=panel_name, group="ide-bottom-panel",
+            panel_icons = {
+                "Output": "output", "Problemas": "problems", "Testes": "tests",
+                "Debug": "debug", "Tutor": "tutor",
+            }
+            for panel_name in ("Output", "Problemas", "Testes", "Debug", "Tutor"):
+                tab = IconToggleAction(
+                    panel_icons[panel_name], panel_name,
+                    lambda _button, name=panel_name: self._show_panel(name),
+                    group="ide-bottom-panel",
                     state="down" if panel_name == "Output" else "normal",
-                    background_normal="", background_color=colors["card_alt"],
-                    color=colors["text"],
                 )
-                tab.bind(on_release=lambda _button, name=panel_name: self._show_panel(name))
+                tab.size_hint_x = 1
                 self.panel_tabs[panel_name] = tab
                 tabs.add_widget(tab)
             tabs.add_widget(tool_action("", "X", self._toggle_bottom_panel, width=42))
@@ -1657,6 +2031,7 @@ def launch_advanced_kivy(controller) -> int:
                 text=self._panel_buffers["Output"], readonly=True,
                 background_color=colors["card"], foreground_color=colors["text"],
                 size_hint_y=1, font_size=dp(14), padding=dp(10),
+                font_name="AprendixMono",
             )
             self.bottom_panel.add_widget(self.inline_tutor_controls)
             self.bottom_panel.add_widget(self.output)
@@ -1664,28 +2039,42 @@ def launch_advanced_kivy(controller) -> int:
             self.terminal_shell.add_widget(self.bottom_panel)
 
             try:
-                brief_width = float(controller.load_preference("ide.brief_width", "430"))
+                brief_width = float(controller.load_preference(
+                    "ide.brief_width_dp",
+                    controller.load_preference("ide.brief_width", "430"),
+                ))
             except ValueError:
                 brief_width = 430
             self.brief_cell.size_hint_x = None
             self.brief_cell.size_hint_y = 1
-            self.brief_cell.width = dp(min(650, max(300, brief_width)))
+            self.brief_cell.width = dp(min(650, max(320, brief_width)))
             self.workspace = BoxLayout(orientation="horizontal", size_hint_y=1, spacing=0)
             self.workspace_divider = PaneDivider(target=self.brief_cell)
             self.workspace.add_widget(self.code_cell)
             self.workspace.add_widget(self.workspace_divider)
             self.workspace.add_widget(self.brief_cell)
-            Window.bind(width=self._workspace_width_changed)
+            self.workspace.bind(width=self._workspace_width_changed)
             self._apply_journey_header(Window.width)
             self.course_selector.bind(text=self._course_selected)
-            for widget in (
-                journey, self.workspace, self.justification, self.terminal_shell, self.status,
-            ):
+            self.ide_desk = BoxLayout(
+                orientation="vertical", size_hint_y=1, spacing=0,
+            )
+            self.terminal_divider = TerminalDivider(
+                target=self.terminal_shell, on_commit=self._persist_terminal_height,
+            )
+            self.ide_desk.add_widget(self.workspace)
+            self.ide_desk.add_widget(self.terminal_divider)
+            self.ide_desk.add_widget(self.terminal_shell)
+            for widget in (journey, self.ide_desk, self.justification, self.status):
                 root.add_widget(widget)
             self.add_widget(root)
             self._render_brief_document("exercise", self.selected.id if self.selected else "", self.prompt.text)
             if not initial_brief_expanded:
                 Clock.schedule_once(lambda _dt: self._toggle_brief(persist=False), 0)
+            if self.bottom_panel_expanded:
+                self.bottom_panel_expanded = False
+                Clock.schedule_once(lambda _dt: self._toggle_bottom_panel(persist=False), 0)
+            Clock.schedule_once(lambda _dt: self._compose_practice_workspace(), 0)
             Clock.schedule_once(lambda _dt: self._activate_exercise(self.selected), 0)
 
         @staticmethod
@@ -1729,7 +2118,7 @@ def launch_advanced_kivy(controller) -> int:
                 self.justification.opacity = 1
                 self.justification.disabled = False
             if hasattr(self, "file_label"):
-                self.file_label.text = "[*]  " + (
+                self.file_label.text = "•  " + (
                     self._active_project_path if self.workspace_mode == "project" else "main.py"
                 )
             if self.selected or self.workspace_mode == "project":
@@ -1786,61 +2175,66 @@ def launch_advanced_kivy(controller) -> int:
             context = self._brief_context_label()
             state = "[-]" if self.brief_expanded else "[+]"
             action_name = "Recolher" if self.brief_expanded else "Expandir"
-            self.brief_toggle.text = f"{context} {state}"
-            self.brief_toggle.command_title = f"{action_name} {context.casefold()}"
+            self.brief_toggle.command_title = f"{action_name} apoio · {context.casefold()}"
+            self.brief_toggle.set_label_visible(True)
+            self.brief_toggle.text = f"Apoio {state}"
             self.brief_toggle.accessible_name = self.brief_toggle.command_title
             self.brief_toggle.tooltip_text = self.brief_toggle.command_title
 
         def _set_workspace_layout(self, mode):
-            """Switch between a full lesson canvas and the compact coding desk."""
+            """Keep the book visible while changing the right pedagogical page."""
 
-            self.workspace.clear_widgets()
-            if mode == "theory":
-                self.workspace_pane_button.width = 0
-                self.workspace_pane_button.opacity = 0
-                self.workspace_pane_button.disabled = True
-                self.brief_cell.size_hint_x = 1
-                self.continue_practice_button.height = dp(46)
-                self.continue_practice_button.opacity = 1
-                self.continue_practice_button.disabled = False
-                self.workspace.add_widget(self.brief_cell)
-            else:
-                self.continue_practice_button.height = 0
-                self.continue_practice_button.opacity = 0
-                self.continue_practice_button.disabled = True
-                self._compose_practice_workspace()
+            theory = mode == "theory"
+            self.continue_practice_button.height = dp(46) if theory else 0
+            self.continue_practice_button.opacity = 1 if theory else 0
+            self.continue_practice_button.disabled = not theory
+            self._compose_practice_workspace()
 
         def _compose_practice_workspace(self):
-            """Use split panes on wide windows and one explicit pane on compact ones."""
+            """Use a two-page book whenever the actual learning desk can fit it."""
 
             self.workspace.clear_widgets()
-            profile = self._apply_journey_header(Window.width)
-            self.compact_workspace = profile.compact
+            self._apply_journey_header(Window.width)
+            workspace_width = max(1, round(self.workspace.width or Window.width))
+            workspace_height = max(1, round(
+                (self.ide_desk.height if hasattr(self, "ide_desk") else Window.height)
+            ))
+            requested_support = self.brief_cell.width / max(dp(1), .001)
+            profile = book_workspace_profile(
+                workspace_width, workspace_height, density=max(1.0, dp(1)),
+                requested_support_width_dp=requested_support,
+                requested_terminal_ratio=self._terminal_ratio,
+            )
+            self._book_workspace_profile = profile
+            self.compact_workspace = profile.mode == "tabs"
             if self.compact_workspace:
-                self.workspace_pane_button.width = dp(profile.pane_width_dp)
+                self.workspace_pane_button.width = dp(104)
                 self.workspace_pane_button.opacity = 1
                 self.workspace_pane_button.disabled = False
                 if self.compact_pane == "brief":
                     self.brief_cell.size_hint_x = 1
                     self.workspace.add_widget(self.brief_cell)
-                    self.workspace_pane_button.text = "[]  Editor"
+                    self.workspace_pane_button.text = "Editor"
                     self.workspace_pane_button.command_title = "Mostrar editor"
                 else:
                     self.code_cell.size_hint_x = 1
                     self.workspace.add_widget(self.code_cell)
-                    self.workspace_pane_button.text = "[]  Enunciado"
+                    self.workspace_pane_button.text = "Apoio"
                     self.workspace_pane_button.command_title = "Mostrar enunciado"
+                self.workspace_pane_button.accessible_name = self.workspace_pane_button.command_title
+                self.workspace_pane_button.tooltip_text = self.workspace_pane_button.command_title
                 return
             self.workspace_pane_button.width = 0
             self.workspace_pane_button.opacity = 0
             self.workspace_pane_button.disabled = True
             self.brief_cell.size_hint_x = None
+            self.brief_cell.width = dp(profile.support_width_dp)
             self.workspace.add_widget(self.code_cell)
             self.workspace.add_widget(self.workspace_divider)
             self.workspace.add_widget(self.brief_cell)
 
         def _toggle_workspace_pane(self, *_args):
-            if not self.compact_workspace or self.brief_view == "theory":
+            if not self.compact_workspace:
                 return
             self.compact_pane = "brief" if self.compact_pane == "editor" else "editor"
             if self.compact_pane == "brief" and not self.brief_expanded:
@@ -1848,14 +2242,25 @@ def launch_advanced_kivy(controller) -> int:
             controller.save_preference("ide.compact_pane", self.compact_pane)
             self._compose_practice_workspace()
 
-        def _workspace_width_changed(self, _window, width):
-            profile = self._apply_journey_header(width)
-            compact = profile.compact
+        def _workspace_width_changed(self, _workspace, width):
+            if not hasattr(self, "ide_desk"):
+                return
+            profile = book_workspace_profile(
+                max(1, round(width)), max(1, round(self.ide_desk.height or Window.height)),
+                density=max(1.0, dp(1)),
+                requested_support_width_dp=self.brief_cell.width / max(dp(1), .001),
+                requested_terminal_ratio=self._terminal_ratio,
+            )
+            compact = profile.mode == "tabs"
             if compact == self.compact_workspace:
+                if not compact:
+                    maximum = max(320, profile.available_width_dp - 369)
+                    current = self.brief_cell.width / max(dp(1), .001)
+                    if current > maximum:
+                        self.brief_cell.width = dp(maximum)
                 return
             self.compact_workspace = compact
-            if self.brief_view != "theory":
-                Clock.schedule_once(lambda _dt: self._compose_practice_workspace(), 0)
+            Clock.schedule_once(lambda _dt: self._compose_practice_workspace(), 0)
 
         def _resize_prompt(self, delta):
             if not self.brief_expanded:
@@ -1874,6 +2279,13 @@ def launch_advanced_kivy(controller) -> int:
 
         def _render_brief_document(self, owner_type, owner_id, fallback):
             document = None
+            exercise_brief = None
+            if owner_type == "exercise" and self.selected is not None:
+                exercise_brief = build_exercise_brief(self.selected)
+                fallback = strip_latex_markup(
+                    fallback, (exercise_brief.formula_latex,)
+                    if exercise_brief.formula_latex else (),
+                )
             if owner_id and hasattr(controller, "pedagogical_document"):
                 try:
                     document = controller.pedagogical_document(owner_type, str(owner_id))
@@ -1883,8 +2295,132 @@ def launch_advanced_kivy(controller) -> int:
                 render_pedagogical_blocks(self.document_column, document.blocks, compact=True)
             else:
                 render_legacy_document(self.document_column, fallback, compact=True)
+            if exercise_brief is not None:
+                already_has_formula = any(
+                    isinstance(widget, FormulaView) for widget in self.document_column.walk()
+                )
+                if exercise_brief.formula_latex and not already_has_formula:
+                    variables = {}
+                    for item in exercise_brief.variables:
+                        name, separator, meaning = item.partition(":")
+                        variables[name.strip()] = meaning.strip() if separator else item
+                    self.document_column.add_widget(FormulaView(
+                        latex=exercise_brief.formula_latex,
+                        spoken=exercise_brief.formula_spoken or "Fórmula do exercício",
+                        variables=variables,
+                        compact=True,
+                    ))
             self._apply_document_zoom()
             Clock.schedule_once(lambda _dt: self._reset_prompt_view(), 0)
+
+        def _show_support_hints(self, *_args):
+            """Render progressive help on the right page without leaving the IDE."""
+
+            receipt = self._last_evaluation_receipt
+            lines = []
+            if receipt is not None:
+                if getattr(receipt, "prerequisite_terms", ()):
+                    lines.append(
+                        "Revê primeiro: " + ", ".join(receipt.prerequisite_terms)
+                    )
+                lines.extend(getattr(receipt, "remediation_actions", ()) or ())
+                lines.extend(getattr(receipt, "assistance", ()) or ())
+                if getattr(receipt, "mini_exercise", ""):
+                    lines.append(receipt.mini_exercise)
+            if not lines and self.selected is not None:
+                for hint in tuple(getattr(self.selected, "hints", ()) or ()):
+                    lines.append(normalize_ui_text(getattr(hint, "text", hint)))
+            if not lines:
+                lines = [
+                    "Identifica entradas, transformação e resultado esperado.",
+                    "Resolve primeiro o caso normal e depois os casos-limite.",
+                    "Executa antes de Corrigir para observares o comportamento real.",
+                ]
+            self.document_column.clear_widgets()
+            self.document_column.add_widget(text("Pistas graduais", size=20, bold=True, fixed=38))
+            self.document_column.add_widget(text(
+                "\n".join(f"{index}. {item}" for index, item in enumerate(lines[:8], 1)),
+                size=15,
+            ))
+            self.document_scroll.scroll_y = 1
+            self.hints_used += 1
+            self.status.text = "Pistas abertas na página de apoio."
+
+        def _show_support_solution(self, *_args):
+            """Disclose only the server-approved local reference solution."""
+
+            receipt = self._last_evaluation_receipt
+            evaluation_locked = (
+                self.brief_view == "assessment"
+                and self.assessment_mode.text == "Avaliação"
+            )
+            if evaluation_locked:
+                self.status.text = "Solução bloqueada durante a avaliação."
+                return
+            if receipt is None or not getattr(receipt, "reference_available", False):
+                self.status.text = (
+                    "A solução possível fica disponível após aprovação ou quatro tentativas "
+                    "falhadas em treino."
+                )
+                return
+            self.document_column.clear_widgets()
+            self.document_column.add_widget(text(
+                "Solução possível · validada localmente", size=20, bold=True, fixed=38,
+            ))
+            explanation = normalize_ui_text(getattr(receipt, "reference_explanation", ""))
+            if explanation:
+                self.document_column.add_widget(text(explanation, size=14))
+            solution = str(getattr(receipt, "reference_solution", ""))
+            rows = min(24, max(4, solution.count("\n") + 1))
+            self.document_column.add_widget(CodeInput(
+                text=solution, readonly=True, size_hint_y=None,
+                height=dp(22 + rows * 22), font_size=dp(14),
+                font_name="AprendixMono",
+                background_color=colors["card_alt"], foreground_color=colors["text"],
+            ))
+            self.document_column.add_widget(text(
+                "É uma solução de referência, não a única solução correta.", muted=True,
+            ))
+            self.document_scroll.scroll_y = 1
+            self.status.text = "Solução possível aberta na página de apoio."
+
+        def _show_support_execution(self, *_args):
+            """Show successful execution separately from any real traceback."""
+
+            receipt = self._last_evaluation_receipt
+            trace = tuple(getattr(receipt, "reference_trace", ()) or ()) if receipt else ()
+            expected = tuple(
+                getattr(receipt, "reference_expected_output", ()) or ()
+            ) if receipt else ()
+            if not trace and not expected:
+                self.status.text = "A execução esperada ainda não está disponível."
+                return
+            self.document_column.clear_widgets()
+            self.document_column.add_widget(text(
+                "Execução esperada", size=20, bold=True, fixed=38,
+            ))
+            if trace:
+                self.document_column.add_widget(text(
+                    "Traço estrutural\n" + "\n".join(
+                        f"{index}. {step}" for index, step in enumerate(trace, 1)
+                    ), size=14,
+                ))
+            if expected:
+                self.document_column.add_widget(text(
+                    "Saída esperada", size=17, bold=True, fixed=34,
+                ))
+                self.document_column.add_widget(CodeInput(
+                    text="\n".join(expected), readonly=True, size_hint_y=None,
+                    height=dp(min(320, 35 + 22 * len(expected))),
+                    font_name="AprendixMono",
+                    background_color=colors["card_alt"], foreground_color=colors["text"],
+                ))
+            self.document_column.add_widget(text(
+                "Traceback é reservado a uma exceção real e aparece no terminal.",
+                muted=True,
+            ))
+            self.document_scroll.scroll_y = 1
+            self.status.text = "Execução esperada aberta na página de apoio."
 
         def _reset_prompt_view(self):
             """Open each exercise at the first line instead of the last cursor position."""
@@ -1918,18 +2454,37 @@ def launch_advanced_kivy(controller) -> int:
                 self.bottom_panel.opacity = 0
                 self.bottom_panel.disabled = True
                 self.terminal_shell.height = dp(38)
+                self.terminal_divider.height = 0
                 self.bottom_panel_expanded = False
             else:
+                available = max(400, self.ide_desk.height / max(dp(1), .001))
+                profile = book_workspace_profile(
+                    max(1, round(self.workspace.width)),
+                    max(1, round(self.ide_desk.height)), density=max(1.0, dp(1)),
+                    requested_terminal_ratio=self._terminal_ratio,
+                )
+                self._bottom_panel_height = dp(max(
+                    80, min(available * .35, profile.terminal_open_height_dp) - 38
+                ))
                 self.bottom_panel.height = self._bottom_panel_height
                 self.bottom_panel.opacity = 1
                 self.bottom_panel.disabled = False
                 self.terminal_shell.height = dp(38) + self._bottom_panel_height
+                self.terminal_divider.height = dp(7)
                 self.bottom_panel_expanded = True
             if persist:
                 controller.save_preference(
                     "ide.bottom_panel_expanded",
                     "1" if self.bottom_panel_expanded else "0",
                 )
+
+        def _persist_terminal_height(self, height):
+            useful = max(dp(400), self.ide_desk.height)
+            ratio = min(.35, max(.20, height / useful))
+            self._terminal_ratio = ratio
+            self._bottom_panel_height = max(dp(80), height - dp(38))
+            self.bottom_panel.height = self._bottom_panel_height
+            controller.save_preference("ide.terminal_ratio", f"{ratio:.4f}")
 
         def _show_panel(self, name):
             if name not in self._panel_buffers:
@@ -1944,8 +2499,6 @@ def launch_advanced_kivy(controller) -> int:
             self.inline_tutor_controls.opacity = 1 if tutor_open else 0
             self.inline_tutor_controls.disabled = not tutor_open
             if not self.bottom_panel_expanded:
-                if Window.height < dp(800) and self.brief_expanded:
-                    self._toggle_brief()
                 self._toggle_bottom_panel()
 
         def _set_panel_text(self, name, value, *, activate=False):
@@ -1999,10 +2552,10 @@ def launch_advanced_kivy(controller) -> int:
         def _save_draft_now(self):
             if self.workspace_mode == "project":
                 self.save_project(None)
-                self.file_label.text = f"[ ]  {self._active_project_path}"
+                self.file_label.text = self._active_project_path
                 return
             self._persist_editor_state()
-            self.file_label.text = "[ ]  main.py"
+            self.file_label.text = "main.py"
             self.status.text = "Rascunho guardado localmente."
 
         def _open_find(self, replace=False):
@@ -2527,9 +3080,10 @@ def launch_advanced_kivy(controller) -> int:
                 self.hints_used = 0
                 self.last_edit_at = self.started
                 self.justification.text = ""
-                self.file_label.text = "[ ]  main.py"
-                if self.bottom_panel_expanded:
-                    self._toggle_bottom_panel(persist=False)
+                self.file_label.text = "main.py"
+                self._last_evaluation_receipt = None
+                self.solution_button.disabled = True
+                self.execution_button.disabled = True
                 self._set_panel_text(
                     "Output", transition_message or (
                         "Terminal local pronto. Executa para observar o resultado; "
@@ -3111,6 +3665,14 @@ def launch_advanced_kivy(controller) -> int:
 
         def _show_evaluation(self, receipt):
             self._set_execution_busy(False)
+            self._last_evaluation_receipt = receipt
+            self.solution_button.disabled = not bool(
+                getattr(receipt, "reference_available", False)
+            )
+            self.execution_button.disabled = not bool(
+                tuple(getattr(receipt, "reference_trace", ()) or ())
+                or tuple(getattr(receipt, "reference_expected_output", ()) or ())
+            )
             credit_awarded = bool(getattr(receipt, "credit_awarded", receipt.passed))
             self.status.text = (
                 "Aprovado e creditado" if receipt.passed and credit_awarded else
@@ -3341,7 +3903,7 @@ def launch_advanced_kivy(controller) -> int:
             self.next_exercise_button.disabled = True
             self.course_selector.text = "Projeto local"
             self.course_selector.disabled = True
-            self.file_label.text = f"[ ]  {project.relative_path}"
+            self.file_label.text = project.relative_path
             if template is None:
                 self.prompt.text = (
                     f"Projeto local\n\nObjetivo\nDesenvolve e testa {project.name}.\n\n"
@@ -3367,8 +3929,6 @@ def launch_advanced_kivy(controller) -> int:
             self.practice_button.disabled = True
             self.assessment_button.disabled = True
             self._set_workspace_layout("practice")
-            if self.bottom_panel_expanded:
-                self._toggle_bottom_panel(persist=False)
             self.status.text = f"A editar {project.name} · {project.relative_path}"
 
         def toggle_focus(self, _button):
@@ -3493,7 +4053,29 @@ def launch_advanced_kivy(controller) -> int:
                 body = item.body.strip()
                 if len(body) > 900:
                     body = body[:900].rstrip() + "…"
-                card.add_widget(text(body, size=15))
+                card_formulae = (
+                    (item.formula_latex,)
+                    if item.formula_latex
+                    else extract_latex_expressions(body)
+                )
+                card.add_widget(text(
+                    strip_latex_markup(body) if card_formulae else body, size=15,
+                ))
+                for latex in card_formulae:
+                    card.add_widget(FormulaView(
+                        latex=latex,
+                        spoken=(
+                            item.formula_spoken
+                            or f"Fórmula associada a {item.title}"
+                        ),
+                        variables=item.formula_variables,
+                        compact=True,
+                    ))
+                if item.formula_worked_example:
+                    card.add_widget(text(
+                        "Exemplo resolvido · " + item.formula_worked_example,
+                        muted=True,
+                    ))
                 if item.code_example:
                     card.add_widget(CodeInput(
                         text=item.code_example, readonly=True, size_hint_y=None, height=dp(170),
@@ -3601,13 +4183,35 @@ def launch_advanced_kivy(controller) -> int:
             body = item.body if not self.flipped else self.reference_text(item)
             if not self.flipped and item.code_example:
                 body += "\n\nExemplo\n" + item.code_example
+            card_formulae = (
+                (item.formula_latex,)
+                if not self.flipped and item.formula_latex
+                else extract_latex_expressions(body) if not self.flipped else ()
+            )
             face = Button(
-                text=body, halign="left", valign="middle", font_size=dp(20),
+                text=normalize_ui_text(
+                    strip_latex_markup(body) if card_formulae else body
+                ), halign="left", valign="middle", font_size=dp(20),
                 background_normal="", background_color=colors["card"], color=colors["text"],
             )
             face.bind(size=lambda widget, _value: setattr(widget, "text_size", (widget.width - dp(48), widget.height - dp(48))))
             face.bind(on_release=self.flip)
             root.add_widget(face)
+            for latex in card_formulae:
+                root.add_widget(FormulaView(
+                    latex=latex,
+                    spoken=(
+                        item.formula_spoken
+                        or f"Fórmula associada a {item.title}"
+                    ),
+                    variables=item.formula_variables,
+                    compact=True,
+                ))
+            if not self.flipped and item.formula_worked_example:
+                root.add_widget(text(
+                    "Exemplo resolvido · " + item.formula_worked_example,
+                    muted=True,
+                ))
             asset_path = None
             if getattr(item, "asset_id", None) and hasattr(controller, "pedagogical_asset_path"):
                 try:
@@ -4017,6 +4621,7 @@ def launch_advanced_kivy(controller) -> int:
 
         def __init__(self, **kwargs):
             super().__init__(**kwargs); self.ocr_draft = None; self.result = None
+            self.analysis_section = "Resumo"
             root = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(7))
             top = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
             self.mode = Spinner(text="Texto", values=("Texto", "Imagem"))
@@ -4038,6 +4643,30 @@ def launch_advanced_kivy(controller) -> int:
             confirmation.add_widget(text("Confirmei/corrigi o texto extraído (obrigatório após OCR)", muted=True, fixed=42))
             confirmation.add_widget(action("Analisar sem executar", self.analyze))
             root.add_widget(confirmation)
+            self.analysis_tabs = BoxLayout(
+                size_hint_y=None, height=dp(42), spacing=dp(4),
+            )
+            self.analysis_tab_buttons = {}
+            for section in (
+                "Resumo", "Problemas", "Símbolos", "Fluxo", "Tipos",
+                "Complexidade", "Testes",
+            ):
+                selector = ToggleButton(
+                    text=section, group="snippet-analysis-section",
+                    state="down" if section == "Resumo" else "normal",
+                    disabled=True, background_normal="",
+                    background_color=colors["card_alt"], color=colors["text"],
+                    font_name="AprendixSans", font_size=dp(12),
+                )
+                selector.theme_role = "navigation"
+                selector.aprendix_base_font_size = 12
+                selector.accessible_name = f"Análise: {section}"
+                selector.bind(
+                    on_release=lambda _button, name=section: self._select_analysis_section(name)
+                )
+                self.analysis_tab_buttons[section] = selector
+                self.analysis_tabs.add_widget(selector)
+            root.add_widget(self.analysis_tabs)
             self.scroll, self.column = scroll_column("snippet-analysis"); root.add_widget(self.scroll)
             self.add_widget(root)
             try: Window.bind(on_drop_file=self._drop_file)
@@ -4091,18 +4720,163 @@ def launch_advanced_kivy(controller) -> int:
             self.column.clear_widgets(); self.column.add_widget(text("Análise indisponível: " + message, muted=True))
 
         def _render_result(self, result):
-            self.result = result; self.column.clear_widgets()
-            card = Card(); card.add_widget(text(
-                f"{result.detected_language} · confiança {result.confidence:.0%} · "
-                f"tempo {result.complexity_time} · espaço {result.complexity_space}",
+            self.result = result
+            for selector in self.analysis_tab_buttons.values():
+                selector.disabled = False
+            self.analysis_section = "Resumo"
+            self.analysis_tab_buttons["Resumo"].state = "down"
+            self._render_analysis_section()
+
+        def _select_analysis_section(self, section):
+            if self.result is None:
+                return
+            self.analysis_section = section
+            self._render_analysis_section()
+
+        @staticmethod
+        def _bullet_lines(title, items, *, limit=200):
+            values = tuple(normalize_ui_text(str(item)) for item in items if str(item).strip())
+            if not values:
+                return None
+            return title + "\n• " + "\n• ".join(values[:limit])
+
+        def _add_analysis_text(self, card, title, lines, *, muted=True):
+            body = self._bullet_lines(title, lines)
+            if body:
+                card.add_widget(text(body, muted=muted))
+
+        def _render_analysis_section(self):
+            result = self.result
+            self.column.clear_widgets()
+            if result is None:
+                return
+            section = self.analysis_section
+            card = Card()
+            card.add_widget(text(
+                f"{section} · {result.detected_language} · "
+                f"confiança {result.confidence:.0%} · {result.elapsed_ms:.1f} ms",
                 bold=True, fixed=38,
-            )); card.add_widget(text(result.summary, size=16))
-            for title, items in (("Problemas", result.problems), ("Testes sugeridos", result.suggested_tests),
-                                 ("Conceitos", result.related_concepts), ("Linha a linha", result.line_explanations)):
-                if items: card.add_widget(text(title + "\n• " + "\n• ".join(items[:30]), muted=True))
-            if result.proposed_code:
-                card.add_widget(CodeInput(text=result.proposed_code, readonly=True, size_hint_y=None, height=dp(220)))
-                card.add_widget(action("Abrir nova versão no IDE", self._open_ide))
+            ))
+            if section == "Resumo":
+                card.add_widget(text(result.summary, size=16))
+                if result.action_result:
+                    card.add_widget(text(result.action_result, muted=True))
+                self._add_analysis_text(card, "Entradas", result.inputs)
+                self._add_analysis_text(card, "Saídas", result.outputs)
+                self._add_analysis_text(card, "Invariantes", result.invariants)
+                self._add_analysis_text(card, "Construções", result.constructs)
+                self._add_analysis_text(card, "Conceitos relacionados", result.related_concepts)
+                self._add_analysis_text(card, "Linha a linha", result.line_explanations)
+                card.add_widget(text(
+                    f"{result.node_count} nós AST analisados" +
+                    (" · resultado truncado com segurança" if result.analysis_truncated else ""),
+                    muted=True, fixed=30,
+                ))
+                if result.proposed_code:
+                    card.add_widget(text("Versão proposta", bold=True, fixed=34))
+                    proposed = CodeInput(
+                        text=result.proposed_code, readonly=True,
+                        size_hint_y=None, height=dp(220), font_name="AprendixMono",
+                    )
+                    card.add_widget(proposed)
+                    card.add_widget(action("Abrir nova versão no IDE", self._open_ide))
+            elif section == "Problemas":
+                self._add_analysis_text(card, "Problemas detetados", result.problems)
+                diagnostics = []
+                for item in result.diagnostics:
+                    line = (
+                        f"[{item.severity.value.upper()}] L{item.line}:{item.column} "
+                        f"{item.code} — {item.message}"
+                    )
+                    if item.evidence:
+                        line += f" | evidência: {item.evidence}"
+                    if item.safe_fix:
+                        line += f" | correção segura: {item.safe_fix}"
+                    diagnostics.append(line)
+                self._add_analysis_text(card, "Diagnósticos localizados", diagnostics)
+                security = (
+                    f"[{item.severity.value.upper()}] L{item.line} {item.code} — "
+                    f"{item.message} | evidência: {item.evidence}"
+                    for item in result.security_findings
+                )
+                self._add_analysis_text(card, "Segurança", security)
+                self._add_analysis_text(
+                    card, "Exceções possíveis", result.possible_exceptions,
+                )
+            elif section == "Símbolos":
+                symbols = (
+                    f"L{item.line}:{item.column} {item.kind} {item.name} "
+                    f"({item.scope}) · {item.use_count} uso(s)" +
+                    (f" · tipo {item.inferred_type}" if item.inferred_type else "")
+                    for item in result.symbols
+                )
+                self._add_analysis_text(card, "Símbolos", symbols)
+                functions = (
+                    f"L{item.line}–{item.end_line} {item.qualified_name}{item.signature} "
+                    f"· chama: {', '.join(item.calls) or '—'} "
+                    f"· pode lançar: {', '.join(item.raises) or '—'}"
+                    for item in result.functions
+                )
+                self._add_analysis_text(card, "Funções", functions)
+                classes = (
+                    f"L{item.line}–{item.end_line} class {item.qualified_name} "
+                    f"· bases: {', '.join(item.bases) or '—'} "
+                    f"· métodos: {', '.join(item.methods) or '—'} "
+                    f"· atributos: {', '.join(item.attributes) or '—'}"
+                    for item in result.classes
+                )
+                self._add_analysis_text(card, "Classes", classes)
+                self._add_analysis_text(card, "Imports", result.imports)
+            elif section == "Fluxo":
+                legacy_flow = (f"{source} → {target}" for source, target in result.control_flow)
+                self._add_analysis_text(card, "Fluxo resumido", legacy_flow)
+                blocks = (
+                    f"{item.id} · L{item.line} · {item.scope}/{item.kind}: "
+                    f"{item.label} → {', '.join(item.successors) or 'fim'}"
+                    for item in result.cfg_blocks
+                )
+                self._add_analysis_text(card, "Blocos de controlo", blocks)
+                edges = (
+                    f"L{item.line} {item.caller} → {item.callee}" +
+                    (" (chamada dinâmica)" if item.dynamic else "")
+                    for item in result.call_edges
+                )
+                self._add_analysis_text(card, "Grafo de chamadas", edges)
+            elif section == "Tipos":
+                facts = (
+                    f"L{item.line} {item.symbol}: {item.inferred_type} "
+                    f"({item.confidence:.0%}) · {item.evidence}"
+                    for item in result.type_facts
+                )
+                self._add_analysis_text(card, "Tipos inferidos", facts, muted=False)
+            elif section == "Complexidade":
+                card.add_widget(text(
+                    f"Estimativa global: tempo {result.complexity_time} · "
+                    f"espaço {result.complexity_space}",
+                    size=16, bold=True, fixed=38,
+                ))
+                findings = (
+                    f"{item.scope}: ciclomática {item.cyclomatic} · "
+                    f"tempo {item.time} · espaço {item.space} — {item.rationale}"
+                    for item in result.complexity_findings
+                )
+                self._add_analysis_text(card, "Por âmbito", findings)
+            elif section == "Testes":
+                self._add_analysis_text(card, "Testes sugeridos", result.suggested_tests)
+                for item in result.test_suggestions:
+                    card.add_widget(text(
+                        f"{item.name} · {item.category}\n{item.rationale}",
+                        bold=True,
+                    ))
+                    if item.code:
+                        card.add_widget(CodeInput(
+                            text=item.code, readonly=True, size_hint_y=None,
+                            height=dp(150), font_name="AprendixMono",
+                        ))
+            if len(card.children) == 1:
+                card.add_widget(text(
+                    "Não foram encontrados elementos nesta secção.", muted=True,
+                ))
             self.column.add_widget(card)
 
         def _open_ide(self, *_args):
@@ -4518,11 +5292,21 @@ def launch_advanced_kivy(controller) -> int:
                 excerpt = hit.excerpt.strip()
                 if len(excerpt) > 900:
                     excerpt = excerpt[:900].rstrip() + "…"
+                excerpt_formulae = extract_latex_expressions(excerpt)
                 excerpt_body = BoxLayout(
                     orientation="vertical", size_hint_y=None, spacing=dp(5),
                 )
                 excerpt_body.bind(minimum_height=excerpt_body.setter("height"))
-                render_legacy_document(excerpt_body, excerpt, compact=True)
+                render_legacy_document(
+                    excerpt_body,
+                    strip_latex_markup(excerpt) if excerpt_formulae else excerpt,
+                    compact=True,
+                )
+                for latex in excerpt_formulae:
+                    excerpt_body.add_widget(FormulaView(
+                        latex=latex, spoken=f"Fórmula encontrada em {hit.title}",
+                        compact=True,
+                    ))
                 card.add_widget(excerpt_body)
                 card.add_widget(text(f"{hit.content_type.value} · {hit.complexity.value} · {hit.relevance:.0%}", muted=True, fixed=28))
                 if hit.why_shown:
@@ -4654,11 +5438,18 @@ def launch_advanced_kivy(controller) -> int:
                     body = {"summary": detail.summary, "simplified": detail.simplified,
                             "original": detail.original_content}[mode]
                     source_card.add_widget(text(labels[mode], muted=True, fixed=28))
+                    formulae = extract_latex_expressions(body)
                     source_card.add_widget(TextInput(
-                        text=body, readonly=True, font_size=dp(14),
+                        text=normalize_ui_text(
+                            strip_latex_markup(body) if formulae else body
+                        ), readonly=True, font_size=dp(14),
                         background_color=colors["card"], foreground_color=colors["text"],
                         size_hint_y=None, height=dp(min(620, max(260, 80 + len(body) // 3))),
                     ))
+                    for latex in formulae:
+                        source_card.add_widget(FormulaView(
+                            latex=latex, spoken=f"Fórmula em {detail.title}", compact=True,
+                        ))
                     grid.add_widget(source_card)
                 self.column.add_widget(grid)
                 return
@@ -5312,16 +6103,10 @@ def launch_advanced_kivy(controller) -> int:
                 pos=lambda *_: setattr(self.sidebar_shape, "pos", self.sidebar.pos),
                 size=lambda *_: setattr(self.sidebar_shape, "size", self.sidebar.size),
             )
-            self.collapse_button = Button(
-                text="Menu  ·  Recolher", size_hint_y=None, height=dp(48),
-                background_normal="", background_color=colors["card_alt"],
-                color=colors["text"],
-            )
-            self.collapse_button.theme_role = "navigation"
-            self.collapse_button.bind(
-                on_release=lambda *_: self.set_sidebar_collapsed(
+            self.collapse_button = IconAction(
+                "book", "Menu", lambda *_: self.set_sidebar_collapsed(
                     not self.sidebar_collapsed
-                )
+                ), show_label=True,
             )
             self.sidebar.add_widget(self.collapse_button)
             self.navigation_scroll = ScrollView(
@@ -5337,33 +6122,25 @@ def launch_advanced_kivy(controller) -> int:
                 minimum_height=self.navigation_column.setter("height")
             )
             navigation = (
-                (Route.DASHBOARD, "Painel", "01"),
-                (Route.CURRICULUM, "Curso", "02"),
-                (Route.IDE, "IDE", "{}"),
-                (Route.SEARCH, "Pesquisa", "/"),
-                (Route.CARDS, "Cards", "[]"),
-                (Route.DICTIONARY, "Dicionário", "Aa"),
-                (Route.TUTOR, "Tutor", "?"),
-                (Route.PROJECTS, "Projetos", "PJ"),
-                (Route.ANALYZER, "Analisar", "<>"),
-                (Route.GAMES, "Games", "#"),
-                (Route.DATA, "Dados", "DB"),
+                (Route.DASHBOARD, "Painel", "dashboard"),
+                (Route.CURRICULUM, "Curso", "course"),
+                (Route.IDE, "IDE", "ide"),
+                (Route.SEARCH, "Pesquisa", "search"),
+                (Route.CARDS, "Cards", "cards"),
+                (Route.DICTIONARY, "Dicionário", "dictionary"),
+                (Route.TUTOR, "Tutor", "tutor"),
+                (Route.PROJECTS, "Projetos", "projects"),
+                (Route.ANALYZER, "Analisar", "analyzer"),
+                (Route.GAMES, "Games", "games"),
+                (Route.DATA, "Dados", "data"),
             )
             for route, title, icon in navigation:
-                button = Button(
-                    text=title, size_hint_y=None, height=dp(50),
-                    background_normal="", background_color=colors["card_alt"],
-                    color=colors["text"],
+                button = IconAction(
+                    icon, title,
+                    lambda _button, target=route: self.go(target),
+                    show_label=True,
                 )
-                button.theme_role = "navigation"
-                button.full_title = title
-                button.compact_title = icon
-                button.accessible_name = title
-                button.tooltip_text = title
                 button.route = route
-                button.bind(
-                    on_release=lambda _button, target=route: self.go(target)
-                )
                 self._nav_buttons.append(button)
                 self.navigation_column.add_widget(button)
             self.navigation_scroll.add_widget(self.navigation_column)
@@ -5405,10 +6182,14 @@ def launch_advanced_kivy(controller) -> int:
                 size_hint_y=None, height=dp(52),
                 padding=(dp(8), dp(5)), spacing=dp(6),
             )
-            back = Button(text="Voltar", size_hint_x=None, width=dp(76))
-            back.bind(on_release=lambda *_: self.go_back())
-            forward = Button(text="Avançar", size_hint_x=None, width=dp(82))
-            forward.bind(on_release=lambda *_: self.go_forward())
+            back = IconAction(
+                "previous", "Voltar", lambda *_: self.go_back(), width=46,
+                shortcut="Alt+Esquerda",
+            )
+            forward = IconAction(
+                "next", "Avançar", lambda *_: self.go_forward(), width=46,
+                shortcut="Alt+Direita",
+            )
             self.page_title = Label(
                 text=self._route_titles[initial_route], color=colors["text"],
                 bold=True, halign="left",
@@ -5416,11 +6197,11 @@ def launch_advanced_kivy(controller) -> int:
             self.page_title.bind(
                 size=lambda item, _value: setattr(item, "text_size", item.size)
             )
-            commands = Button(
-                text="Ctrl+K  Comandos", size_hint_x=None, width=dp(170)
+            commands = IconAction(
+                "more", "Comandos", lambda *_: self.open_palette(), width=170,
+                show_label=True, shortcut="Ctrl+K",
             )
             self.commands_button = commands
-            commands.bind(on_release=lambda *_: self.open_palette())
             topbar.add_widget(back)
             topbar.add_widget(forward)
             topbar.add_widget(self.page_title)
@@ -5489,14 +6270,14 @@ def launch_advanced_kivy(controller) -> int:
         def set_sidebar_collapsed(self, collapsed, *, persist=True):
             self.sidebar_collapsed = bool(collapsed)
             self.sidebar.width = dp(72 if self.sidebar_collapsed else 196)
-            self.collapse_button.text = (
-                "Menu" if self.sidebar_collapsed else "Menu  ·  Recolher"
+            self.collapse_button.set_label_visible(not self.sidebar_collapsed)
+            self.collapse_button.command_title = (
+                "Expandir menu" if self.sidebar_collapsed else "Recolher menu"
             )
+            self.collapse_button.accessible_name = self.collapse_button.command_title
+            self.collapse_button.tooltip_text = self.collapse_button.command_title
             for button in self._nav_buttons:
-                button.text = (
-                    button.compact_title
-                    if self.sidebar_collapsed else button.full_title
-                )
+                button.set_label_visible(not self.sidebar_collapsed)
             self.theme_button.text = (
                 self.theme_button.compact_title
                 if self.sidebar_collapsed else self.theme_button.full_title
@@ -5515,9 +6296,7 @@ def launch_advanced_kivy(controller) -> int:
             if profile.navigation != "sidebar" and not self.sidebar_collapsed:
                 self.set_sidebar_collapsed(True)
             self.commands_button.width = dp(profile.command_width_dp)
-            self.commands_button.text = (
-                "Comandos" if profile.compact_labels else "Ctrl+K  Comandos"
-            )
+            self.commands_button.set_label_visible(not profile.compact_labels)
 
         def _key_down(self, _window, key, _scancode, _codepoint, modifiers):
             if "ctrl" in modifiers and key in (75, 107):
@@ -5625,8 +6404,10 @@ def launch_advanced_kivy(controller) -> int:
                     widget.refresh_theme()
                 elif isinstance(widget, (TrendChart, SkillGraphCanvas)):
                     widget.refresh_theme()
-                elif isinstance(widget, PaneDivider):
+                elif isinstance(widget, (PaneDivider, TerminalDivider)):
                     widget.divider_color.rgba = colors["accent"]
+                elif isinstance(widget, (IconAction, IconToggleAction)):
+                    widget.refresh_theme()
                 role = getattr(widget, "theme_role", None)
                 if isinstance(widget, Label) and role in {"text", "muted"}:
                     widget.color = colors[role]

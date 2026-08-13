@@ -437,12 +437,39 @@ class KnowledgeRepository:
                         ),
                     )
                     asset_id = asset.id
+                formula_valid = bool(
+                    fact.card_format == "formula"
+                    and fact.formula_latex.strip()
+                    and fact.formula_spoken.strip()
+                    and fact.formula_variables
+                    and fact.formula_worked_example.strip()
+                )
+                presentation_format = (
+                    fact.card_format
+                    if fact.card_format != "formula" or formula_valid
+                    else "microexample"
+                )
                 connection.execute(
                     """INSERT INTO card_presentation(card_id,format,asset_id)
                        VALUES(?,?,?) ON CONFLICT(card_id) DO UPDATE SET
                        format=excluded.format,asset_id=excluded.asset_id""",
-                    (str(card_id), fact.card_format, asset_id),
+                    (str(card_id), presentation_format, asset_id),
                 )
+                connection.execute(
+                    "DELETE FROM card_formula_details WHERE card_id=?", (str(card_id),)
+                )
+                if formula_valid:
+                    connection.execute(
+                        """INSERT INTO card_formula_details(
+                               card_id,latex,spoken,variables_json,worked_example,provenance
+                           ) VALUES(?,?,?,?,?,?)""",
+                        (
+                            str(card_id), fact.formula_latex, fact.formula_spoken,
+                            json.dumps(dict(fact.formula_variables), ensure_ascii=False),
+                            fact.formula_worked_example,
+                            "Fórmula original Aprendix, validada para o renderer MathText local.",
+                        ),
+                    )
             active_fact_chunks = {
                 str(uuid5(NAMESPACE_URL, f"aprendix:fact-chunk:{fact.slug}"))
                 for fact in ALL_FACTS
@@ -1176,6 +1203,10 @@ class KnowledgeRepository:
                 SELECT tc.*, COALESCE(cs.title,d.title) AS source_title, dc.page_number,
                        kt.technologies_json, kt.themes_json, cm.cluster_id,
                        COALESCE(cp.format,'concept') AS card_format,
+                       COALESCE(fd.latex,'') AS formula_latex,
+                       COALESCE(fd.spoken,'') AS formula_spoken,
+                       COALESCE(fd.variables_json,'{{}}') AS formula_variables_json,
+                       COALESCE(fd.worked_example,'') AS formula_worked_example,
                        pa.id AS asset_id,pa.storage_uri AS asset_uri,
                        pa.alt_text AS asset_alt_text,
                        (SELECT group_concat(area_id) FROM knowledge_area_chunks
@@ -1187,6 +1218,7 @@ class KnowledgeRepository:
                   ON csl0.card_id=tc.id AND csl0.position=0
                 LEFT JOIN curated_sources cs ON cs.id=csl0.source_id
                 LEFT JOIN card_presentation cp ON cp.card_id=tc.id
+                LEFT JOIN card_formula_details fd ON fd.card_id=tc.id
                 LEFT JOIN pedagogical_assets pa ON pa.id=cp.asset_id
                 LEFT JOIN knowledge_taxonomy kt ON kt.chunk_id = dc.id
                 LEFT JOIN knowledge_cluster_members cm ON cm.chunk_id = dc.id
@@ -1245,6 +1277,10 @@ class KnowledgeRepository:
                     cluster_id=row["cluster_id"],
                     area_ids=tuple((row["area_ids"] or "").split(",")) if row["area_ids"] else (),
                     format=CardFormat(row["card_format"]), asset_id=row["asset_id"],
+                    formula_latex=row["formula_latex"],
+                    formula_spoken=row["formula_spoken"],
+                    formula_variables=json.loads(row["formula_variables_json"]),
+                    formula_worked_example=row["formula_worked_example"],
                     asset_alt_text=row["asset_alt_text"] or "",
                     asset_uri=row["asset_uri"] or "",
                     sources=tuple(sources_by_card.get(row["id"], ())),

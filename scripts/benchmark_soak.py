@@ -32,6 +32,15 @@ QUERIES = (
 )
 
 
+def _canonical_query(value: str) -> str:
+    """Repair reversible source-literal mojibake in historical soak cases."""
+
+    try:
+        return value.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return value
+
+
 def run(output: Path, *, cycles: int = 200) -> dict[str, object]:
     if not 1 <= cycles <= 5_000:
         raise ValueError("cycles must be between 1 and 5000")
@@ -48,7 +57,7 @@ def run(output: Path, *, cycles: int = 200) -> dict[str, object]:
             operation_started = time.perf_counter()
             try:
                 result = runtime.search_service.search(
-                    SearchRequestDTO(query=QUERIES[index % len(QUERIES)])
+                    SearchRequestDTO(query=_canonical_query(QUERIES[index % len(QUERIES)]))
                 )
                 if not result.evidence:
                     failures.append(f"empty-search:{index}")

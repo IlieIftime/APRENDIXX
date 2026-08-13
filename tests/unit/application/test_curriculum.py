@@ -23,11 +23,16 @@ def test_academy_has_complete_acyclic_hierarchy_and_gated_paths(tmp_path):
     runtime = build_runtime(tmp_path / "profile")
     audit = runtime.curriculum.audit()
     paths = runtime.curriculum.paths()
+    with runtime.database.read_connection() as connection:
+        longest_graph_slug = connection.execute(
+            "SELECT max(length(slug)) FROM graph_nodes"
+        ).fetchone()[0]
 
     assert audit["valid"] is True
+    assert longest_graph_slug <= 80
     assert audit["counts"] == {
         "paths": 12, "tracks": 12, "chapters": 59, "units": 248,
-        "objectives": 71, "exercises": 3063,
+        "objectives": 71, "exercises": 3563,
     }
     assert len(paths) == 12
     assert paths[0]["unlocked"] is True

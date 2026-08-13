@@ -1,0 +1,247 @@
+{
+  "audit_version": "iteration-21.0",
+  "checks": {
+    "all_reference_solutions_pass_in_sandbox": {
+      "detail": "500/500 trusted solutions passed isolated tests",
+      "duration_ms": 0.01,
+      "error_type": "",
+      "passed": true
+    },
+    "capital_accumulation_acceptance_case": {
+      "detail": "canonical formula/table/trace and progressive reveal policy are present",
+      "duration_ms": 0.01,
+      "error_type": "",
+      "passed": true
+    },
+    "catalog_release_and_exact_minimum_deltas": {
+      "detail": "active governed release; additive approved deltas meet Iteration-21 targets",
+      "duration_ms": 0.02,
+      "error_type": "",
+      "passed": true
+    },
+    "deep_static_analyzer_golden_50": {
+      "detail": "50/50 snippets expose symbols/CFG/complexity",
+      "duration_ms": 0.0,
+      "error_type": "",
+      "passed": true
+    },
+    "exercise_solution_policy_provenance": {
+      "detail": "500 exercises; missing source/solution/policy=(0, 0, 0)",
+      "duration_ms": 0.02,
+      "error_type": "",
+      "passed": true
+    },
+    "five_career_dags_and_projects": {
+      "detail": "roles=5; nodes=25; project links=50; cycles=0",
+      "duration_ms": 0.01,
+      "error_type": "",
+      "passed": true
+    },
+    "legacy_cards_are_excluded_not_deleted": {
+      "detail": "visible archived cards=0; indexed/active cards=2827/2827; preserved legacy records=0; aggregate readings=0",
+      "duration_ms": 0.01,
+      "error_type": "",
+      "passed": true
+    },
+    "loss_aware_text_contract": {
+      "detail": "4/4 Unicode/declared-code/Web/quarantine contracts passed",
+      "duration_ms": 0.0,
+      "error_type": "",
+      "passed": true
+    },
+    "offline_math_contract": {
+      "detail": "18 offline theme/family renders and deterministic cache key",
+      "duration_ms": 1.56,
+      "error_type": "",
+      "passed": true
+    },
+    "responsive_book_workspace_contract": {
+      "detail": "four release viewport policies retain two pages and bounded transversal terminal",
+      "duration_ms": 0.01,
+      "error_type": "",
+      "passed": true
+    },
+    "schema_38_integrity": {
+      "detail": "schema=38; integrity=ok; foreign_keys=0",
+      "duration_ms": 0.01,
+      "error_type": "",
+      "passed": true
+    },
+    "source_first_regression_queries": {
+      "detail": "capital/decorators/backpropagation each expose at least two real sources in top 3",
+      "duration_ms": 0.0,
+      "error_type": "",
+      "passed": true
+    },
+    "source_first_search_holdout_v3": {
+      "detail": "queries=284; Recall@10=0.996; nDCG@10=0.981; hard-neg@3=0.000; P95=130.37 ms",
+      "duration_ms": 0.05,
+      "error_type": "",
+      "passed": true
+    },
+    "static_analysis_never_executes": {
+      "detail": "boundary calls=0; security findings=4",
+      "duration_ms": 0.01,
+      "error_type": "",
+      "passed": true
+    }
+  },
+  "duration_ms": 120946.6,
+  "external_release_gates": {
+    "authenticode": "requires a publisher certificate",
+    "keyboard_mouse_and_screen_reader": "requires physical assistive-technology review",
+    "mixed_dpi_multi_monitor": "requires two physical monitors",
+    "windows_visual_matrix_physical": "requires physical 1024/1366/1920 and 100-200% DPI review"
+  },
+  "iteration": 21,
+  "metrics": {
+    "analyzer_execution_boundary_calls": 0,
+    "analyzer_golden_cases": 50,
+    "analyzer_golden_passes": 50,
+    "archived_cards_visible": 0,
+    "archived_legacy_cards": 0,
+    "authored_card_aggregate_readings": 0,
+    "book_workspace_profiles": [
+      {
+        "editor_dp": 585,
+        "mode": "book",
+        "support_dp": 430,
+        "terminal_ratio": 0.28
+      },
+      {
+        "editor_dp": 927,
+        "mode": "book",
+        "support_dp": 430,
+        "terminal_ratio": 0.28
+      },
+      {
+        "editor_dp": 1481,
+        "mode": "book",
+        "support_dp": 430,
+        "terminal_ratio": 0.28
+      },
+      {
+        "editor_dp": 375,
+        "mode": "book",
+        "support_dp": 430,
+        "terminal_ratio": 0.28
+      }
+    ],
+    "career": {
+      "area_links": 27,
+      "nodes": 25,
+      "project_links": 50,
+      "roles": 5,
+      "track_links": 59
+    },
+    "career_dag_cycles": 0,
+    "catalog_counts": {
+      "card": 2827,
+      "delta": {
+        "card": 1000,
+        "exercise": 500,
+        "glossary": 1000,
+        "project": 50,
+        "source": 500
+      },
+      "exercise": 3563,
+      "glossary": 4343,
+      "lesson": 177,
+      "project": 70,
+      "reading_chunk": 0,
+      "seed_signature": "bdeb89a001aeb7fe52ecd2a35933879c440da5caa42179b7331b37786772d29d",
+      "source": 1622,
+      "user_project": 0
+    },
+    "catalog_delta": {
+      "card": 1000,
+      "exercise": 500,
+      "glossary": 1000,
+      "project": 50,
+      "source": 500
+    },
+    "catalog_quality": {
+      "bad_sources": [],
+      "card_source_minimum": 2,
+      "duplicate_source_keys": 0,
+      "empty_source_keys": 0,
+      "exercise_diversity": {
+        "contracts": 500,
+        "normalized_structures": 25,
+        "role_counts": {
+          "cybersecurity-automation": 100,
+          "data-analyst": 100,
+          "data-engineer": 100,
+          "machine-learning-engineer": 100,
+          "python-software-engineer": 100
+        },
+        "solution_asts": 500,
+        "test_suites": 500
+      },
+      "glossary_example_minimum": 2,
+      "glossary_source_minimum": 3,
+      "official_source_families": {
+        "docker": 20,
+        "fastapi": 10,
+        "kubernetes": 25,
+        "linux": 25,
+        "mitre-attack": 25,
+        "mlflow": 15,
+        "mongodb": 25,
+        "nist-airc": 10,
+        "nist-dads": 25,
+        "opencv": 15,
+        "owasp": 45,
+        "pandas": 25,
+        "postgresql": 30,
+        "pypa": 20,
+        "pytest": 25,
+        "python": 35,
+        "pytorch": 30,
+        "sklearn": 30,
+        "spacy": 10,
+        "spark": 20,
+        "tensorflow": 20,
+        "w3c-wcag": 15
+      }
+    },
+    "indexed_editorial_cards": 2827,
+    "math_render_snapshots": 18,
+    "sandbox_validated_reference_solutions": 500,
+    "schema_version": 38,
+    "search_hard_negative_rate_at_3": 0.0,
+    "search_holdout_queries": 284,
+    "search_holdout_version": "catalog-source-first-holdout-v3",
+    "search_mrr": 0.975855,
+    "search_ndcg_at_10": 0.981136,
+    "search_p95_ms": 130.369,
+    "search_recall_at_10": 0.996479,
+    "source_first_regression_top3_types": {
+      "backpropagation regra da cadeia": [
+        "source",
+        "source",
+        "card"
+      ],
+      "capital acumulado juros compostos": [
+        "source",
+        "source",
+        "exercise"
+      ],
+      "decoradores Python": [
+        "source",
+        "source",
+        "glossary"
+      ]
+    },
+    "text_contract_passes": 4
+  },
+  "passed": true,
+  "platform_scope": "Windows desktop only; mobile subtree frozen",
+  "privacy": {
+    "aggregate_only": true,
+    "contains_paths": false,
+    "contains_user_content": false,
+    "contains_user_identifiers": false,
+    "temporary_profile": true
+  }
+}

@@ -2,18 +2,25 @@
 
 from __future__ import annotations
 
+import re
 import struct
 import tempfile
-import re
-from statistics import median
 from pathlib import Path
+from statistics import median
 
 from aprendix.application.contracts import OcrDraftDTO, OcrRegionDTO
+from aprendix.application.text_normalization import (
+    TextDecodingError,
+    TextNormalizationService,
+)
 
 
 class LocalImageOcr:
     MAX_BYTES = 20 * 1024 * 1024
     MAX_PIXELS = 25_000_000
+
+    def __init__(self, *, normalizer: TextNormalizationService | None = None) -> None:
+        self._normalizer = normalizer or TextNormalizationService()
 
     def extract(self, path: Path) -> OcrDraftDTO:
         path = path.expanduser().resolve()
@@ -41,8 +48,8 @@ class LocalImageOcr:
                     image = image.filter(ImageFilter.MedianFilter(size=3))
                     image = ImageEnhance.Contrast(image).enhance(1.25)
                     image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=125, threshold=3))
-                    handle = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-                    temporary_name = handle.name; handle.close()
+                    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as handle:
+                        temporary_name = handle.name
                     image.save(temporary_name, "PNG", optimize=True)
                     clean_path = Path(temporary_name)
             except ImportError:
@@ -62,15 +69,43 @@ class LocalImageOcr:
                 ambiguous=ambiguous,
             ))
         combined = self._combine_regions(regions)
+        if len(combined) > 100_000:
+            raise ValueError("O texto OCR excede o limite de confirmação de 100 000 caracteres.")
         confidence = sum(item.confidence for item in regions) / len(regions) if regions else 0.0
         warnings = [f"Formato {kind}, {width}×{height}; metadata removida no processamento."]
         if any(item.ambiguous for item in regions):
             warnings.append("Confirma caracteres ambíguos como 0/O, 1/l, dois-pontos e indentação.")
         if not regions: warnings.append("Não foi detetado texto legível.")
-        return OcrDraftDTO(
-            text=combined, confidence=confidence, regions=tuple(regions),
-            warnings=tuple(warnings), requires_confirmation=True,
+        text, status, normalization_warnings = self._normalize_ocr_text(
+            combined, confidence=confidence
         )
+        warnings.extend(normalization_warnings)
+        return OcrDraftDTO(
+            text=text, original_text=combined, confidence=confidence, regions=tuple(regions),
+            warnings=tuple(warnings), requires_confirmation=True,
+            normalization_status=status,
+        )
+
+    def _normalize_ocr_text(
+        self, text: str, *, confidence: float
+    ) -> tuple[str, str, tuple[str, ...]]:
+        """Normalize reversibly, retaining ambiguous OCR verbatim for correction."""
+
+        try:
+            result = self._normalizer.normalize_ocr(text, confidence=confidence)
+        except TextDecodingError as exc:
+            return (
+                text,
+                "quarantined",
+                (
+                    (
+                        "Texto OCR mantido sem alterações e colocado em quarentena: "
+                        f"{str(exc)[:300]}. Corrige os caracteres antes de analisar."
+                    ),
+                ),
+            )
+        status = "repaired" if result.repaired_mojibake else "normalized"
+        return result.text, status, result.warnings
 
     @staticmethod
     def _combine_regions(regions: list[OcrRegionDTO]) -> str:

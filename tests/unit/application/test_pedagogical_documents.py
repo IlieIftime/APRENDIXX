@@ -69,7 +69,9 @@ def test_structured_document_asset_roundtrip_and_catalog_search(
     assert [block.kind for block in loaded.blocks] == ["title", "paragraph", "formula"]
     counts = repository.rebuild_catalog_search()
     assert counts["lesson"] == 1
-    hits = service.search_catalog("produto interno vetores")
+    # Explicit lesson intent tests the internal-document path; a general
+    # technical query is intentionally source-first since Iteration 21.
+    hits = service.search_catalog("lição produto interno vetores")
     assert hits and hits[0].entity_id == "dot-product"
 
 
@@ -130,7 +132,9 @@ def test_runtime_materializes_the_complete_typed_learning_spine(tmp_path) -> Non
             """SELECT count(*) FROM catalog_search_entries
                WHERE entity_type='glossary' AND trim(body)<>trim(title)"""
         ).fetchone()[0])
-    assert owners == {"exercise": 59, "lesson": 59, "project": 20}
+    assert owners["exercise"] == 59
+    assert owners["lesson"] == 59
+    assert owners["project"] >= 70
     assert {
         "title", "paragraph", "list", "code", "signature", "formula",
         "table", "diagram", "callout", "references",

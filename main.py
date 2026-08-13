@@ -39,10 +39,13 @@ if "--aprendix-debugger" in sys.argv:
 if "--self-test" in sys.argv:
     import json
     import tempfile
-    from aprendix.bootstrap import build_runtime
-    from aprendix.application.games import MinesweeperGame, SudokuGame
+
     from aprendix.application.contracts import SnippetRequestDTO, TutorRequestDTO
+    from aprendix.application.games import MinesweeperGame, SudokuGame
+    from aprendix.application.math_rendering import FormulaRenderRequest
+    from aprendix.bootstrap import build_runtime
     from aprendix.infrastructure.db.schema import SCHEMA_VERSION
+    from aprendix.presentation.math_renderer import OfflineMathRenderer
 
     target = Path(tempfile.mkdtemp(prefix="aprendix-self-test-"))
     if "--data-dir" in sys.argv:
@@ -60,6 +63,9 @@ if "--self-test" in sys.argv:
                JOIN documents d ON d.id=c.document_id
                WHERE d.source_path='aprendix://authored-facts/v1'"""
         ).fetchone()[0]
+        reference_solutions = connection.execute(
+            "SELECT count(*) FROM exercise_reference_solutions"
+        ).fetchone()[0]
     glossary_ok = bool(runtime.curriculum.glossary("else", limit=1))
     games_ok = len(SudokuGame("Fácil", 1).fixed) > 0 and len(MinesweeperGame("Fácil", 1).mines) == 10
     tutor_result = runtime.tutor.answer(TutorRequestDTO(
@@ -68,6 +74,46 @@ if "--self-test" in sys.argv:
     snippet_result = runtime.snippets.analyze(SnippetRequestDTO(
         text="def dobro(x):\n    return x * 2"
     ))
+    catalog_audit = runtime.catalog.audit()
+    catalog_delta = catalog_audit.get("counts", {}).get("delta", {})
+    catalog_ok = bool(
+        catalog_audit.get("passed")
+        and catalog_delta == {
+            "source": 500,
+            "card": 1_000,
+            "glossary": 1_000,
+            "exercise": 500,
+            "project": 50,
+        }
+        and catalog_audit.get("career", {}).get("roles") == 5
+        and catalog_audit.get("dag_cycles") == 0
+        and reference_solutions >= 500
+    )
+    source_first_queries = (
+        "capital acumulado juros compostos",
+        "decoradores Python",
+        "backpropagation regra da cadeia",
+    )
+    source_first_ok = all(
+        sum(hit.entity_type == "source" for hit in runtime.pedagogy.search_catalog(
+            query, limit=3,
+        )) >= 2
+        for query in source_first_queries
+    )
+    rendered_formula = OfflineMathRenderer(target / "math-self-test").render(
+        FormulaRenderRequest(
+            latex=r"\frac{x+1}{2}",
+            spoken="x mais um, dividido por dois",
+            variables={"x": "valor de entrada"},
+            theme="dark",
+        )
+    )
+    formula_ok = bool(
+        not rendered_formula.error
+        and rendered_formula.path is not None
+        and rendered_formula.path.is_file()
+        and rendered_formula.path.stat().st_size > 0
+    )
     project_templates = runtime.portfolio.templates()
     track_slugs = {track["slug"] for track in runtime.curriculum.tracks()}
     # Some tracks intentionally offer both a guided project and a capstone.
@@ -79,7 +125,9 @@ if "--self-test" in sys.argv:
     game_session = runtime.games.new("sudoku", "Fácil", daily=True)
     extended_ok = all((
         not tutor_result.declined, bool(tutor_result.evidence),
-        snippet_result.detected_language == "python", projects_ok,
+        snippet_result.detected_language == "python",
+        bool(snippet_result.functions), bool(snippet_result.cfg_blocks),
+        projects_ok, catalog_ok, source_first_ok, formula_ok,
         game_session.id is not None,
     ))
     health = runtime.platform.health()
@@ -95,6 +143,11 @@ if "--self-test" in sys.argv:
                     "games": games_ok, "extended_features": extended_ok,
                     "tutor_confidence": tutor_result.confidence,
                     "projects": len(project_templates),
+                    "reference_solutions": reference_solutions,
+                    "catalog_delta": catalog_delta,
+                    "catalog_iteration_21": catalog_ok,
+                    "source_first": source_first_ok,
+                    "formula_renderer": rendered_formula.backend,
                     "runtime_health": health.status.value,
                     "feature_flags": len(feature_flags)},
                    ensure_ascii=False, indent=2),

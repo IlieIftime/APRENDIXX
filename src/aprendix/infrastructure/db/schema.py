@@ -1,6 +1,6 @@
 """Versioned SQLite schema for the local-first learning platform."""
 
-SCHEMA_VERSION = 37
+SCHEMA_VERSION = 38
 
 MIGRATIONS: dict[int, tuple[str, ...]] = {
     1: (
@@ -1655,5 +1655,203 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "CREATE INDEX IF NOT EXISTS card_presentation_format ON card_presentation(format,card_id)",
         "CREATE INDEX IF NOT EXISTS glossary_examples_entry ON glossary_examples(entry_id,ordinal)",
         "CREATE INDEX IF NOT EXISTS catalog_search_entries_entity ON catalog_search_entries(entity_type,entity_id)",
+    ),
+    38: (
+        "ALTER TABLE curated_sources ADD COLUMN canonical_key TEXT NOT NULL DEFAULT ''",
+        """
+        UPDATE curated_sources SET canonical_key = CASE
+            WHEN length(trim(COALESCE(doi,''))) > 0
+                THEN 'doi:' || lower(trim(doi))
+            ELSE 'url:' || lower(rtrim(trim(canonical_url), '/'))
+        END
+        """,
+        "CREATE UNIQUE INDEX IF NOT EXISTS curated_sources_canonical_key ON curated_sources(canonical_key) WHERE canonical_key<>''",
+        """
+        CREATE TABLE content_catalog_releases (
+            id TEXT PRIMARY KEY NOT NULL,
+            version TEXT NOT NULL UNIQUE CHECK(length(trim(version)) BETWEEN 1 AND 80),
+            status TEXT NOT NULL CHECK(status IN ('draft','active','retired','failed')),
+            schema_version INTEGER NOT NULL CHECK(schema_version >= 1),
+            counts_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(counts_json)),
+            checksum TEXT NOT NULL CHECK(length(checksum) = 64),
+            created_at TEXT NOT NULL,
+            activated_at TEXT,
+            CHECK(status <> 'active' OR activated_at IS NOT NULL)
+        ) STRICT
+        """,
+        """
+        CREATE TABLE content_catalog_items (
+            release_id TEXT NOT NULL,
+            item_type TEXT NOT NULL CHECK(item_type IN (
+                'source','card','glossary','exercise','project','lesson',
+                'reading_chunk','user_project'
+            )),
+            item_id TEXT NOT NULL,
+            content_type TEXT NOT NULL CHECK(content_type IN (
+                'curated','editorial','generated','imported','user'
+            )),
+            status TEXT NOT NULL CHECK(status IN ('active','archived','quarantined')),
+            provenance TEXT NOT NULL CHECK(length(trim(provenance)) BETWEEN 3 AND 1000),
+            fingerprint TEXT NOT NULL CHECK(length(fingerprint) = 64),
+            created_at TEXT NOT NULL,
+            PRIMARY KEY(release_id,item_type,item_id),
+            FOREIGN KEY(release_id) REFERENCES content_catalog_releases(id)
+                ON UPDATE CASCADE ON DELETE CASCADE
+        ) WITHOUT ROWID, STRICT
+        """,
+        """
+        CREATE TABLE card_formula_details (
+            card_id TEXT PRIMARY KEY NOT NULL,
+            latex TEXT NOT NULL CHECK(length(trim(latex)) BETWEEN 1 AND 2000),
+            spoken TEXT NOT NULL CHECK(length(trim(spoken)) BETWEEN 3 AND 2000),
+            variables_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(variables_json)),
+            worked_example TEXT NOT NULL CHECK(length(trim(worked_example)) BETWEEN 3 AND 4000),
+            provenance TEXT NOT NULL CHECK(length(trim(provenance)) BETWEEN 3 AND 1000),
+            FOREIGN KEY(card_id) REFERENCES theory_cards(id) ON DELETE CASCADE
+        ) STRICT
+        """,
+        """
+        INSERT INTO content_catalog_releases(
+            id,version,status,schema_version,counts_json,checksum,created_at,activated_at
+        ) VALUES(
+            'schema-38-legacy','schema-38-legacy','active',38,'{}',
+            '0000000000000000000000000000000000000000000000000000000000000000',
+            strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        )
+        """,
+        """
+        INSERT INTO content_catalog_items(
+            release_id,item_type,item_id,content_type,status,provenance,fingerprint,created_at
+        )
+        SELECT 'schema-38-legacy','card',tc.id,
+               CASE WHEN d.source_path='aprendix://authored-facts/v1'
+                          AND cp.card_id IS NOT NULL
+                          AND EXISTS(SELECT 1 FROM card_source_links csl WHERE csl.card_id=tc.id)
+                    THEN 'editorial' ELSE 'imported' END,
+               CASE WHEN d.source_path='aprendix://authored-facts/v1'
+                          AND cp.card_id IS NOT NULL
+                          AND EXISTS(SELECT 1 FROM card_source_links csl WHERE csl.card_id=tc.id)
+                    THEN 'active' ELSE 'archived' END,
+               CASE WHEN d.source_path='aprendix://authored-facts/v1'
+                    THEN 'Catálogo editorial Aprendix anterior ao schema 38.'
+                    ELSE 'Card legado preservado para histórico e removido da pesquisa editorial.' END,
+               '0000000000000000000000000000000000000000000000000000000000000000',
+               strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          FROM theory_cards tc
+          JOIN document_chunks dc ON dc.id=tc.chunk_id
+          JOIN documents d ON d.id=dc.document_id
+          LEFT JOIN card_presentation cp ON cp.card_id=tc.id
+        """,
+        """
+        CREATE TABLE career_roles (
+            id TEXT PRIMARY KEY NOT NULL,
+            slug TEXT NOT NULL UNIQUE CHECK(length(trim(slug)) BETWEEN 2 AND 100),
+            title TEXT NOT NULL CHECK(length(trim(title)) BETWEEN 3 AND 200),
+            summary TEXT NOT NULL CHECK(length(trim(summary)) BETWEEN 10 AND 2000),
+            outcome TEXT NOT NULL CHECK(length(trim(outcome)) BETWEEN 10 AND 2000),
+            position INTEGER NOT NULL CHECK(position >= 0),
+            active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))
+        ) STRICT
+        """,
+        """
+        CREATE TABLE career_nodes (
+            id TEXT PRIMARY KEY NOT NULL,
+            role_id TEXT NOT NULL,
+            slug TEXT NOT NULL,
+            title TEXT NOT NULL CHECK(length(trim(title)) BETWEEN 3 AND 200),
+            objective TEXT NOT NULL CHECK(length(trim(objective)) BETWEEN 10 AND 2000),
+            stage INTEGER NOT NULL CHECK(stage BETWEEN 0 AND 20),
+            position INTEGER NOT NULL CHECK(position >= 0),
+            FOREIGN KEY(role_id) REFERENCES career_roles(id) ON DELETE CASCADE,
+            UNIQUE(role_id,slug)
+        ) STRICT
+        """,
+        """
+        CREATE TABLE career_node_dependencies (
+            node_id TEXT NOT NULL,
+            prerequisite_node_id TEXT NOT NULL,
+            minimum_mastery REAL NOT NULL DEFAULT 0.70
+                CHECK(minimum_mastery BETWEEN 0.0 AND 1.0),
+            PRIMARY KEY(node_id,prerequisite_node_id),
+            FOREIGN KEY(node_id) REFERENCES career_nodes(id) ON DELETE CASCADE,
+            FOREIGN KEY(prerequisite_node_id) REFERENCES career_nodes(id) ON DELETE CASCADE,
+            CHECK(node_id <> prerequisite_node_id)
+        ) WITHOUT ROWID, STRICT
+        """,
+        """
+        CREATE TABLE career_node_tracks (
+            node_id TEXT NOT NULL,
+            track_id TEXT NOT NULL,
+            required INTEGER NOT NULL DEFAULT 1 CHECK(required IN (0,1)),
+            weight REAL NOT NULL DEFAULT 1.0 CHECK(weight BETWEEN 0.0 AND 5.0),
+            position INTEGER NOT NULL CHECK(position >= 0),
+            PRIMARY KEY(node_id,track_id),
+            FOREIGN KEY(node_id) REFERENCES career_nodes(id) ON DELETE CASCADE,
+            FOREIGN KEY(track_id) REFERENCES learning_tracks(id) ON DELETE CASCADE
+        ) WITHOUT ROWID, STRICT
+        """,
+        """
+        CREATE TABLE career_role_areas (
+            role_id TEXT NOT NULL,
+            area_id TEXT NOT NULL,
+            required INTEGER NOT NULL DEFAULT 1 CHECK(required IN (0,1)),
+            weight REAL NOT NULL DEFAULT 1.0 CHECK(weight BETWEEN 0.0 AND 5.0),
+            position INTEGER NOT NULL CHECK(position >= 0),
+            PRIMARY KEY(role_id,area_id),
+            FOREIGN KEY(role_id) REFERENCES career_roles(id) ON DELETE CASCADE,
+            FOREIGN KEY(area_id) REFERENCES knowledge_areas(id) ON DELETE CASCADE
+        ) WITHOUT ROWID, STRICT
+        """,
+        """
+        CREATE TABLE career_role_projects (
+            role_id TEXT NOT NULL,
+            project_template_id TEXT NOT NULL,
+            stage INTEGER NOT NULL CHECK(stage BETWEEN 0 AND 20),
+            required INTEGER NOT NULL DEFAULT 1 CHECK(required IN (0,1)),
+            position INTEGER NOT NULL CHECK(position >= 0),
+            PRIMARY KEY(role_id,project_template_id),
+            FOREIGN KEY(role_id) REFERENCES career_roles(id) ON DELETE CASCADE,
+            FOREIGN KEY(project_template_id) REFERENCES guided_project_templates(id)
+                ON DELETE CASCADE
+        ) WITHOUT ROWID, STRICT
+        """,
+        """
+        CREATE TABLE exercise_guidance_policies (
+            exercise_id TEXT PRIMARY KEY NOT NULL,
+            reveal_mode TEXT NOT NULL CHECK(reveal_mode IN (
+                'progressive','guided','evaluation-locked'
+            )),
+            failed_attempts_before_walkthrough INTEGER NOT NULL
+                CHECK(failed_attempts_before_walkthrough BETWEEN 1 AND 20),
+            failed_attempts_before_solution INTEGER NOT NULL
+                CHECK(failed_attempts_before_solution BETWEEN 1 AND 50),
+            walkthrough_encrypted BLOB NOT NULL,
+            expected_trace_encrypted BLOB NOT NULL,
+            provenance TEXT NOT NULL CHECK(length(trim(provenance)) BETWEEN 3 AND 1000),
+            updated_at TEXT NOT NULL,
+            CHECK(failed_attempts_before_solution >= failed_attempts_before_walkthrough),
+            FOREIGN KEY(exercise_id) REFERENCES exercises(id) ON DELETE CASCADE
+        ) STRICT
+        """,
+        """
+        CREATE TABLE exercise_catalog_provenance (
+            exercise_id TEXT PRIMARY KEY NOT NULL,
+            release_id TEXT NOT NULL,
+            generator_version TEXT NOT NULL CHECK(length(trim(generator_version)) BETWEEN 3 AND 120),
+            source_id TEXT NOT NULL,
+            rationale TEXT NOT NULL CHECK(length(trim(rationale)) BETWEEN 10 AND 1000),
+            test_count INTEGER NOT NULL CHECK(test_count >= 1),
+            fingerprint TEXT NOT NULL CHECK(length(fingerprint) = 64),
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(exercise_id) REFERENCES exercises(id) ON DELETE CASCADE,
+            FOREIGN KEY(release_id) REFERENCES content_catalog_releases(id) ON DELETE RESTRICT,
+            FOREIGN KEY(source_id) REFERENCES curated_sources(id) ON DELETE RESTRICT
+        ) STRICT
+        """,
+        "CREATE INDEX content_catalog_items_status ON content_catalog_items(item_type,status,content_type,item_id)",
+        "CREATE INDEX content_catalog_items_release ON content_catalog_items(release_id,status,item_type)",
+        "CREATE INDEX career_nodes_role_stage ON career_nodes(role_id,stage,position)",
+        "CREATE INDEX career_dependencies_prerequisite ON career_node_dependencies(prerequisite_node_id,node_id)",
+        "CREATE INDEX career_projects_project ON career_role_projects(project_template_id,role_id)",
     ),
 }

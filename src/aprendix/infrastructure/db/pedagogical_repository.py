@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -11,6 +12,7 @@ from hashlib import sha256
 
 from pydantic import TypeAdapter
 
+from aprendix.application.contracts.models import ExerciseDTO
 from aprendix.application.contracts.pedagogy import (
     CalloutBlockDTO,
     CodeBlockDTO,
@@ -28,7 +30,6 @@ from aprendix.application.contracts.pedagogy import (
     TableBlockDTO,
     TitleBlockDTO,
 )
-from aprendix.application.contracts.models import ExerciseDTO
 from aprendix.application.exercise_presentation import build_exercise_brief
 from aprendix.application.pedagogical_documents import (
     block_fingerprint,
@@ -48,6 +49,36 @@ _SVG_FORBIDDEN = re.compile(
 )
 _FTS_TERM = re.compile(r"[\w+#.-]{2,}", re.UNICODE)
 _CATALOG_DOCUMENT_VERSION = 1
+_CATALOG_STOPWORDS = frozenset({
+    "a", "as", "ao", "aos", "com", "como", "da", "das", "de", "do", "dos",
+    "e", "em", "entre", "explica", "explicar", "exemplo", "funciona", "mais",
+    "na", "nas", "no", "nos", "o", "os", "ou", "para", "por", "porque",
+    "qual", "que", "sem", "sobre", "uma", "um", "usar", "the", "and", "how",
+    "what", "with", "from", "erro", "erros", "mínimo", "minimo",
+    "aplicar", "avaliação", "avaliacao", "abordagens", "comparar", "consolidar",
+    "diagnosticar", "exercício", "exercicios", "exercícios", "fundamentais",
+    "prático", "pratico", "profissional", "referência", "referências",
+    "referencia", "referencias", "percurso", "treino",
+})
+_CATALOG_QUERY_ALIASES = {
+    "acumulado": ("acumulada", "accumulated", "compound"),
+    "backpropagation": ("backprop", "autograd", "gradient"),
+    "cadeia": ("chain",),
+    "compostos": ("composto", "compound"),
+    "ciberseguranca": ("cybersecurity", "security"),
+    "automacao": ("automation",),
+    "decorador": ("decorator", "decorators"),
+    "decoradores": ("decorador", "decorator", "decorators"),
+    "juros": ("juro", "interest"),
+    "ml": ("learning",),
+    "privilegio": ("privilege",),
+    "regra": ("rule",),
+    "robotica": ("robotics",),
+}
+_INTERNAL_CATALOG_INTENT = re.compile(
+    r"\b(?:exerc[ií]cio|projeto|card|dicion[aá]rio|gloss[aá]rio|curso|li[cç][aã]o)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +99,11 @@ class PedagogicalRepository:
     def __init__(self, database: Database, cipher: AesGcmFieldCipher) -> None:
         self._database = database
         self._cipher = cipher
+        self._catalog_search_ready = False
+        self._catalog_search_cache: dict[
+            tuple[str, tuple[str, ...], tuple[str, ...], int],
+            tuple[CatalogSearchHit, ...],
+        ] = {}
 
     @staticmethod
     def _validate_asset_payload(asset: PedagogicalAssetDTO) -> None:
@@ -616,8 +652,16 @@ class PedagogicalRepository:
             prefer: bool = False,
         ) -> None:
             key = (entity_type, entity_id)
-            if key in records and not prefer:
+            previous = records.get(key)
+            if previous is not None and not prefer:
                 return
+            if previous is not None:
+                # A structured pedagogical document enriches the searchable
+                # prose, but it must not erase the catalogue relationships
+                # already collected from the canonical owner record.
+                area_ids = tuple(area_ids) or tuple(previous["area_ids"])
+                source_ids = tuple(source_ids) or tuple(previous["source_ids"])
+                keywords = keywords or str(previous["keywords"])
             records[key] = {
                 "entity_type": entity_type,
                 "entity_id": entity_id,
@@ -644,7 +688,14 @@ class PedagogicalRepository:
             for row in connection.execute(
                 """SELECT tc.id,tc.title,tc.body_encrypted,tc.code_example_encrypted,
                           COALESCE(cp.format,'concept') format
-                   FROM theory_cards tc LEFT JOIN card_presentation cp ON cp.card_id=tc.id"""
+                   FROM theory_cards tc LEFT JOIN card_presentation cp ON cp.card_id=tc.id
+                   WHERE EXISTS(
+                       SELECT 1 FROM content_catalog_items ci
+                       JOIN content_catalog_releases cr ON cr.id=ci.release_id
+                       WHERE cr.status='active' AND ci.item_type='card'
+                         AND ci.item_id=tc.id AND ci.content_type='editorial'
+                         AND ci.status='active'
+                   )"""
             ):
                 card_id = row["id"]
                 body = self._decrypt(row["body_encrypted"], f"theory_cards.body:{card_id}")
@@ -748,7 +799,8 @@ class PedagogicalRepository:
             permitted_documents = connection.execute(
                 """SELECT d.id,d.title,d.author FROM documents d
                    JOIN document_provenance p ON p.document_id=d.id
-                   WHERE p.rights_status='permitted' AND d.lifecycle='active'"""
+                   WHERE p.rights_status='permitted' AND d.lifecycle='active'
+                     AND d.source_path<>'aprendix://authored-facts/v1'"""
             ).fetchall()
             for document in permitted_documents:
                 chunks = connection.execute(
@@ -766,7 +818,17 @@ class PedagogicalRepository:
                     keywords=document["author"] or "",
                 )
 
+            active_editorial_cards = {
+                row["item_id"] for row in connection.execute(
+                    """SELECT ci.item_id FROM content_catalog_items ci
+                       JOIN content_catalog_releases cr ON cr.id=ci.release_id
+                       WHERE cr.status='active' AND ci.item_type='card'
+                         AND ci.content_type='editorial' AND ci.status='active'"""
+                )
+            }
             for row in connection.execute("SELECT * FROM pedagogical_documents ORDER BY version"):
+                if row["owner_type"] == "card" and row["owner_id"] not in active_editorial_cards:
+                    continue
                 blocks = connection.execute(
                     """SELECT plain_text FROM pedagogical_blocks
                        WHERE document_id=? ORDER BY ordinal""", (row["id"],)
@@ -814,30 +876,90 @@ class PedagogicalRepository:
                 )
                 entity_type = str(record["entity_type"])
                 by_type[entity_type] = by_type.get(entity_type, 0) + 1
+        self._catalog_search_ready = True
+        self._catalog_search_cache.clear()
         return {"total": len(records), **by_type}
 
     @staticmethod
-    def _fts_query(query: str) -> str:
-        stopwords = {
-            "a", "as", "ao", "aos", "com", "como", "da", "das", "de", "do", "dos",
-            "e", "em", "entre", "explica", "explicar", "exemplo", "funciona", "mais",
-            "na", "nas", "no", "nos", "o", "os", "ou", "para", "por", "porque",
-            "qual", "que", "sem", "sobre", "uma", "um", "usar", "the", "and", "how",
-            "what", "with", "from", "erro", "erros", "mínimo", "minimo",
-        }
-        terms = []
+    def _fts_term_groups(query: str) -> tuple[tuple[str, ...], ...]:
+        """Return bounded synonym groups, one group per user concept."""
+
+        groups: list[tuple[str, ...]] = []
+        seen: set[str] = set()
         for raw in _FTS_TERM.findall(normalize_pedagogical_text(query).casefold()):
             escaped = raw.replace('"', '""')
-            if escaped not in stopwords and not escaped.isdigit() and escaped not in terms:
-                terms.append(escaped)
-        if not terms:
+            if (
+                escaped not in _CATALOG_STOPWORDS
+                and not escaped.isdigit()
+                and escaped not in seen
+            ):
+                alternatives = [escaped]
+                seen.add(escaped)
+                for alias in _CATALOG_QUERY_ALIASES.get(escaped, ()):
+                    if alias not in seen:
+                        alternatives.append(alias)
+                        seen.add(alias)
+                groups.append(tuple(alternatives))
+        return tuple(groups[:8])
+
+    @staticmethod
+    def _fts_token(term: str) -> str:
+        return f'"{term}"*' if len(term) >= 5 else f'"{term}"'
+
+    @classmethod
+    def _fts_query(cls, query: str) -> str:
+        groups = cls._fts_term_groups(query)
+        if not groups:
             return ""
         # Prefixes are useful for Portuguese inflection, but very short prefixes
         # make FTS visit most of the catalogue.  Keep the query discriminative.
         return " OR ".join(
-            f'"{term}"*' if len(term) >= 5 else f'"{term}"'
-            for term in terms[:10]
+            cls._fts_token(term)
+            for group in groups for term in group
         )
+
+    @classmethod
+    def _focused_fts_query(cls, query: str) -> str:
+        """Require two concepts in FTS; the broad form remains a no-hit fallback."""
+
+        groups = cls._fts_term_groups(query)
+        if not groups:
+            return ""
+        expressions = [
+            "(" + " OR ".join(cls._fts_token(term) for term in group) + ")"
+            for group in groups[:2]
+        ]
+        return " AND ".join(expressions)
+
+    @staticmethod
+    def _lexical_coverage(query: str, text: str) -> tuple[int, int]:
+        """Count original query concepts supported by text or a bounded alias."""
+
+        def fold(value: str) -> str:
+            return unicodedata.normalize("NFKD", value).encode(
+                "ascii", "ignore"
+            ).decode().casefold()
+
+        query_terms = tuple(dict.fromkeys(
+            fold(raw)
+            for raw in _FTS_TERM.findall(normalize_pedagogical_text(query))
+            if fold(raw) not in _CATALOG_STOPWORDS and not raw.isdigit()
+        ))
+        text_terms = set(_FTS_TERM.findall(fold(text)))
+
+        def related(left: str, right: str) -> bool:
+            if left == right:
+                return True
+            shorter, longer = sorted((left, right), key=len)
+            return len(shorter) >= 4 and longer.startswith(shorter)
+
+        matched = 0
+        for term in query_terms:
+            alternatives = (term, *_CATALOG_QUERY_ALIASES.get(term, ()))
+            if any(related(alternative, candidate)
+                   for alternative in alternatives for candidate in text_terms):
+                matched += 1
+        return matched, len(query_terms)
 
     def search_catalog(
         self,
@@ -847,12 +969,22 @@ class PedagogicalRepository:
         area_ids: tuple[str, ...] = (),
         limit: int = 20,
     ) -> tuple[CatalogSearchHit, ...]:
-        with self._database.read_connection() as connection:
-            indexed = int(connection.execute(
-                "SELECT count(*) FROM catalog_search_entries"
-            ).fetchone()[0])
-        if indexed == 0:
-            self.rebuild_catalog_search()
+        cache_key = (
+            normalize_pedagogical_text(query).casefold(),
+            tuple(entity_types), tuple(area_ids), max(1, min(limit, 100)),
+        )
+        cached = self._catalog_search_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        if not self._catalog_search_ready:
+            with self._database.read_connection() as connection:
+                indexed = connection.execute(
+                    "SELECT 1 FROM catalog_search_entries LIMIT 1"
+                ).fetchone()
+            if indexed is None:
+                self.rebuild_catalog_search()
+            else:
+                self._catalog_search_ready = True
         fts_query = self._fts_query(query)
         if not fts_query:
             return ()
@@ -865,30 +997,85 @@ class PedagogicalRepository:
                 return ()
             clauses.append(f"e.entity_type IN ({','.join('?' for _ in values)})")
             parameters.extend(values)
-        parameters.append(max(1, min(limit * 5 if area_ids else limit, 500)))
+        requested_limit = max(1, min(limit, 100))
+        # A modest evidence pool lets us promote the canonical references
+        # linked to the best topical records.  This is still a bounded FTS
+        # query and avoids a second search pass.
+        fetch_limit = min(500, max(requested_limit, 8))
+        parameters.append(fetch_limit)
         with self._database.read_connection() as connection:
-            rows = connection.execute(
-                f"""SELECT e.*,bm25(catalog_search_fts,8.0,2.0,4.0) rank,
-                           snippet(catalog_search_fts,2,'','',' … ',28) excerpt
-                    FROM catalog_search_fts JOIN catalog_search_entries e
-                      ON e.id=catalog_search_fts.entry_id
-                    WHERE {' AND '.join(clauses)}
-                    ORDER BY rank,e.entity_type,e.title LIMIT ?""",
-                parameters,
-            ).fetchall()
-        hits = []
-        requested_areas = set(area_ids)
-        for row in rows:
-            entry_areas = tuple(json.loads(row["area_ids_json"]))
-            if requested_areas and not requested_areas.intersection(entry_areas):
-                continue
-            rank = float(row["rank"])
-            hits.append(CatalogSearchHit(
-                id=row["id"], entity_type=row["entity_type"], entity_id=row["entity_id"],
-                title=row["title"], excerpt=row["excerpt"] or row["body"][:500],
-                area_ids=entry_areas, source_ids=tuple(json.loads(row["source_ids_json"])),
-                score=1.0 / (1.0 + abs(rank)),
-            ))
-            if len(hits) >= max(1, min(limit, 100)):
-                break
-        return tuple(hits)
+            search_sql = f"""SELECT e.*,bm25(catalog_search_fts,8.0,2.0,4.0) rank,
+                                      snippet(catalog_search_fts,2,'','',' … ',28) excerpt
+                               FROM catalog_search_fts JOIN catalog_search_entries e
+                                 ON e.id=catalog_search_fts.entry_id
+                               WHERE {' AND '.join(clauses)}
+                               ORDER BY rank,e.entity_type,e.title LIMIT ?"""
+            rows = connection.execute(search_sql, parameters).fetchall()
+            hits: list[CatalogSearchHit] = []
+            requested_areas = set(area_ids)
+            for row in rows:
+                entry_areas = tuple(json.loads(row["area_ids_json"]))
+                if requested_areas and not requested_areas.intersection(entry_areas):
+                    continue
+                matched, concepts = self._lexical_coverage(
+                    query,
+                    (
+                        f"{row['title']} {row['body']} {row['keywords']} "
+                        f"{' '.join(entry_areas)}"
+                    ),
+                )
+                required = min(concepts, 2) if concepts else 0
+                if matched < required:
+                    continue
+                rank = float(row["rank"])
+                hits.append(CatalogSearchHit(
+                    id=row["id"], entity_type=row["entity_type"], entity_id=row["entity_id"],
+                    title=row["title"], excerpt=row["excerpt"] or row["body"][:500],
+                    area_ids=entry_areas,
+                    source_ids=tuple(json.loads(row["source_ids_json"])),
+                    score=1.0 / (1.0 + abs(rank)),
+                ))
+
+            source_allowed = not entity_types or "source" in entity_types
+            source_first = source_allowed and not _INTERNAL_CATALOG_INTENT.search(query)
+            if source_first:
+                support: dict[str, float] = {}
+                for position, hit in enumerate(hits[: max(12, requested_limit)]):
+                    # SQLite's BM25 value is negative and rows are already in
+                    # strongest-first order.  Use that stable order directly;
+                    # a reciprocal transform of ``abs(rank)`` would invert the
+                    # evidence and let a weak late match sponsor the sources.
+                    positional = 1.0 / (1.0 + position)
+                    for source_id in hit.source_ids:
+                        support[source_id] = max(support.get(source_id, 0.0), positional)
+                source_hits = {hit.entity_id: hit for hit in hits if hit.entity_type == "source"}
+                missing = tuple(source_id for source_id in support if source_id not in source_hits)
+                if missing:
+                    placeholders = ",".join("?" for _ in missing)
+                    for row in connection.execute(
+                        f"""SELECT * FROM catalog_search_entries
+                            WHERE entity_type='source' AND entity_id IN ({placeholders})""",
+                        missing,
+                    ):
+                        source_hits[row["entity_id"]] = CatalogSearchHit(
+                            id=row["id"], entity_type="source", entity_id=row["entity_id"],
+                            title=row["title"], excerpt=row["body"][:500],
+                            area_ids=tuple(json.loads(row["area_ids_json"])),
+                            source_ids=tuple(json.loads(row["source_ids_json"])),
+                            score=support[row["entity_id"]],
+                        )
+                promoted = sorted(
+                    source_hits.values(),
+                    key=lambda hit: (-support.get(hit.entity_id, hit.score), hit.title.casefold()),
+                )[:2]
+                if promoted:
+                    promoted_ids = {item.entity_id for item in promoted}
+                    hits = promoted + [
+                        item for item in hits
+                        if not (item.entity_type == "source" and item.entity_id in promoted_ids)
+                    ]
+        result = tuple(hits[:requested_limit])
+        if len(self._catalog_search_cache) >= 512:
+            self._catalog_search_cache.clear()
+        self._catalog_search_cache[cache_key] = result
+        return result

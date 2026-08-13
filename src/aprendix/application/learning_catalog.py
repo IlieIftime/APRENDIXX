@@ -6,7 +6,7 @@ for bibliographic metadata; no protected source text is reproduced.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from aprendix.application.academy_catalog import (
     ACADEMY_MODULES,
@@ -26,6 +26,10 @@ class FactDefinition:
     source_ids: tuple[str, ...] = ()
     card_format: str = "concept"
     visual_hint: str = ""
+    formula_latex: str = ""
+    formula_spoken: str = ""
+    formula_variables: tuple[tuple[str, str], ...] = ()
+    formula_worked_example: str = ""
 
 
 FACTS: tuple[FactDefinition, ...] = (
@@ -200,7 +204,11 @@ def _vertical_fact_bank() -> tuple[FactDefinition, ...]:
     return tuple(facts)
 
 
-_VERTICAL_PRACTICE_FACTS = _vertical_fact_bank()
+_VERTICAL_PRACTICE_FACTS = tuple(
+    replace(item, card_format="microexample")
+    if item.card_format == "formula" else item
+    for item in _vertical_fact_bank()
+)
 
 _PROJECT_CURRICULUM_FACTS = tuple(
     FactDefinition(
@@ -221,8 +229,14 @@ _PROJECT_CURRICULUM_FACTS = tuple(
 
 
 from aprendix.application.advanced_learning_catalog import build_advanced_facts
+from aprendix.application.official_catalog import build_official_facts
 
-_ADVANCED_FACTS = build_advanced_facts(FactDefinition)
+_ADVANCED_FACTS = tuple(
+    replace(item, card_format="microexample")
+    if item.card_format == "formula" else item
+    for item in build_advanced_facts(FactDefinition)
+)
+_OFFICIAL_DOCUMENTATION_FACTS = build_official_facts(FactDefinition)
 
 
 # A single, stable catalogue used by search, cards and curriculum evidence.
@@ -235,6 +249,7 @@ ALL_FACTS: tuple[FactDefinition, ...] = (
     *_PROJECT_CURRICULUM_FACTS,
     *_VERTICAL_PRACTICE_FACTS,
     *_ADVANCED_FACTS,
+    *_OFFICIAL_DOCUMENTATION_FACTS,
 )
 
 

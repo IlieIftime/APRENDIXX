@@ -11,7 +11,12 @@ datas = collect_data_files(
     "aprendix.presentation",
     includes=["assets/*"],
 )
+datas += collect_data_files(
+    "aprendix.application",
+    includes=["official_source_catalog.json"],
+)
 datas += collect_data_files("rapidocr_onnxruntime")
+datas += collect_data_files("matplotlib", includes=["mpl-data/**"])
 # The source catalogue introspects this bounded stdlib set at startup.  Listing
 # it here makes the same verified catalogue available in the frozen executable
 # instead of relying on incidental imports discovered by PyInstaller.
@@ -29,6 +34,8 @@ stdlib_catalogue_imports = [
 hidden_imports = [
     "aprendix.bootstrap",
     "kivy.graphics.svg",
+    "matplotlib.backends.backend_agg",
+    "matplotlib.mathtext",
     *stdlib_catalogue_imports,
     *collect_submodules("rapidocr_onnxruntime"),
 ]
