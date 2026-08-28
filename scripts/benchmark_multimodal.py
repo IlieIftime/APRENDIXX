@@ -80,7 +80,7 @@ def run(output: Path) -> dict[str, object]:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output", type=Path, default=Path("MULTIMODAL-BENCHMARK-1.0.0.json"))
+    parser.add_argument("--output", type=Path, default=Path("reports/MULTIMODAL-BENCHMARK-1.0.0.json"))
     arguments = parser.parse_args()
     measured = run(arguments.output.resolve())
     print(json.dumps(measured, indent=2, ensure_ascii=False))

@@ -33,7 +33,9 @@ def audit() -> dict[str, object]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output", type=Path, default=Path("ACCESSIBILITY-AUDIT-1.0.0.json"))
+    parser.add_argument(
+        "--output", type=Path, default=ROOT / "reports" / "ACCESSIBILITY-AUDIT-1.0.0.json"
+    )
     args = parser.parse_args()
     report = audit()
     output = args.output.resolve()

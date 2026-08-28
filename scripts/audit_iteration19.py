@@ -17,7 +17,7 @@ from aprendix_mobile.seed import SCHEMA_VERSION, build_seed
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT / "ITERATION-19-AUDIT-1.0.0.json"
+OUTPUT = ROOT / "reports" / "ITERATION-19-AUDIT-1.0.0.json"
 APK = ROOT / "dist" / "mobile" / "Aprendix-1.0.0-android-arm64-release.apk"
 
 

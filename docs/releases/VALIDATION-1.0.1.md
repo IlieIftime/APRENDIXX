@@ -1,11 +1,12 @@
-# Validação final — Aprendix 1.0.0
+# Validação final — Aprendix 1.0.1
 
 Data: 12 de agosto de 2026
 Ambiente de release: Windows 11, Python 3.12.10, PyInstaller 6.22.0
 
 ## Resultado executivo corrigido
 
-Este documento regista o baseline técnico 1.0.0 do Plano Mestre AAA.
+Este documento regista a validação do release 1.0.1 sobre o baseline técnico do
+Plano Mestre AAA.
 A regressão automatizada, os gates 14–17/19–20 e o self-test Windows passaram. A
 Iteração 19 portou para Android/iOS o percurso unidade→IDE→correção→evidência e
 reconstruiu o APK com a base governada atual. Não foram encontradas falhas
@@ -50,6 +51,7 @@ gate AAA estejam fechados.
 | 17 — Atualizações | ciclo semanal opt-in, allowlist, preview, assinatura, cache, quarentena e rollback | gate offline reprodutível aprovado em `ITERATION-17-AUDIT-1.0.0.json` |
 | 19 — Mobile final | unidade no IDE, correção protegida, diagnóstico, evidência autónoma/transferência e seed governada | gate lógico aprovado; APK assinado validado em `ITERATION-19-AUDIT-1.0.0.json` |
 | 20 — Desktop Learning Workspace | consulta separada de crédito, analytics explicáveis, grafo filtrado, documentos estruturados, IDE integrado e catálogo completo | gate agregado em `ITERATION-20-AUDIT-1.0.0.json`; gates físicos declarados no relatório |
+| 21 — Book IDE e inteligência local | pesquisa source-first, análise estática, fórmulas offline, normalização de texto e catálogo editorial governado | 14 gates aprovados em `ITERATION-21-AUDIT-1.0.0.json`; limites físicos declarados no relatório |
 
 ## Testes e qualidade
 
@@ -175,13 +177,13 @@ quando a sua população fica desatualizada.
 
 ## Artefactos Windows
 
-- Executável instalado: `C:\Users\iliei\AppData\Local\Programs\Aprendix\1.0.0\Aprendix.exe`
+- Executável instalado: `C:\Users\iliei\AppData\Local\Programs\Aprendix\1.0.1\Aprendix.exe`
 - SHA-256: `63132FAD26192F92A88E5F3B2756EC7062CCDD5901A418EAA006AF3E4B15A394`.
 - Runtime `_internal`: 320 ficheiros, 268 410 441 bytes, tree SHA-256
   `E944613204F1C939CAD52DCB7D390735EA46246D1DA93F76B346B64BCFC407D8`
 - Sandbox SHA-256: `E374117E0B95EB42199EAF5DA67138EF3D07E59AC7AAF1B37D33402F914B508D`
-- Atalho do Ambiente de Trabalho validado contra o executável 1.0.0.
-- O desinstalador em `DryRun` detetou 0.17.0, 0.18.0 e 1.0.0 pelos manifestos,
+- Atalho do Ambiente de Trabalho validado contra o executável 1.0.1.
+- O desinstalador em `DryRun` detetou 0.17.0, 0.18.0 e 1.0.1 pelos manifestos,
   sem remover ficheiros e preservando os dados pessoais por omissão.
 
 O EXE não tem assinatura Authenticode por não existir um certificado Windows
@@ -218,7 +220,7 @@ A subtree mobile contém a shell Toga, persistência, contratos, Keychain,
 notificações/haptics e o script Briefcase/Xcode. Windows não consegue executar
 `xcodebuild`, produzir um IPA assinado ou validar um iPhone. O gate final exige
 um Mac com Xcode, uma identidade de assinatura e um dispositivo real, seguindo
-`INSTALL-MOBILE.md`.
+`../guides/INSTALL-MOBILE.md`.
 
 ## Segurança e dependências
 

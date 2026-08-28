@@ -50,7 +50,7 @@ def main() -> int:
         "manifest",
         type=Path,
         nargs="?",
-        default=ROOT / f"RELEASE-MANIFEST-{__version__}.json",
+        default=ROOT / "reports" / f"RELEASE-MANIFEST-{__version__}.json",
     )
     args = parser.parse_args()
     failures = verify(args.manifest.resolve())

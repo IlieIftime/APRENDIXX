@@ -1,4 +1,4 @@
-# Aprendix 1.0.0
+# Aprendix 1.0.1
 
 Primeira release integrada do ambiente local-first de aprendizagem.
 
@@ -48,9 +48,12 @@ Primeira release integrada do ambiente local-first de aprendizagem.
   mas treino bloqueado é apenas exploração e não atribui XP/progresso. O Painel
   ganhou analytics explicáveis e grafo semântico filtrado; o IDE integra aula,
   enunciado, editor, terminal, procura/substituição, dicionário e projetos.
+- A Iteração 21 acrescenta o Book IDE, pesquisa source-first, análise estática,
+  fórmulas offline, normalização de texto e conteúdo editorial governado, sem
+  alterar a subtree mobile congelada.
 - O schema 37 acrescenta documentos por blocos, proveniência exata por card,
   assets locais por hash, exemplos de glossário e pesquisa do catálogo completo.
   O desktop contém 1 827 cards equilibrados, 100 visuais originais e um holdout
   externo de 120 consultas com hard negatives.
 
-Consulta `VALIDATION-1.0.0.md` para resultados medidos e limitações de validação física.
+Consulta `VALIDATION-1.0.1.md` para resultados medidos e limitações de validação física.

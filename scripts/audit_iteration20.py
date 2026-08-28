@@ -36,7 +36,7 @@ from aprendix.bootstrap import build_runtime
 from aprendix.infrastructure.db.schema import SCHEMA_VERSION
 from aprendix.presentation.responsive import responsive_matrix
 
-OUTPUT = ROOT / "ITERATION-20-AUDIT-1.0.0.json"
+OUTPUT = ROOT / "reports" / "ITERATION-20-AUDIT-1.0.0.json"
 BLOCKED_SOLUTION = """def contar_verdadeiros(condicoes):
     return sum(1 for valor in condicoes if valor is True)
 """

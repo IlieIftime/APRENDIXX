@@ -24,7 +24,7 @@ from aprendix.infrastructure.update_broker import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT / "ITERATION-17-AUDIT-1.0.0.json"
+OUTPUT = ROOT / "reports" / "ITERATION-17-AUDIT-1.0.0.json"
 
 
 class _Client:

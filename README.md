@@ -1,8 +1,13 @@
 # Aprendix 1.0.1
 
 Validated release artefacts and the full sprint audit are recorded in
-[`VALIDATION-1.0.1.md`](VALIDATION-1.0.1.md). O pacote Android desta release é
-`dist/mobile/Aprendix-1.0.1-android-arm64-release.apk`.
+[`VALIDATION-1.0.1.md`](docs/releases/VALIDATION-1.0.1.md). O build Android é opcional; os
+requisitos e comandos estão em [`INSTALL-MOBILE.md`](docs/guides/INSTALL-MOBILE.md).
+
+Repository map: [`docs/`](docs/README.md) contains architecture, guides, plans,
+release records and legacy iteration history; [`reports/`](reports/README.md)
+contains aggregate audit evidence. The root is reserved for essential project
+configuration, source entry points and launchers.
 
 Aprendix is a local-first, privacy-by-design programming learning MVP for
 desktop, Android, and iOS. Practice is stored on-device, the adaptive engine is
@@ -10,7 +15,7 @@ auditable, and network synchronization is optional and metadata-only.
 
 ## Delivered scope
 
-The original twelve planned sprints and desktop Iterations 13–17, 19 and 20 are represented:
+The original twelve planned sprints and desktop Iterations 13–17, 19, 20 and 21 are represented:
 
 1. DDD package layout, strict Pydantic contracts, SQLite migrations, AES-256-GCM
    field encryption, and transactional repositories.
@@ -54,15 +59,18 @@ The original twelve planned sprints and desktop Iterations 13–17, 19 and 20 ar
 20. A desktop learning workspace with consultation-versus-credit policy,
     explainable analytics, a bounded semantic graph, structured lessons and
     briefs, exact-sourced visual cards, inline IDE tools and whole-catalog search.
+21. A book-style desktop IDE, source-first catalogue search, static code
+    analysis, offline formula rendering, text normalization and governed
+    editorial content with five professional learning circuits.
 
 Iteration 13 is exercised by `python scripts/audit_iteration13.py`. Its report
 contains only aggregate pass/fail evidence and is written to
-`ITERATION-13-AUDIT-1.0.0.json`.
+`reports/ITERATION-13-AUDIT-1.0.0.json`.
 
 Iterations 14–17 have dedicated aggregate-only gates in
 `scripts/audit_iteration14.py` through `scripts/audit_iteration17.py`.
 Desktop Iteration 20 is exercised by `python scripts/audit_iteration20.py`; its
-aggregate-only report is `ITERATION-20-AUDIT-1.0.0.json`.
+aggregate-only report is `reports/ITERATION-20-AUDIT-1.0.0.json`.
 
 Desktop integration 12.1–12.4 is wired end-to-end:
 
@@ -94,12 +102,12 @@ feedback are encrypted with a DEK protected by Android Keystore. The iOS shell
 uses Keychain (`ThisDeviceOnly`), native notifications and haptics through the
 bridge integrated by the macOS build script.
 
-Release 1.0.0 additionally quarantines complete publications accidentally
+The integrated release additionally quarantines complete publications accidentally
 appended to an indexed PDF, provides 96 original “Sabias que?” facts, adds
 ranked dictionary lookup with aliases and guarded web fallback, fixes
 scrolling/open-source/tutor interactions, adds local IDE diagnostics and timed
 assessment modes, and introduces the final non-animated Games tab (Sudoku and
-Minesweeper, three difficulties). See [`PLAN-0.18.0.md`](PLAN-0.18.0.md).
+Minesweeper, three difficulties). See [`PLAN-0.18.0.md`](docs/plans/PLAN-0.18.0.md).
 
 The searchable taxonomy includes Python and its main frameworks/data ecosystem,
 SQL, Java, NoSQL, HTML, CSS, JavaScript, React, Bootstrap and Go. In this desktop
@@ -110,8 +118,12 @@ Iteration 20 keeps mobile frozen while the Windows product is closed. The
 desktop catalogue now has 1,827 exact-sourced authored cards, 100 original local
 visual assets and 3,343 glossary entries. Lessons, spine exercises and project
 briefs use typed blocks; the unified local index covers the complete governed
-catalogue. See [`ITERATION-20.md`](ITERATION-20.md) for the delivered behavior,
+catalogue. See [`ITERATION-20.md`](docs/legacy/iterations/ITERATION-20.md) for the delivered behavior,
 reproducible gate and declared physical-review limits.
+
+Iteration 21 adds the desktop Book IDE, source-first search, governed editorial
+catalogue content and offline math/text presentation. See [`ITERATION-21.md`](docs/legacy/iterations/ITERATION-21.md)
+and [`PLAN-ITERATION-21-DESKTOP-BOOK-IDE-INTELLIGENCE.md`](docs/legacy/iterations/PLAN-ITERATION-21-DESKTOP-BOOK-IDE-INTELLIGENCE.md).
 
 ## Architecture
 
@@ -193,7 +205,7 @@ opção `-RemoveUserData`.
 Cards e Pesquisa incluem agora uma árvore curricular com 12 percursos e 156 unidades, atalhos
 recomendados, bibliografia curada e um leitor com resumo, versão simplificada rigorosa,
 conteúdo normal e tutor de conceitos. A arquitetura e critérios encontram-se em
-`PLAN-KNOWLEDGE-NAVIGATION.md`.
+`docs/plans/PLAN-KNOWLEDGE-NAVIGATION.md`.
 
 After local, bibliographic and Web fusion, search consolidates duplicate documents
 and strictly respects the requested result limit. Curated references count as local
@@ -290,7 +302,7 @@ bash mobile/scripts/build_ios.sh
 The iOS command creates the Briefcase Xcode project, integrates the native
 Keychain/notifications/haptics bridge, and builds it. Signing, device install,
 archiving, and any Ad Hoc IPA export are completed in Xcode; a provisioning
-profile and a macOS/Xcode host are mandatory. See `INSTALL-MOBILE.md`.
+profile and a macOS/Xcode host are mandatory. See `docs/guides/INSTALL-MOBILE.md`.
 
 Release verification:
 

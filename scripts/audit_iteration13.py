@@ -11,6 +11,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+REPORTS = ROOT / "reports"
 for candidate in (ROOT / "src", ROOT / "mobile"):
     if str(candidate) not in sys.path:
         sys.path.insert(0, str(candidate))
@@ -153,7 +154,7 @@ def audit(data_directory: Path) -> dict[str, object]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Audit Aprendix Iteration 13")
     parser.add_argument("--data-dir", type=Path)
-    parser.add_argument("--output", type=Path, default=ROOT / "ITERATION-13-AUDIT-1.0.0.json")
+    parser.add_argument("--output", type=Path, default=REPORTS / "ITERATION-13-AUDIT-1.0.0.json")
     args = parser.parse_args()
     if args.data_dir:
         report = audit(args.data_dir.resolve())

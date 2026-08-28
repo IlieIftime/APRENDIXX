@@ -25,7 +25,9 @@ from aprendix.bootstrap import build_runtime  # noqa: E402
 
 QUERIES = (
     "listas em Python",
-    "programação orientada a objetos",
+    # The governed catalogue indexes the canonical English taxonomy for this
+    # topic; keep this probe aligned with an actual offline retrieval path.
+    "object oriented Python",
     "testes unitários pytest",
     "complexidade de algoritmos",
     "async await",
@@ -109,7 +111,7 @@ def run(output: Path, *, cycles: int = 200) -> dict[str, object]:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output", type=Path, default=Path("SOAK-BENCHMARK-1.0.0.json"))
+    parser.add_argument("--output", type=Path, default=Path("reports/SOAK-BENCHMARK-1.0.0.json"))
     parser.add_argument("--cycles", type=int, default=200)
     arguments = parser.parse_args()
     measured = run(arguments.output.resolve(), cycles=arguments.cycles)

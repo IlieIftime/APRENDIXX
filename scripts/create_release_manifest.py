@@ -13,6 +13,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "src"
+DOCS = ROOT / "docs"
+REPORTS = ROOT / "reports"
 if str(SOURCE) not in sys.path:
     sys.path.insert(0, str(SOURCE))
 
@@ -108,43 +110,55 @@ def main() -> int:
         "windows_sandbox": installation / "AprendixSandbox" / "AprendixSandbox.exe",
         "windows_installation_record": installation / "installation.json",
         "android_apk": ROOT / "dist" / "mobile" / f"Aprendix-{VERSION}-android-arm64-release.apk",
-        "sbom": ROOT / f"SBOM-{VERSION}.json",
-        "dependency_audit": ROOT / f"DEPENDENCY-AUDIT-{VERSION}.json",
-        "ocr_benchmark": ROOT / f"OCR-BENCHMARK-{VERSION}.json",
-        "search_benchmark": ROOT / f"SEARCH-BENCHMARK-{VERSION}.json",
-        "tutor_benchmark": ROOT / "TUTOR-BENCHMARK-AAA.json",
-        "baseline_benchmark": ROOT / f"BASELINE-{VERSION}.json",
-        "aaa_audit": ROOT / f"AAA-AUDIT-{VERSION}.json",
-        "iteration_13_audit": ROOT / "ITERATION-13-AUDIT-1.0.0.json",
-        "iteration_14_audit": ROOT / "ITERATION-14-AUDIT-1.0.0.json",
-        "iteration_14_report": ROOT / "ITERATION-14.md",
-        "iteration_15_audit": ROOT / "ITERATION-15-AUDIT-1.0.0.json",
-        "iteration_15_report": ROOT / "ITERATION-15.md",
-        "iteration_16_audit": ROOT / "ITERATION-16-AUDIT-1.0.0.json",
-        "iteration_16_report": ROOT / "ITERATION-16.md",
-        "iteration_17_audit": ROOT / "ITERATION-17-AUDIT-1.0.0.json",
-        "iteration_17_report": ROOT / "ITERATION-17.md",
-        "iteration_19_audit": ROOT / "ITERATION-19-AUDIT-1.0.0.json",
-        "iteration_19_report": ROOT / "ITERATION-19.md",
-        "iteration_20_audit": ROOT / "ITERATION-20-AUDIT-1.0.0.json",
-        "iteration_20_report": ROOT / "ITERATION-20.md",
-        "iteration_21_audit": ROOT / "ITERATION-21-AUDIT-1.0.0.json",
-        "iteration_21_report": ROOT / "ITERATION-21.md",
-        "iteration_21_plan": ROOT / "PLAN-ITERATION-21-DESKTOP-BOOK-IDE-INTELLIGENCE.md",
-        "accessibility_audit": ROOT / f"ACCESSIBILITY-AUDIT-{VERSION}.json",
-        "multimodal_benchmark": ROOT / f"MULTIMODAL-BENCHMARK-{VERSION}.json",
-        "soak_benchmark": ROOT / f"SOAK-BENCHMARK-{VERSION}.json",
-        "validation_report": ROOT / f"VALIDATION-{VERSION}.md",
-        "release_notes": ROOT / f"RELEASE-NOTES-{VERSION}.md",
-        "threat_model": ROOT / "THREAT-MODEL-1.0.md",
-        "recovery_guide": ROOT / "RECOVERY-GUIDE-1.0.md",
+        "sbom": REPORTS / f"SBOM-{VERSION}.json",
+        "dependency_audit": REPORTS / f"DEPENDENCY-AUDIT-{VERSION}.json",
+        "ocr_benchmark": REPORTS / f"OCR-BENCHMARK-{VERSION}.json",
+        "search_benchmark": REPORTS / f"SEARCH-BENCHMARK-{VERSION}.json",
+        "tutor_benchmark": REPORTS / "TUTOR-BENCHMARK-AAA.json",
+        "baseline_benchmark": REPORTS / f"BASELINE-{VERSION}.json",
+        "aaa_audit": REPORTS / f"AAA-AUDIT-{VERSION}.json",
+        "iteration_13_audit": REPORTS / "ITERATION-13-AUDIT-1.0.0.json",
+        "iteration_14_audit": REPORTS / "ITERATION-14-AUDIT-1.0.0.json",
+        "iteration_14_report": DOCS / "legacy" / "iterations" / "ITERATION-14.md",
+        "iteration_15_audit": REPORTS / "ITERATION-15-AUDIT-1.0.0.json",
+        "iteration_15_report": DOCS / "legacy" / "iterations" / "ITERATION-15.md",
+        "iteration_16_audit": REPORTS / "ITERATION-16-AUDIT-1.0.0.json",
+        "iteration_16_report": DOCS / "legacy" / "iterations" / "ITERATION-16.md",
+        "iteration_17_audit": REPORTS / "ITERATION-17-AUDIT-1.0.0.json",
+        "iteration_17_report": DOCS / "legacy" / "iterations" / "ITERATION-17.md",
+        "iteration_19_audit": REPORTS / "ITERATION-19-AUDIT-1.0.0.json",
+        "iteration_19_report": DOCS / "legacy" / "iterations" / "ITERATION-19.md",
+        "iteration_20_audit": REPORTS / "ITERATION-20-AUDIT-1.0.0.json",
+        "iteration_20_report": DOCS / "legacy" / "iterations" / "ITERATION-20.md",
+        "iteration_21_audit": REPORTS / "ITERATION-21-AUDIT-1.0.0.json",
+        "iteration_21_report": DOCS / "legacy" / "iterations" / "ITERATION-21.md",
+        "iteration_21_plan": DOCS / "legacy" / "iterations" / "PLAN-ITERATION-21-DESKTOP-BOOK-IDE-INTELLIGENCE.md",
+        "accessibility_audit": REPORTS / f"ACCESSIBILITY-AUDIT-{VERSION}.json",
+        "multimodal_benchmark": REPORTS / f"MULTIMODAL-BENCHMARK-{VERSION}.json",
+        "soak_benchmark": REPORTS / f"SOAK-BENCHMARK-{VERSION}.json",
+        "validation_report": DOCS / "releases" / f"VALIDATION-{VERSION}.md",
+        "release_notes": DOCS / "releases" / f"RELEASE-NOTES-{VERSION}.md",
+        "threat_model": DOCS / "architecture" / "THREAT-MODEL-1.0.md",
+        "recovery_guide": DOCS / "guides" / "RECOVERY-GUIDE-1.0.md",
         "windows_installer": ROOT / "Instalar-Aprendix.bat",
         "windows_uninstaller": ROOT / "Desinstalar-Aprendix.bat",
         "android_adb_installer": ROOT / "Instalar-Android-ADB.bat",
-        "mobile_install_guide": ROOT / "INSTALL-MOBILE.md",
+        "mobile_install_guide": DOCS / "guides" / "INSTALL-MOBILE.md",
     }
     resolved = {name: _resolve_versioned(path) for name, path in artefacts.items()}
-    missing = [str(path) for path in resolved.values() if not path.is_file()]
+    # A Windows install can be produced without the separately built Android
+    # APK (Android requires WSL/Buildozer). Keep that mobile gate in the
+    # Android release pipeline, while retaining it in this manifest whenever
+    # the artefact is available.
+    optional = {"android_apk"}
+    missing = [
+        str(path) for name, path in resolved.items()
+        if name not in optional and not path.is_file()
+    ]
+    resolved = {
+        name: path for name, path in resolved.items()
+        if path.is_file() or name not in optional
+    }
     runtime_directory = installation / "_internal"
     if not runtime_directory.is_dir():
         missing.append(str(runtime_directory))
@@ -167,7 +181,8 @@ def main() -> int:
             "build_inputs": _build_input_record(),
         },
     }
-    output = ROOT / f"RELEASE-MANIFEST-{VERSION}.json"
+    output = REPORTS / f"RELEASE-MANIFEST-{VERSION}.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     print(output)
     return 0

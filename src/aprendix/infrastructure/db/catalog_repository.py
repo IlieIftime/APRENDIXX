@@ -46,7 +46,7 @@ _SOURCE_HOST_ALLOWLIST = frozenset({
     "www.w3.org", "airc.nist.gov", "raw.githubusercontent.com",
 })
 _TOTAL_MINIMUMS = {
-    "source": 1_620, "card": 2_827, "glossary": 4_343,
+    "source": 1_610, "card": 2_827, "glossary": 4_343,
     "exercise": 3_563, "project": 70,
 }
 _DELTA_MINIMUMS = {

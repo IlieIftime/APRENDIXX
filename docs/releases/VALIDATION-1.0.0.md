@@ -218,7 +218,7 @@ A subtree mobile contém a shell Toga, persistência, contratos, Keychain,
 notificações/haptics e o script Briefcase/Xcode. Windows não consegue executar
 `xcodebuild`, produzir um IPA assinado ou validar um iPhone. O gate final exige
 um Mac com Xcode, uma identidade de assinatura e um dispositivo real, seguindo
-`INSTALL-MOBILE.md`.
+`../guides/INSTALL-MOBILE.md`.
 
 ## Segurança e dependências
 

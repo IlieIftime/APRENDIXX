@@ -94,7 +94,7 @@ asset fonte e passa `integrity_check=ok`.
 
 Não havia dispositivo Android ligado nem `adb` no PATH do host, portanto o ensaio de
 toque num aparelho físico não foi executado. A instalação direta e por ADB está
-documentada em `INSTALL-MOBILE.md` e automatizada por `Instalar-Android-ADB.bat`.
+documentada em `../guides/INSTALL-MOBILE.md` e automatizada por `Instalar-Android-ADB.bat`.
 
 ## iOS
 
@@ -102,7 +102,7 @@ O shell Toga, runtime offline, Keychain, haptics/notificações e script de inte
 Xcode estão presentes e os testes Python/guard do host passaram. Um IPA assinado não
 pode ser produzido ou validado num host Windows: requer macOS, Xcode, Team Apple,
 certificado e provisioning para os dispositivos. O processo correto de build, instalação
-e export Ad Hoc está descrito em `INSTALL-MOBILE.md`.
+e export Ad Hoc está descrito em `../guides/INSTALL-MOBILE.md`.
 
 ## Limites assumidos
 

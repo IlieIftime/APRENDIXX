@@ -40,7 +40,7 @@ from aprendix.infrastructure.grading import IsolatedGradingExecutor, OopGradingP
 from aprendix.presentation.math_renderer import OfflineMathRenderer
 from aprendix.presentation.responsive import book_workspace_profile
 
-OUTPUT = ROOT / "ITERATION-21-AUDIT-1.0.0.json"
+OUTPUT = ROOT / "reports" / "ITERATION-21-AUDIT-1.0.0.json"
 _SOURCE_FIRST_QUERIES = (
     "capital acumulado juros compostos",
     "decoradores Python",

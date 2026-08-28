@@ -7,6 +7,10 @@ __pycache__/
 .coverage
 .pytest_cache/
 .venv*/
+.artifacts/
+tmp-selftest/
+*.lnk
+RELEASE-MANIFEST-*.json
 dist/
 build/
 *.log

@@ -2,6 +2,7 @@ param(
     [string]$VenvDirectory = "",
     [string]$InstallDirectory = "",
     [switch]$SkipTests,
+    [switch]$RequireMobileRelease,
     [switch]$NoDesktopShortcut,
     [switch]$NoLaunch
 )
@@ -112,8 +113,23 @@ try {
         -FailureMessage "Falhou a instalacao das dependencias do Aprendix"
 
     if (-not $SkipTests) {
+        # The mobile Lite database is a generated release input and is ignored
+        # by git (*.db). Prepare it before audits that exercise mobile parity.
         Invoke-Checked -FilePath $venvPython `
-            -Arguments @("-m", "pytest", "-q") `
+            -Arguments @("scripts/prepare_mobile_seed.py") `
+            -FailureMessage "Nao foi possivel preparar o seed mobile"
+
+        $pytestArguments = @("-m", "pytest", "-q")
+        $mobileReleaseApk = Join-Path $projectRoot "dist\mobile\Aprendix-1.0.0-android-arm64-release.apk"
+        if (-not (Test-Path -LiteralPath $mobileReleaseApk -PathType Leaf)) {
+            if ($RequireMobileRelease) {
+                throw "O APK Android release nao foi encontrado em $mobileReleaseApk."
+            }
+            Write-Warning "APK Android release ausente; o gate de artefacto mobile sera omitido da instalacao Windows."
+            $pytestArguments += @("-k", "not test_mobile_install_readme_distinguishes_android_from_ios")
+        }
+        Invoke-Checked -FilePath $venvPython `
+            -Arguments $pytestArguments `
             -FailureMessage "Os testes falharam; a aplicacao nao foi instalada"
     }
 
@@ -156,26 +172,42 @@ $installedSandbox = Join-Path $installPath "AprendixSandbox"
 New-Item -ItemType Directory -Path $installedSandbox -Force | Out-Null
 Copy-Item -Path (Join-Path $builtApplication "*") -Destination $installPath -Recurse -Force
 Copy-Item -Path (Join-Path $builtSandbox "*") -Destination $installedSandbox -Recurse -Force
-foreach ($document in @(
-    "LICENSE", "README.md", "INSTALL-MOBILE.md", "PLANO-MESTRE-AAA-APRENDIX.pdf",
-    "RELEASE-NOTES-$productVersion.md", "VALIDATION-$productVersion.md",
-    "ITERATION-14.md", "ITERATION-15.md", "ITERATION-16.md", "ITERATION-17.md",
-    "ITERATION-19.md", "ITERATION-20.md", "ITERATION-21.md",
-    "PLAN-ITERATION-21-DESKTOP-BOOK-IDE-INTELLIGENCE.md", "RECOVERY-GUIDE-1.0.md",
-    "THREAT-MODEL-1.0.md", "SBOM-$productVersion.json",
-    "DEPENDENCY-AUDIT-$productVersion.json", "SEARCH-BENCHMARK-$productVersion.json",
-    "OCR-BENCHMARK-$productVersion.json", "MULTIMODAL-BENCHMARK-$productVersion.json",
-    "SOAK-BENCHMARK-$productVersion.json", "TUTOR-BENCHMARK-AAA.json",
-    "BASELINE-$productVersion.json", "AAA-AUDIT-$productVersion.json",
-    "ITERATION-13-AUDIT-1.0.0.json", "ITERATION-14-AUDIT-1.0.0.json",
-    "ITERATION-15-AUDIT-1.0.0.json", "ITERATION-16-AUDIT-1.0.0.json",
-    "ITERATION-17-AUDIT-1.0.0.json", "ITERATION-19-AUDIT-1.0.0.json",
-    "ITERATION-20-AUDIT-1.0.0.json", "ITERATION-21-AUDIT-1.0.0.json",
-    "ACCESSIBILITY-AUDIT-$productVersion.json", "RELEASE-MANIFEST-$productVersion.json"
-)) {
+$documentsToInstall = @(
+    "LICENSE", "README.md", "docs\guides\INSTALL-MOBILE.md", "docs\architecture\PLANO-MESTRE-AAA-APRENDIX.pdf",
+    "docs\releases\RELEASE-NOTES-$productVersion.md", "docs\releases\VALIDATION-$productVersion.md",
+    "docs\legacy\iterations\ITERATION-14.md", "docs\legacy\iterations\ITERATION-15.md",
+    "docs\legacy\iterations\ITERATION-16.md", "docs\legacy\iterations\ITERATION-17.md",
+    "docs\legacy\iterations\ITERATION-19.md", "docs\legacy\iterations\ITERATION-20.md",
+    "docs\legacy\iterations\ITERATION-21.md",
+    "docs\legacy\iterations\PLAN-ITERATION-20-DESKTOP-LEARNING-WORKSPACE.md",
+    "docs\legacy\iterations\PLAN-ITERATION-21-DESKTOP-BOOK-IDE-INTELLIGENCE.md",
+    "docs\guides\RECOVERY-GUIDE-1.0.md",
+    "docs\architecture\THREAT-MODEL-1.0.md", "reports\SBOM-$productVersion.json",
+    "reports\DEPENDENCY-AUDIT-$productVersion.json", "reports\SEARCH-BENCHMARK-$productVersion.json",
+    "reports\OCR-BENCHMARK-$productVersion.json", "reports\MULTIMODAL-BENCHMARK-$productVersion.json",
+    "reports\SOAK-BENCHMARK-$productVersion.json", "reports\TUTOR-BENCHMARK-AAA.json",
+    "reports\BASELINE-$productVersion.json", "reports\AAA-AUDIT-$productVersion.json",
+    "reports\ITERATION-13-AUDIT-1.0.0.json", "reports\ITERATION-14-AUDIT-1.0.0.json",
+    "reports\ITERATION-15-AUDIT-1.0.0.json", "reports\ITERATION-16-AUDIT-1.0.0.json",
+    "reports\ITERATION-17-AUDIT-1.0.0.json", "reports\ITERATION-19-AUDIT-1.0.0.json",
+    "reports\ITERATION-20-AUDIT-1.0.0.json", "reports\ITERATION-21-AUDIT-1.0.0.json",
+    "reports\ACCESSIBILITY-AUDIT-$productVersion.json", "reports\RELEASE-MANIFEST-$productVersion.json"
+)
+# Keep future iteration hand-offs (for example 22/23) in the installed
+# documentation automatically, without requiring another installer edit.
+$iterationDocumentationRoot = Join-Path $projectRoot "docs\legacy\iterations"
+$documentsToInstall += Get-ChildItem -LiteralPath $iterationDocumentationRoot -File |
+    Where-Object { $_.Name -match '^ITERATION-\d+.*\.(?:md|json)$' } |
+    ForEach-Object { Join-Path "docs\legacy\iterations" $_.Name }
+$documentsToInstall += Get-ChildItem -LiteralPath $iterationDocumentationRoot -File |
+    Where-Object { $_.Name -match '^PLAN-ITERATION-\d+.*\.md$' } |
+    ForEach-Object { Join-Path "docs\legacy\iterations" $_.Name }
+foreach ($document in ($documentsToInstall | Sort-Object -Unique)) {
     $source = Join-Path $projectRoot $document
     if (Test-Path -LiteralPath $source -PathType Leaf) {
-        Copy-Item -LiteralPath $source -Destination (Join-Path $installPath $document) -Force
+        $destination = Join-Path $installPath $document
+        New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
+        Copy-Item -LiteralPath $source -Destination $destination -Force
     }
 }
 
@@ -217,10 +249,12 @@ Invoke-Checked -FilePath $venvPython `
     -Arguments @("scripts/create_release_manifest.py") `
     -FailureMessage "Nao foi possivel criar o manifesto da release instalada"
 Invoke-Checked -FilePath $venvPython `
-    -Arguments @("scripts/verify_release_manifest.py", "RELEASE-MANIFEST-$productVersion.json") `
+    -Arguments @("scripts/verify_release_manifest.py", "reports\RELEASE-MANIFEST-$productVersion.json") `
     -FailureMessage "O manifesto nao corresponde ao executavel instalado"
-Copy-Item -LiteralPath (Join-Path $projectRoot "RELEASE-MANIFEST-$productVersion.json") `
-    -Destination (Join-Path $installPath "RELEASE-MANIFEST-$productVersion.json") -Force
+$installedReports = Join-Path $installPath "reports"
+New-Item -ItemType Directory -Path $installedReports -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $projectRoot "reports\RELEASE-MANIFEST-$productVersion.json") `
+    -Destination (Join-Path $installedReports "RELEASE-MANIFEST-$productVersion.json") -Force
 
 if (-not $NoDesktopShortcut) {
     $desktop = [Environment]::GetFolderPath("Desktop")

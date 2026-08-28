@@ -12,7 +12,7 @@ from pathlib import Path
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output", type=Path, default=Path("SBOM-1.0.0.json"))
+    parser.add_argument("--output", type=Path, default=Path("reports/SBOM-1.0.0.json"))
     args = parser.parse_args()
     components = []
     for distribution in sorted(

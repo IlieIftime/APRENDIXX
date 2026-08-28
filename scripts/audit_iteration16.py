@@ -15,7 +15,7 @@ from aprendix.bootstrap import build_runtime
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT / "ITERATION-16-AUDIT-1.0.0.json"
+OUTPUT = ROOT / "reports" / "ITERATION-16-AUDIT-1.0.0.json"
 
 
 def main() -> int:
